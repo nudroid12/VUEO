@@ -1,0 +1,15 @@
+{
+  "schema": "vueo-plugin-v1",
+  "id": "com.example.legalmedia",
+  "name": "Legal Media Demo",
+  "version": "1.0.0",
+  "description": "Example declarative VUEO plugin manifest.",
+  "types": ["movie", "series"],
+  "permissions": ["network.media"],
+  "routes": {
+    "catalog": "https://example.com/vueo/catalog/{type}/{id}.json",
+    "meta": "https://example.com/vueo/meta/{type}/{id}.json",
+    "stream": "https://example.com/vueo/stream/{type}/{id}.json",
+    "subtitles": "https://example.com/vueo/subtitles/{type}/{id}.json"
+  }
+}
