@@ -11,8 +11,8 @@ android {
         applicationId = "com.vueo.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.2.1"
+        versionCode = 4
+        versionName = "0.2.2"
     }
 
     buildFeatures {
@@ -46,5 +46,6 @@ dependencies {
 
     implementation("androidx.media3:media3-exoplayer:1.11.0")
     implementation("androidx.media3:media3-exoplayer-hls:1.11.0")
+    implementation("androidx.media3:media3-exoplayer-dash:1.11.0")
     implementation("androidx.media3:media3-ui:1.11.0")
 }

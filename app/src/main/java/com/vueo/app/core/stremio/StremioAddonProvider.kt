@@ -7,6 +7,7 @@ import com.vueo.app.core.extensions.ExtensionDescriptor
 import com.vueo.app.core.extensions.ExtensionKind
 import com.vueo.app.core.extensions.MediaExtension
 import com.vueo.app.core.model.CatalogPage
+import com.vueo.app.core.model.EpisodeItem
 import com.vueo.app.core.model.MediaItem
 import com.vueo.app.core.model.StreamSource
 import com.vueo.app.core.model.SubtitleTrack
@@ -201,8 +202,42 @@ private fun JSONObject.toMediaItem(sourceId: String): MediaItem? {
         description = optString("description").takeIf { it.isNotBlank() },
         releaseInfo = optString("releaseInfo").takeIf { it.isNotBlank() },
         genres = optJSONArray("genres").toStringList(),
+        episodes = optJSONArray("videos").toEpisodeList(),
         sourceExtensionId = sourceId,
     )
+}
+
+private fun JSONArray?.toEpisodeList(): List<EpisodeItem> {
+    if (this == null) return emptyList()
+
+    return (0 until length())
+        .mapNotNull { index ->
+            val item = optJSONObject(index) ?: return@mapNotNull null
+            val id = item.optString("id").takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+            val season = item.optInt("season", -1)
+            val episode = item.optInt("episode", -1)
+
+            if (season < 0 || episode < 0) {
+                return@mapNotNull null
+            }
+
+            EpisodeItem(
+                id = id,
+                title = item.optString(
+                    "title",
+                    "Episode $episode",
+                ),
+                season = season,
+                episode = episode,
+                released = item.optString("released").takeIf { it.isNotBlank() },
+                overview = item.optString("overview").takeIf { it.isNotBlank() }
+                    ?: item.optString("description").takeIf { it.isNotBlank() },
+                thumbnail = item.optString("thumbnail")
+                    .takeIf { it.startsWith("https://") },
+            )
+        }
+        .sortedWith(compareBy<EpisodeItem> { it.season }.thenBy { it.episode })
 }
 
 private fun JSONArray?.toStringList(): List<String> {

@@ -1,5 +1,6 @@
 package com.vueo.app.ui
 
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -49,6 +50,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -67,6 +70,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.media3.ui.PlayerView
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.MediaItem as Media3MediaItem
 import com.vueo.app.core.extensions.AddonCategory
 import com.vueo.app.core.extensions.ExtensionInstaller
 import com.vueo.app.core.extensions.primaryAddonCategory
@@ -74,6 +81,9 @@ import com.vueo.app.core.extensions.ExtensionKind
 import com.vueo.app.core.extensions.MediaExtension
 import com.vueo.app.core.extensions.UnifiedMediaEngine
 import com.vueo.app.core.model.CatalogRow
+import com.vueo.app.core.storage.PlaybackStore
+import com.vueo.app.core.model.SubtitleTrack
+import com.vueo.app.core.model.EpisodeItem
 import com.vueo.app.core.model.MediaItem
 import com.vueo.app.core.model.StreamSource
 import com.vueo.app.core.storage.AddonStore
@@ -1068,13 +1078,81 @@ private fun MediaDetailsScreen(
     var item by remember(initialItem) { mutableStateOf(initialItem) }
     var loadingMeta by remember { mutableStateOf(true) }
     var loadingStreams by remember { mutableStateOf(false) }
-    var streams by remember { mutableStateOf<List<StreamSource>>(emptyList()) }
     var sourceStatus by remember { mutableStateOf<String?>(null) }
+
+    var selectedSeason by remember { mutableStateOf<Int?>(null) }
+    var selectedEpisode by remember { mutableStateOf<EpisodeItem?>(null) }
+
+    var sourcePickerStreams by remember {
+        mutableStateOf<List<StreamSource>?>(null)
+    }
+    var sourcePickerSubtitles by remember {
+        mutableStateOf<List<SubtitleTrack>>(emptyList())
+    }
+    var selectedPlaybackSource by remember {
+        mutableStateOf<StreamSource?>(null)
+    }
+    var selectedPlaybackVideoId by remember {
+        mutableStateOf<String?>(null)
+    }
 
     LaunchedEffect(initialItem.id, initialItem.sourceExtensionId) {
         loadingMeta = true
         item = engine.loadMeta(initialItem)
+
+        if (item.type == "series" && item.episodes.isNotEmpty()) {
+            val firstSeason = item.episodes
+                .map { it.season }
+                .distinct()
+                .sorted()
+                .firstOrNull()
+
+            selectedSeason = firstSeason
+            selectedEpisode = item.episodes
+                .firstOrNull { it.season == firstSeason }
+        }
+
         loadingMeta = false
+    }
+
+    val playbackSource = selectedPlaybackSource
+    val playbackVideoId = selectedPlaybackVideoId
+
+    if (playbackSource != null && playbackVideoId != null) {
+        PlayerScreen(
+            title = playbackTitle(
+                media = item,
+                episode = selectedEpisode,
+            ),
+            mediaKey = "${item.type}:${item.id}:$playbackVideoId",
+            source = playbackSource,
+            subtitles = sourcePickerSubtitles,
+            onBack = {
+                selectedPlaybackSource = null
+                selectedPlaybackVideoId = null
+            },
+        )
+        return
+    }
+
+    sourcePickerStreams?.let { streams ->
+        SourcePickerScreen(
+            mediaTitle = playbackTitle(
+                media = item,
+                episode = selectedEpisode,
+            ),
+            streams = streams,
+            onBack = { sourcePickerStreams = null },
+            onPlay = { source ->
+                val videoId = selectedVideoId(item, selectedEpisode)
+
+                if (videoId != null && source.isDirectPlayable) {
+                    selectedPlaybackVideoId = videoId
+                    selectedPlaybackSource = source
+                }
+            },
+        )
+        return
     }
 
     LazyColumn(
@@ -1146,37 +1224,87 @@ private fun MediaDetailsScreen(
         }
 
         item {
+            item.description?.let {
+                Text(
+                    it,
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .76f),
+                )
+            }
+        }
+
+        if (item.type == "series" && item.episodes.isNotEmpty()) {
+            item {
+                SeasonSelector(
+                    episodes = item.episodes,
+                    selectedSeason = selectedSeason,
+                    onSelectSeason = { season ->
+                        selectedSeason = season
+                        selectedEpisode = item.episodes
+                            .firstOrNull { it.season == season }
+                        sourceStatus = null
+                    },
+                )
+            }
+
+            item {
+                EpisodeSelector(
+                    episodes = item.episodes.filter {
+                        it.season == selectedSeason
+                    },
+                    selectedEpisode = selectedEpisode,
+                    onSelectEpisode = {
+                        selectedEpisode = it
+                        sourceStatus = null
+                    },
+                )
+            }
+        }
+
+        item {
             Column(
                 modifier = Modifier.padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item.description?.let {
-                    Text(
-                        it,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .76f),
-                    )
-                }
+                val videoId = selectedVideoId(item, selectedEpisode)
+                val seriesNeedsEpisode =
+                    item.type == "series" && item.episodes.isNotEmpty()
 
                 Button(
-                    enabled = !loadingStreams,
+                    enabled = !loadingStreams &&
+                        videoId != null &&
+                        (!seriesNeedsEpisode || selectedEpisode != null),
                     onClick = {
+                        val targetVideoId = videoId ?: return@Button
+
                         scope.launch {
                             loadingStreams = true
                             sourceStatus = null
 
-                            streams = runCatching {
-                                engine.resolveStreams(item.type, item.id)
+                            val streams = runCatching {
+                                engine.resolveStreams(
+                                    type = item.type,
+                                    videoId = targetVideoId,
+                                )
                             }.getOrElse {
-                                sourceStatus = it.message ?: "Unable to discover streams."
+                                sourceStatus =
+                                    it.message ?: "Unable to discover streams."
                                 emptyList()
                             }
 
-                            if (streams.isEmpty() && sourceStatus == null) {
-                                sourceStatus = if (item.type == "series") {
-                                    "Series episode selection is not implemented yet. Movie stream discovery is available in v0.2."
-                                } else {
-                                    "No streams were returned by installed stream addons."
-                                }
+                            val subtitles = runCatching {
+                                engine.resolveSubtitles(
+                                    type = item.type,
+                                    videoId = targetVideoId,
+                                )
+                            }.getOrDefault(emptyList())
+
+                            if (streams.isEmpty()) {
+                                sourceStatus =
+                                    "No sources were returned by installed stream addons."
+                            } else {
+                                sourcePickerSubtitles = subtitles
+                                sourcePickerStreams = streams
                             }
 
                             loadingStreams = false
@@ -1185,7 +1313,13 @@ private fun MediaDetailsScreen(
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (loadingStreams) "Finding Sources..." else "Find Sources")
+                    Text(
+                        if (loadingStreams) {
+                            "Finding Sources..."
+                        } else {
+                            "Find Sources"
+                        }
+                    )
                 }
 
                 sourceStatus?.let {
@@ -1194,22 +1328,258 @@ private fun MediaDetailsScreen(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f),
                     )
                 }
+
+                if (item.type == "series" && item.episodes.isEmpty() && !loadingMeta) {
+                    Text(
+                        "This metadata provider did not return episode video IDs, so VUEO cannot request episode streams yet.",
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f),
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeasonSelector(
+    episodes: List<EpisodeItem>,
+    selectedSeason: Int?,
+    onSelectSeason: (Int) -> Unit,
+) {
+    val seasons = episodes
+        .map { it.season }
+        .distinct()
+        .sorted()
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            "Seasons",
+            modifier = Modifier.padding(horizontal = 20.dp),
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Black,
+        )
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(seasons) { season ->
+                if (season == selectedSeason) {
+                    Button(onClick = { onSelectSeason(season) }) {
+                        Text("Season $season")
+                    }
+                } else {
+                    OutlinedButton(onClick = { onSelectSeason(season) }) {
+                        Text("Season $season")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EpisodeSelector(
+    episodes: List<EpisodeItem>,
+    selectedEpisode: EpisodeItem?,
+    onSelectEpisode: (EpisodeItem) -> Unit,
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            "Episodes",
+            modifier = Modifier.padding(horizontal = 20.dp),
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Black,
+        )
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            items(
+                episodes,
+                key = { it.id },
+            ) { episode ->
+                val selected = episode.id == selectedEpisode?.id
+
+                ElevatedCard(
+                    modifier = Modifier
+                        .width(220.dp)
+                        .clickable { onSelectEpisode(episode) },
+                ) {
+                    Column {
+                        NetworkImage(
+                            url = episode.thumbnail,
+                            contentDescription = episode.title,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(118.dp),
+                            fallbackText = episode.title,
+                        )
+
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                "E${episode.episode} • ${episode.title}",
+                                fontWeight = if (selected) {
+                                    FontWeight.Black
+                                } else {
+                                    FontWeight.Bold
+                                },
+                                color = if (selected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+
+                            episode.overview?.let {
+                                Text(
+                                    it,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(
+                                        alpha = .58f
+                                    ),
+                                    fontSize = 11.sp,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SourcePickerScreen(
+    mediaTitle: String,
+    streams: List<StreamSource>,
+    onBack: () -> Unit,
+    onPlay: (StreamSource) -> Unit,
+) {
+    val playable = streams.filter { it.isDirectPlayable }
+    val best = playable.firstOrNull()
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            ScreenHeader(
+                title = "Choose a Source",
+                subtitle = mediaTitle,
+                onBack = onBack,
+            )
+        }
+
+        if (best != null) {
+            item {
+                ElevatedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
+                        Text(
+                            "BEST PLAYABLE SOURCE",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 12.sp,
+                            letterSpacing = 1.2.sp,
+                        )
+
+                        Text(
+                            best.quality ?: "Direct stream",
+                            fontSize = 27.sp,
+                            fontWeight = FontWeight.Black,
+                        )
+
+                        Text(
+                            listOfNotNull(
+                                best.codec,
+                                best.hdr,
+                                best.audio,
+                                best.providerName,
+                            ).joinToString(" • "),
+                            color = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = .66f
+                            ),
+                        )
+
+                        Button(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { onPlay(best) },
+                        ) {
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                contentDescription = null,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Play Best")
+                        }
+                    }
+                }
+            }
+        } else {
+            item {
+                ElevatedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp),
+                ) {
+                    Text(
+                        "Sources were found, but none are direct HTTPS/HLS/DASH streams that the current VUEO player can play. Torrent/debrid playback is a later layer.",
+                        modifier = Modifier.padding(18.dp),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .7f),
+                    )
+                }
             }
         }
 
-        if (streams.isNotEmpty()) {
-            item {
-                Text(
-                    "Sources (${streams.size})",
-                    modifier = Modifier.padding(horizontal = 20.dp),
-                    fontSize = 21.sp,
-                    fontWeight = FontWeight.Black,
-                )
-            }
+        item {
+            Text(
+                "All Sources (${streams.size})",
+                modifier = Modifier.padding(horizontal = 20.dp),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Black,
+            )
+        }
 
-            items(streams.take(40)) { source ->
-                StreamSourceCard(source)
-            }
+        items(
+            streams.take(60),
+            key = {
+                listOf(
+                    it.url,
+                    it.infoHash,
+                    it.fileIndex,
+                    it.providerId,
+                    it.name,
+                ).joinToString(":")
+            },
+        ) { source ->
+            StreamSourceCard(
+                source = source,
+                onClick = if (source.isDirectPlayable) {
+                    { onPlay(source) }
+                } else {
+                    null
+                },
+            )
         }
     }
 }
@@ -1217,11 +1587,19 @@ private fun MediaDetailsScreen(
 @Composable
 private fun StreamSourceCard(
     source: StreamSource,
+    onClick: (() -> Unit)? = null,
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = 20.dp)
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
+            ),
     ) {
         Column(
             modifier = Modifier.padding(15.dp),
@@ -1236,10 +1614,20 @@ private fun StreamSourceCard(
                     fontWeight = FontWeight.Black,
                     modifier = Modifier.weight(1f),
                 )
+
                 Text(
-                    if (source.url != null) "Direct" else "Torrent",
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f),
-                    fontSize = 12.sp,
+                    when {
+                        source.isDirectPlayable -> "PLAYABLE"
+                        source.infoHash != null -> "TORRENT"
+                        else -> "UNSUPPORTED"
+                    },
+                    color = if (source.isDirectPlayable) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = .48f)
+                    },
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
                 )
             }
 
@@ -1256,13 +1644,174 @@ private fun StreamSourceCard(
                     source.hdr,
                     source.audio,
                     source.providerName,
-                ).joinToString("  •  "),
+                ).joinToString(" • "),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f),
                 fontSize = 11.sp,
             )
         }
     }
 }
+
+@Composable
+private fun PlayerScreen(
+    title: String,
+    mediaKey: String,
+    source: StreamSource,
+    subtitles: List<SubtitleTrack>,
+    onBack: () -> Unit,
+) {
+    val context = LocalContext.current
+    val playbackStore = remember {
+        PlaybackStore(context.applicationContext)
+    }
+
+    val player = remember(source.url, mediaKey) {
+        ExoPlayer.Builder(context).build().apply {
+            val mediaItem = buildPlayerMediaItem(
+                sourceUrl = requireNotNull(source.url),
+                subtitles = subtitles,
+            )
+
+            setMediaItem(mediaItem)
+
+            val resumePosition = playbackStore.positionMs(mediaKey)
+            if (resumePosition > 0L) {
+                seekTo(resumePosition)
+            }
+
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    DisposableEffect(player, mediaKey) {
+        onDispose {
+            playbackStore.savePositionMs(
+                mediaKey = mediaKey,
+                positionMs = player.currentPosition,
+                durationMs = player.duration,
+            )
+            player.release()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.Default.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White,
+                )
+            }
+
+            Text(
+                title,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        AndroidView(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            factory = { playerContext ->
+                PlayerView(playerContext).apply {
+                    this.player = player
+                    useController = true
+                    keepScreenOn = true
+                }
+            },
+            update = { view ->
+                view.player = player
+            },
+        )
+
+        Text(
+            buildString {
+                append(source.quality ?: "Direct stream")
+                append(" • ")
+                append(source.providerName)
+
+                if (subtitles.isNotEmpty()) {
+                    append(" • ")
+                    append("${subtitles.size} subtitle tracks")
+                }
+            },
+            modifier = Modifier.padding(12.dp),
+            color = Color.White.copy(alpha = .62f),
+            fontSize = 12.sp,
+        )
+    }
+}
+
+private fun buildPlayerMediaItem(
+    sourceUrl: String,
+    subtitles: List<SubtitleTrack>,
+): Media3MediaItem {
+    val subtitleConfigurations = subtitles
+        .filter {
+            it.url.startsWith("https://")
+        }
+        .map { subtitle ->
+            Media3MediaItem.SubtitleConfiguration.Builder(
+                Uri.parse(subtitle.url)
+            )
+                .setId(subtitle.id)
+                .setLanguage(subtitle.language)
+                .setMimeType(subtitleMimeType(subtitle.url))
+                .build()
+        }
+
+    return Media3MediaItem.Builder()
+        .setUri(Uri.parse(sourceUrl))
+        .setSubtitleConfigurations(subtitleConfigurations)
+        .build()
+}
+
+private fun subtitleMimeType(url: String): String =
+    when (
+        url.substringBefore("?")
+            .substringAfterLast(".", "")
+            .lowercase()
+    ) {
+        "vtt" -> MimeTypes.TEXT_VTT
+        "ssa", "ass" -> MimeTypes.TEXT_SSA
+        "ttml", "xml" -> MimeTypes.APPLICATION_TTML
+        else -> MimeTypes.APPLICATION_SUBRIP
+    }
+
+private fun selectedVideoId(
+    media: MediaItem,
+    episode: EpisodeItem?,
+): String? =
+    if (media.type == "series") {
+        episode?.id
+    } else {
+        media.id
+    }
+
+private fun playbackTitle(
+    media: MediaItem,
+    episode: EpisodeItem?,
+): String =
+    if (episode == null) {
+        media.name
+    } else {
+        "${media.name} • S${episode.season}E${episode.episode} • ${episode.title}"
+    }
 
 @Composable
 private fun ScreenHeader(

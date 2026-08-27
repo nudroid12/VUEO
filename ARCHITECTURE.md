@@ -36,3 +36,27 @@
 
 The Stremio side is functional through catalog, meta and stream discovery.
 The JavaScript plugin repository side is deliberately not executed yet.
+
+
+## v0.2.2 playback path
+
+```text
+Metadata
+   |
+   +-- Movie ID
+   |
+   +-- Series -> Season -> Episode video ID
+                      |
+                      v
+               Stream Discovery
+                      |
+                Smart Ranking
+                      |
+                Source Picker
+                      |
+            Direct HTTPS/HLS/DASH
+                      |
+                  Media3
+```
+
+Torrent `infoHash` results are retained in the unified source model, but direct torrent playback is not claimed in this milestone.

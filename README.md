@@ -1,4 +1,4 @@
-# VUEO v0.2.1
+# VUEO v0.2.2
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -76,3 +76,21 @@ Addon Manager groups installed addons automatically by their manifest resources:
 - Subtitles
 - Multi-purpose
 - Other
+
+
+## v0.2.2 playback milestone
+
+- Parses Stremio series `videos` into seasons and episodes.
+- Season selector.
+- Episode selector.
+- Unified source picker.
+- Smart ranking prioritises directly playable sources.
+- `Play Best`.
+- Media3 direct HTTPS playback.
+- HLS playback.
+- DASH playback.
+- Remote subtitle tracks are attached to the Media3 item when subtitle addons return them.
+- Basic playback resume position.
+- Torrent sources remain visible but are labelled as not directly playable until the torrent/debrid layer exists.
+
+The JavaScript Provider Plugin engine remains the next major content-source milestone after this playback path is verified.

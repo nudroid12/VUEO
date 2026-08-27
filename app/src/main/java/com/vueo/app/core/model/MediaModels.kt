@@ -1,5 +1,15 @@
 package com.vueo.app.core.model
 
+data class EpisodeItem(
+    val id: String,
+    val title: String,
+    val season: Int,
+    val episode: Int,
+    val released: String? = null,
+    val overview: String? = null,
+    val thumbnail: String? = null,
+)
+
 data class MediaItem(
     val id: String,
     val type: String,
@@ -9,6 +19,7 @@ data class MediaItem(
     val description: String? = null,
     val releaseInfo: String? = null,
     val genres: List<String> = emptyList(),
+    val episodes: List<EpisodeItem> = emptyList(),
     val sourceExtensionId: String? = null,
 )
 
@@ -32,7 +43,10 @@ data class StreamSource(
     val sizeBytes: Long? = null,
     val providerId: String,
     val providerName: String,
-)
+) {
+    val isDirectPlayable: Boolean
+        get() = url?.startsWith("https://") == true
+}
 
 data class SubtitleTrack(
     val id: String,

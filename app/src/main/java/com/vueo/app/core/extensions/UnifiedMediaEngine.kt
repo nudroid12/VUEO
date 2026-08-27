@@ -3,6 +3,7 @@ package com.vueo.app.core.extensions
 import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.core.model.MediaItem
 import com.vueo.app.core.model.StreamSource
+import com.vueo.app.core.model.SubtitleTrack
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -76,6 +77,24 @@ class UnifiedMediaEngine {
             .distinctBy { listOf(it.url, it.infoHash, it.fileIndex, it.providerId) }
             .sortedWith(SourceRanker.comparator)
     }
+
+    suspend fun resolveSubtitles(
+        type: String,
+        videoId: String,
+    ): List<SubtitleTrack> = coroutineScope {
+        extensions
+            .filter { "subtitles" in it.descriptor.resources }
+            .map { extension ->
+                async {
+                    runCatching { extension.subtitles(type, videoId) }
+                        .getOrDefault(emptyList())
+                }
+            }
+            .awaitAll()
+            .flatten()
+            .filter { it.url.startsWith("https://") }
+            .distinctBy { it.url }
+    }
 }
 
 object SourceRanker {
@@ -84,7 +103,7 @@ object SourceRanker {
         val hdr = source.hdr.orEmpty().lowercase()
         val codec = source.codec.orEmpty().lowercase()
 
-        return when {
+        return (if (source.isDirectPlayable) 100 else 0) + when {
             "2160" in q || "4k" in q -> 40
             "1080" in q -> 30
             "720" in q -> 20
