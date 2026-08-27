@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "com.vueo.app"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.vueo.app"
         minSdk = 23
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
     }
