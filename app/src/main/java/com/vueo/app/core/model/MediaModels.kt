@@ -12,6 +12,13 @@ data class MediaItem(
     val sourceExtensionId: String? = null,
 )
 
+data class CatalogRow(
+    val id: String,
+    val title: String,
+    val providerName: String,
+    val items: List<MediaItem>,
+)
+
 data class StreamSource(
     val name: String,
     val url: String? = null,

@@ -1,6 +1,8 @@
 package com.vueo.app.core.stremio
 
 import android.net.Uri
+import com.vueo.app.core.extensions.CatalogDescriptor
+import com.vueo.app.core.extensions.CatalogExtraDescriptor
 import com.vueo.app.core.extensions.ExtensionDescriptor
 import com.vueo.app.core.extensions.ExtensionKind
 import com.vueo.app.core.extensions.MediaExtension
@@ -15,32 +17,54 @@ class StremioAddonProvider private constructor(
     override val descriptor: ExtensionDescriptor,
 ) : MediaExtension {
 
-    private val base = descriptor.baseUrl.removeSuffix("/manifest.json").removeSuffix("/")
+    private val base = descriptor.baseUrl
+        .removeSuffix("/manifest.json")
+        .removeSuffix("/")
 
-    override suspend fun catalog(type: String, catalogId: String, extras: Map<String, String>): CatalogPage {
+    override suspend fun catalog(
+        type: String,
+        catalogId: String,
+        extras: Map<String, String>,
+    ): CatalogPage {
         val suffix = encodeExtras(extras)
-        val json = JSONObject(SimpleHttp.get("$base/catalog/$type/$catalogId$suffix.json"))
+        val url = "$base/catalog/${Uri.encode(type)}/${Uri.encode(catalogId)}$suffix.json"
+        val json = JSONObject(SimpleHttp.get(url))
         val metas = json.optJSONArray("metas") ?: JSONArray()
-        return CatalogPage((0 until metas.length()).mapNotNull { metas.optJSONObject(it)?.toMediaItem(descriptor.id) })
+
+        return CatalogPage(
+            items = (0 until metas.length())
+                .mapNotNull { metas.optJSONObject(it)?.toMediaItem(descriptor.id) }
+        )
     }
 
     override suspend fun meta(type: String, id: String): MediaItem? {
-        val json = JSONObject(SimpleHttp.get("$base/meta/$type/${Uri.encode(id)}.json"))
+        val url = "$base/meta/${Uri.encode(type)}/${Uri.encode(id)}.json"
+        val json = JSONObject(SimpleHttp.get(url))
         return json.optJSONObject("meta")?.toMediaItem(descriptor.id)
     }
 
     override suspend fun streams(type: String, videoId: String): List<StreamSource> {
-        val json = JSONObject(SimpleHttp.get("$base/stream/$type/${Uri.encode(videoId)}.json"))
+        val url = "$base/stream/${Uri.encode(type)}/${Uri.encode(videoId)}.json"
+        val json = JSONObject(SimpleHttp.get(url))
         val streams = json.optJSONArray("streams") ?: JSONArray()
+
         return (0 until streams.length()).mapNotNull { index ->
             val item = streams.optJSONObject(index) ?: return@mapNotNull null
-            val url = item.optString("url").takeIf { it.isNotBlank() }
+            val streamUrl = item.optString("url").takeIf { it.isNotBlank() }
             val infoHash = item.optString("infoHash").takeIf { it.isNotBlank() }
-            if (url == null && infoHash == null) return@mapNotNull null
-            val title = item.optString("title", item.optString("name", descriptor.name))
+
+            if (streamUrl == null && infoHash == null) {
+                return@mapNotNull null
+            }
+
+            val title = item.optString(
+                "title",
+                item.optString("name", descriptor.name),
+            )
+
             StreamSource(
                 name = title,
-                url = url,
+                url = streamUrl,
                 infoHash = infoHash,
                 fileIndex = item.optInt("fileIdx", -1).takeIf { it >= 0 },
                 quality = inferQuality(title),
@@ -52,17 +76,26 @@ class StremioAddonProvider private constructor(
         }
     }
 
-    override suspend fun subtitles(type: String, id: String, extras: Map<String, String>): List<SubtitleTrack> {
+    override suspend fun subtitles(
+        type: String,
+        id: String,
+        extras: Map<String, String>,
+    ): List<SubtitleTrack> {
         val suffix = encodeExtras(extras)
-        val json = JSONObject(SimpleHttp.get("$base/subtitles/$type/${Uri.encode(id)}$suffix.json"))
+        val url = "$base/subtitles/${Uri.encode(type)}/${Uri.encode(id)}$suffix.json"
+        val json = JSONObject(SimpleHttp.get(url))
         val subtitles = json.optJSONArray("subtitles") ?: JSONArray()
+
         return (0 until subtitles.length()).mapNotNull { index ->
             val item = subtitles.optJSONObject(index) ?: return@mapNotNull null
-            val url = item.optString("url").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val subtitleUrl = item.optString("url")
+                .takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+
             SubtitleTrack(
                 id = "$index-${item.optString("id", item.optString("lang", "und"))}",
                 language = item.optString("lang", "und"),
-                url = url,
+                url = subtitleUrl,
                 providerId = descriptor.id,
             )
         }
@@ -70,35 +103,85 @@ class StremioAddonProvider private constructor(
 
     companion object {
         suspend fun fromManifestUrl(manifestUrl: String): StremioAddonProvider {
-            require(manifestUrl.startsWith("https://")) { "VUEO requires HTTPS extension URLs." }
+            require(manifestUrl.startsWith("https://")) {
+                "VUEO requires HTTPS Stremio addon manifests."
+            }
+
             val json = JSONObject(SimpleHttp.get(manifestUrl))
-            val id = json.getString("id")
-            val name = json.getString("name")
-            val version = json.optString("version", "0.0.0")
+
+            val id = json.optString("id").takeIf { it.isNotBlank() }
+                ?: error("Manifest is missing addon id.")
+            val name = json.optString("name").takeIf { it.isNotBlank() }
+                ?: error("Manifest is missing addon name.")
+
             val resources = parseResources(json.optJSONArray("resources"))
-            val types = json.optJSONArray("types").toStringSet()
+            val catalogs = parseCatalogs(json.optJSONArray("catalogs"))
+
             return StremioAddonProvider(
-                ExtensionDescriptor(
+                descriptor = ExtensionDescriptor(
                     id = id,
                     name = name,
-                    version = version,
+                    version = json.optString("version", "0.0.0"),
                     kind = ExtensionKind.STREMIO_ADDON,
                     baseUrl = manifestUrl,
                     description = json.optString("description").takeIf { it.isNotBlank() },
                     resources = resources,
-                    types = types,
+                    types = json.optJSONArray("types").toStringSet(),
+                    catalogs = catalogs,
                 )
             )
         }
 
         private fun parseResources(array: JSONArray?): Set<String> {
             if (array == null) return emptySet()
+
             return buildSet {
                 for (i in 0 until array.length()) {
                     when (val value = array.opt(i)) {
                         is String -> add(value)
-                        is JSONObject -> value.optString("name").takeIf { it.isNotBlank() }?.let(::add)
+                        is JSONObject -> value.optString("name")
+                            .takeIf { it.isNotBlank() }
+                            ?.let(::add)
                     }
+                }
+            }
+        }
+
+        private fun parseCatalogs(array: JSONArray?): List<CatalogDescriptor> {
+            if (array == null) return emptyList()
+
+            return (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                val type = item.optString("type").takeIf { it.isNotBlank() }
+                    ?: return@mapNotNull null
+                val id = item.optString("id").takeIf { it.isNotBlank() }
+                    ?: return@mapNotNull null
+
+                CatalogDescriptor(
+                    type = type,
+                    id = id,
+                    name = item.optString("name").takeIf { it.isNotBlank() },
+                    extras = parseCatalogExtras(item.optJSONArray("extra")),
+                )
+            }
+        }
+
+        private fun parseCatalogExtras(array: JSONArray?): List<CatalogExtraDescriptor> {
+            if (array == null) return emptyList()
+
+            return (0 until array.length()).mapNotNull { index ->
+                when (val value = array.opt(index)) {
+                    is String -> CatalogExtraDescriptor(name = value)
+                    is JSONObject -> {
+                        val name = value.optString("name").takeIf { it.isNotBlank() }
+                            ?: return@mapNotNull null
+                        CatalogExtraDescriptor(
+                            name = name,
+                            isRequired = value.optBoolean("isRequired", false),
+                            options = value.optJSONArray("options").toStringList(),
+                        )
+                    }
+                    else -> null
                 }
             }
         }
@@ -107,14 +190,14 @@ class StremioAddonProvider private constructor(
 
 private fun JSONObject.toMediaItem(sourceId: String): MediaItem? {
     val id = optString("id").takeIf { it.isNotBlank() } ?: return null
-    val type = optString("type", "movie")
     val name = optString("name").takeIf { it.isNotBlank() } ?: return null
+
     return MediaItem(
         id = id,
-        type = type,
+        type = optString("type", "movie"),
         name = name,
-        poster = optString("poster").takeIf { it.isNotBlank() },
-        background = optString("background").takeIf { it.isNotBlank() },
+        poster = optString("poster").takeIf { it.startsWith("https://") },
+        background = optString("background").takeIf { it.startsWith("https://") },
         description = optString("description").takeIf { it.isNotBlank() },
         releaseInfo = optString("releaseInfo").takeIf { it.isNotBlank() },
         genres = optJSONArray("genres").toStringList(),
@@ -124,14 +207,17 @@ private fun JSONObject.toMediaItem(sourceId: String): MediaItem? {
 
 private fun JSONArray?.toStringList(): List<String> {
     if (this == null) return emptyList()
-    return (0 until length()).mapNotNull { optString(it).takeIf(String::isNotBlank) }
+    return (0 until length())
+        .mapNotNull { optString(it).takeIf(String::isNotBlank) }
 }
 
 private fun JSONArray?.toStringSet(): Set<String> = toStringList().toSet()
 
 private fun encodeExtras(extras: Map<String, String>): String {
     if (extras.isEmpty()) return ""
-    val encoded = extras.entries.joinToString("&") { "${Uri.encode(it.key)}=${Uri.encode(it.value)}" }
+    val encoded = extras.entries.joinToString("&") {
+        "${Uri.encode(it.key)}=${Uri.encode(it.value)}"
+    }
     return "/$encoded"
 }
 

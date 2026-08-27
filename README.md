@@ -1,71 +1,59 @@
-# VUEO v0.1 Foundation
+# VUEO v0.2
 
-VUEO is an Android-first, neutral media hub designed around two extension systems:
+VUEO is an Android media client with a built-in **Content Manager**.
 
-1. Stremio Addon Protocol compatibility.
-2. A sandbox-friendly VUEO Plugin V1 manifest for declarative remote integrations.
+## v0.2 milestone
 
-## What is already implemented
+This build replaces the original generic Extensions screen with the agreed architecture:
 
-- Dark Jetpack Compose shell inspired by the approved VUEO UI direction.
-- Home, Search, Library and Extensions tabs.
-- Extension installer UI.
-- Stremio manifest detection and parsing.
-- Stremio `catalog`, `meta`, `stream`, and `subtitles` resource adapters.
-- VUEO Plugin V1 manifest detection and route mapping.
-- Unified `MediaExtension` interface.
-- Unified stream resolver.
-- First-pass Smart Source ranking.
-- Media3 dependencies prepared for the player milestone.
-- HTTPS-only extension installation by default.
+- **Built-in VUEO features**
+- **Stremio Addons**
+- **JavaScript Provider Plugins** (repository engine follows in the next milestone)
 
-## Current plugin security model
+### Working in v0.2
 
-VUEO Plugin V1 does not execute arbitrary APK, JAR, JavaScript, or native code. A plugin is a declarative manifest that exposes HTTPS JSON routes. This keeps plugins isolated from device files, app internals, other extensions and Android permissions.
+- Content Manager screen
+- Stremio Addon Manager
+- Install addon from HTTPS `manifest.json`
+- Persist installed addon manifest URLs
+- Restore addons when VUEO restarts
+- Refresh or remove an addon
+- Parse addon resources, types and catalogs
+- Load catalog rows into Home
+- Load poster and backdrop images without an extra image library
+- Open a title and request richer `meta`
+- Discover movie streams from installed Stremio stream addons
+- Basic smart source ordering
+- Stable Android API 36 build configuration
+- Corrected GitHub Actions build summary
 
-A future signed SDK can expand capabilities without throwing away this interface.
+### Plugin status
 
-## VUEO Plugin V1 manifest
+The old experimental generic `VUEO Plugin V1` implementation has been removed.
 
-See `vueo-plugin-example.json`.
+The **Plugins** area is now reserved for the Nuvio-style JavaScript provider repository system:
+repository manifest, multiple providers per repository, enable/disable, sandboxed execution and unified source results.
 
-Required:
+No repository schema is fabricated in this build.
 
-- `schema`: `vueo-plugin-v1`
-- `id`
-- `name`
-- `version`
-- one or more HTTPS routes
+## Build
 
-Supported routes in v0.1:
+```bash
+./gradlew :app:assembleDebug
+```
 
-- `catalog`
-- `meta`
-- `stream`
-- `subtitles`
+The included GitHub Actions workflow builds and uploads the debug APK.
 
-Route templates support `{type}` and `{id}`.
+## Content flow
 
-## Build requirements
+```text
+Content Manager
+   -> Addons
+      -> Install manifest
+         -> Parse catalogs
+            -> Home
+               -> Title details
+                  -> Find Sources
+```
 
-- Android Studio with Android API 37 SDK installed.
-- JDK 17 or newer supported by the selected Android Studio/AGP environment.
-- Internet connection for Gradle dependencies.
-
-## Next milestone
-
-1. Persist installed extensions.
-2. Add extension permission review before install.
-3. Build catalog aggregation for Home.
-4. Movie/series details page.
-5. Source picker using `UnifiedMediaEngine.resolveStreams()`.
-6. Media3 player.
-7. Android TV focus/remote layout.
-
-## Legal/product boundary
-
-VUEO is a neutral client. The core project does not bundle third-party unlicensed media sources. Developers and users are responsible for ensuring extensions and media sources they add are lawful to use.
-
-### Gradle launcher note
-
-This source bundle includes a small `gradlew`/`gradlew.bat` bootstrap launcher because the build environment used to generate this package could not bundle the official Gradle wrapper JAR. On first run it downloads the official Gradle 9.3.1 binary distribution from `services.gradle.org`, then invokes Gradle from that local cache.
+Series episode selection and playback are later milestones.

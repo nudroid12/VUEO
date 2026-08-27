@@ -2,7 +2,7 @@ package com.vueo.app.core.extensions
 
 enum class ExtensionKind {
     STREMIO_ADDON,
-    VUEO_PLUGIN,
+    PROVIDER_PLUGIN,
 }
 
 enum class ExtensionHealth {
@@ -10,6 +10,22 @@ enum class ExtensionHealth {
     SLOW,
     OFFLINE,
     UNKNOWN,
+}
+
+data class CatalogExtraDescriptor(
+    val name: String,
+    val isRequired: Boolean = false,
+    val options: List<String> = emptyList(),
+)
+
+data class CatalogDescriptor(
+    val type: String,
+    val id: String,
+    val name: String? = null,
+    val extras: List<CatalogExtraDescriptor> = emptyList(),
+) {
+    val canLoadWithoutExtras: Boolean
+        get() = extras.none { it.isRequired }
 }
 
 data class ExtensionDescriptor(
@@ -21,6 +37,6 @@ data class ExtensionDescriptor(
     val description: String? = null,
     val resources: Set<String> = emptySet(),
     val types: Set<String> = emptySet(),
-    val permissions: Set<String> = emptySet(),
+    val catalogs: List<CatalogDescriptor> = emptyList(),
     val health: ExtensionHealth = ExtensionHealth.UNKNOWN,
 )

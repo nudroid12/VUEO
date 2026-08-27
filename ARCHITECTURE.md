@@ -1,36 +1,38 @@
-# VUEO Architecture v0.1
+# VUEO Architecture v0.2
 
 ```text
-UI / Compose
-    |
-    +-- Home
-    +-- Search
-    +-- Library
-    +-- Extensions
-            |
-            v
-    ExtensionInstaller
-            |
-       +----+----------------+
-       |                     |
-StremioAddonProvider   VueoPluginProvider
-       |                     |
-       +----------+----------+
-                  |
-           MediaExtension
-                  |
-          UnifiedMediaEngine
-                  |
-            SourceRanker
-                  |
-             Media3 Player
+                         VUEO
+                          |
+          +---------------+----------------+
+          |                                |
+     Built-in App                     Content Manager
+          |                                |
+   Home / Search /                    +-----+------+
+   Library / Player                   |            |
+                                  Addons        Plugins
+                                  Stremio       JavaScript
+                                      |         providers
+                                      |        (next milestone)
+                                      |
+                                Catalog / Meta /
+                                Stream / Subtitle
+                                      |
+                                      v
+                              Unified Media Engine
+                                      |
+                              Smart Source Ranking
+                                      |
+                                    Player
 ```
 
-## Rules
+## Naming
 
-- UI never depends directly on a provider implementation.
-- All providers normalize output to VUEO domain models.
-- VUEO Plugin V1 is declarative and remote only.
-- Extension URLs are HTTPS only.
-- Arbitrary APK/JAR/native plugin execution is intentionally not part of v0.1.
-- Streams are resolved concurrently and failures are isolated per extension.
+- **Content Manager** is the official management section.
+- **Addons** means Stremio-compatible addons.
+- **Plugins** means JavaScript provider repositories.
+- Generic third-party VUEO extensions are not part of this architecture.
+
+## v0.2 scope
+
+The Stremio side is functional through catalog, meta and stream discovery.
+The JavaScript plugin repository side is deliberately not executed yet.
