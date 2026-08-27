@@ -67,7 +67,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vueo.app.core.extensions.AddonCategory
 import com.vueo.app.core.extensions.ExtensionInstaller
+import com.vueo.app.core.extensions.primaryAddonCategory
 import com.vueo.app.core.extensions.ExtensionKind
 import com.vueo.app.core.extensions.MediaExtension
 import com.vueo.app.core.extensions.UnifiedMediaEngine
@@ -104,11 +106,14 @@ fun VueoApp() {
     var selectedMedia by remember { mutableStateOf<MediaItem?>(null) }
 
     LaunchedEffect(Unit) {
+        store.seedDevelopmentDefaultsIfNeeded()
+
         store.manifestUrls().forEach { manifestUrl ->
             runCatching {
                 ExtensionInstaller.installStremioAddon(manifestUrl)
             }.onSuccess(engine::install)
         }
+
         booting = false
         contentVersion++
     }
@@ -721,41 +726,85 @@ private fun AddonsScreen(
                 }
             }
         } else {
+            val groupedAddons = AddonCategory.entries
+                .mapNotNull { category ->
+                    val addons = installed.filter {
+                        it.descriptor.primaryAddonCategory() == category
+                    }
+                    if (addons.isEmpty()) null else category to addons
+                }
+
             LazyColumn(
                 contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(
-                    installed,
-                    key = { it.descriptor.id },
-                ) { addon ->
-                    AddonCard(
-                        addon = addon,
-                        refreshing = refreshingId == addon.descriptor.id,
-                        onRefresh = {
-                            scope.launch {
-                                refreshingId = addon.descriptor.id
+                groupedAddons.forEach { (category, addons) ->
+                    item(key = "header:${category.name}") {
+                        Column(
+                            modifier = Modifier.padding(top = 8.dp),
+                        ) {
+                            Text(
+                                category.label.uppercase(),
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f),
+                                fontSize = 12.sp,
+                                letterSpacing = 1.3.sp,
+                            )
 
-                                runCatching {
-                                    ExtensionInstaller.installStremioAddon(
-                                        addon.descriptor.baseUrl
-                                    )
-                                }.onSuccess {
-                                    engine.install(it)
-                                    installed = engine.stremioAddons()
-                                    onContentChanged()
+                            Text(
+                                when (category) {
+                                    AddonCategory.CATALOG_METADATA ->
+                                        "Discovery, catalogs and title information"
+                                    AddonCategory.STREAMS ->
+                                        "Playback source providers"
+                                    AddonCategory.SUBTITLES ->
+                                        "Subtitle providers"
+                                    AddonCategory.MULTI_PURPOSE ->
+                                        "Addons with more than one content capability"
+                                    AddonCategory.OTHER ->
+                                        "Other Stremio addon resources"
+                                },
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .46f),
+                                fontSize = 11.sp,
+                            )
+                        }
+                    }
+
+                    items(
+                        addons,
+                        key = { it.descriptor.id },
+                    ) { addon ->
+                        AddonCard(
+                            addon = addon,
+                            isDevelopmentDefault = store.isDevelopmentDefault(
+                                addon.descriptor.baseUrl
+                            ),
+                            refreshing = refreshingId == addon.descriptor.id,
+                            onRefresh = {
+                                scope.launch {
+                                    refreshingId = addon.descriptor.id
+
+                                    runCatching {
+                                        ExtensionInstaller.installStremioAddon(
+                                            addon.descriptor.baseUrl
+                                        )
+                                    }.onSuccess {
+                                        engine.install(it)
+                                        installed = engine.stremioAddons()
+                                        onContentChanged()
+                                    }
+
+                                    refreshingId = null
                                 }
-
-                                refreshingId = null
-                            }
-                        },
-                        onDelete = {
-                            engine.uninstall(addon.descriptor.id)
-                            store.remove(addon.descriptor.baseUrl)
-                            installed = engine.stremioAddons()
-                            onContentChanged()
-                        },
-                    )
+                            },
+                            onDelete = {
+                                engine.uninstall(addon.descriptor.id)
+                                store.remove(addon.descriptor.baseUrl)
+                                installed = engine.stremioAddons()
+                                onContentChanged()
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -851,6 +900,7 @@ private fun AddonsScreen(
 @Composable
 private fun AddonCard(
     addon: MediaExtension,
+    isDevelopmentDefault: Boolean,
     refreshing: Boolean,
     onRefresh: () -> Unit,
     onDelete: () -> Unit,
@@ -887,11 +937,34 @@ private fun AddonCard(
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp,
                     )
-                    Text(
-                        "v${addon.descriptor.version}",
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f),
-                        fontSize = 12.sp,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "v${addon.descriptor.version}",
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f),
+                            fontSize = 12.sp,
+                        )
+
+                        if (isDevelopmentDefault) {
+                            Spacer(Modifier.width(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = .14f),
+                            ) {
+                                Text(
+                                    "DEV DEFAULT",
+                                    modifier = Modifier.padding(
+                                        horizontal = 8.dp,
+                                        vertical = 3.dp,
+                                    ),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black,
+                                )
+                            }
+                        }
+                    }
                 }
 
                 IconButton(

@@ -12,6 +12,37 @@ enum class ExtensionHealth {
     UNKNOWN,
 }
 
+enum class AddonCategory(
+    val label: String,
+) {
+    CATALOG_METADATA("Catalog & Metadata"),
+    STREAMS("Streams"),
+    SUBTITLES("Subtitles"),
+    MULTI_PURPOSE("Multi-purpose"),
+    OTHER("Other"),
+}
+
+fun ExtensionDescriptor.primaryAddonCategory(): AddonCategory {
+    val hasCatalog = "catalog" in resources
+    val hasMeta = "meta" in resources
+    val hasStream = "stream" in resources
+    val hasSubtitles = "subtitles" in resources
+
+    val capabilityGroups = listOf(
+        hasCatalog || hasMeta,
+        hasStream,
+        hasSubtitles,
+    ).count { it }
+
+    return when {
+        capabilityGroups >= 2 -> AddonCategory.MULTI_PURPOSE
+        hasStream -> AddonCategory.STREAMS
+        hasSubtitles -> AddonCategory.SUBTITLES
+        hasCatalog || hasMeta -> AddonCategory.CATALOG_METADATA
+        else -> AddonCategory.OTHER
+    }
+}
+
 data class CatalogExtraDescriptor(
     val name: String,
     val isRequired: Boolean = false,

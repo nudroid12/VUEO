@@ -1,4 +1,4 @@
-# VUEO v0.2
+# VUEO v0.2.1
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -57,3 +57,22 @@ Content Manager
 ```
 
 Series episode selection and playback are later milestones.
+
+
+## v0.2.1 development defaults
+
+On the first launch after this patch, Content Manager seeds these development addons once:
+
+- YaStream: `https://yastream.tamthai.de/manifest.json`
+- Cinemeta: `https://v3-cinemeta.strem.io/manifest.json`
+- OpenSubtitles v3: `https://opensubtitles-v3.strem.io/manifest.json`
+
+They remain removable. Removing one does not force it back on each app launch.
+
+Addon Manager groups installed addons automatically by their manifest resources:
+
+- Catalog & Metadata
+- Streams
+- Subtitles
+- Multi-purpose
+- Other
