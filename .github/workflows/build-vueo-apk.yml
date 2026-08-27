@@ -53,45 +53,64 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ ! -f "./gradlew" ]; then
-            echo "::error::gradlew is missing from the repository root."
+          test -f ./gradlew || {
+            echo "::error::gradlew is missing from repository root."
             exit 1
-          fi
+          }
 
-          if [ ! -f "./gradle/wrapper/gradle-wrapper.properties" ]; then
+          test -f ./gradle/wrapper/gradle-wrapper.properties || {
             echo "::error::gradle-wrapper.properties is missing."
             exit 1
-          fi
+          }
 
           chmod +x ./gradlew
-
-          echo "Gradle wrapper configuration:"
-          cat ./gradle/wrapper/gradle-wrapper.properties
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Install Android 17 SDK
+      - name: Install stable Android SDK 36
         shell: bash
         run: |
           set -euo pipefail
 
-          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          SDKMANAGER="$(command -v sdkmanager || true)"
 
-          if [ ! -x "$SDKMANAGER" ]; then
-            SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            if [ -n "${ANDROID_HOME:-}" ] && \
+               [ -x "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" ]; then
+              SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+            else
+              echo "::error::sdkmanager was not found."
+              exit 1
+            fi
           fi
 
-          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
-            echo "::error::sdkmanager was not found on the runner."
+          echo "Using sdkmanager: $SDKMANAGER"
+
+          # Accept already-known Android SDK licences.
+          # Redirect yes stderr so a normal closed pipe does not print
+          # the misleading "Broken pipe" message.
+          yes 2>/dev/null | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+
+          # API 36 is Android 16 stable. Keep SDK installation on stable channel.
+          "$SDKMANAGER" --channel=0 \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
+
+      - name: Verify project SDK configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Configured SDK levels:"
+          grep -nE 'compileSdk|targetSdk|minSdk' app/build.gradle.kts || true
+
+          if grep -Eq 'compileSdk[[:space:]]*=[[:space:]]*37' app/build.gradle.kts; then
+            echo "::error::app/build.gradle.kts still uses compileSdk = 37."
+            echo "::error::Replace it with compileSdk = 36 before building."
             exit 1
           fi
-
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-
-          "$SDKMANAGER" \
-            "platform-tools" \
-            "platforms;android-37"
 
       - name: Show build environment
         shell: bash
@@ -106,9 +125,10 @@ jobs:
           ./gradlew --version
 
           echo
-          echo "Android SDK:"
-          echo "ANDROID_HOME=${ANDROID_HOME}"
-          ls -la "${ANDROID_HOME}/platforms" || true
+          echo "Installed Android platforms:"
+          if [ -n "${ANDROID_HOME:-}" ]; then
+            ls -la "${ANDROID_HOME}/platforms" || true
+          fi
 
       - name: Build debug APK
         shell: bash
@@ -120,25 +140,19 @@ jobs:
             --stacktrace \
             --no-daemon
 
-      - name: Locate APK
-        id: apk
+      - name: Verify APK output
         shell: bash
         run: |
           set -euo pipefail
 
+          APK_DIR="app/build/outputs/apk/debug"
+
           echo "Generated APK files:"
-          find app/build/outputs/apk -type f -name "*.apk" -print
+          find "$APK_DIR" -maxdepth 1 -type f -name "*.apk" -print || true
 
-          APK_COUNT="$(
-            find app/build/outputs/apk/debug \
-              -maxdepth 1 \
-              -type f \
-              -name "*.apk" \
-              | wc -l
-          )"
-
-          if [ "$APK_COUNT" -eq 0 ]; then
-            echo "::error::Build completed but no debug APK was found."
+          if ! find "$APK_DIR" -maxdepth 1 -type f -name "*.apk" -print -quit \
+              | grep -q .; then
+            echo "::error::Build finished without a debug APK."
             exit 1
           fi
 
@@ -160,11 +174,18 @@ jobs:
             echo "- Branch: \`${GITHUB_REF_NAME}\`"
             echo "- Commit: \`${GITHUB_SHA}\`"
             echo "- Run: \`${GITHUB_RUN_NUMBER}\`"
+            echo "- compileSdk: \`36\`"
+            echo "- targetSdk: \`36\`"
             echo
-            if find app/build/outputs/apk/debug -maxdepth 1 -type f -name "*.apk" -print -quit 2>/dev/null | grep -q .; then
-              echo "### APK"
-              find app/build/outputs/apk/debug -maxdepth 1 -type f -name "*.apk" -printf -- "- \`%f\`\n"
+            if find app/build/outputs/apk/debug \
+                -maxdepth 1 -type f -name "*.apk" \
+                -print -quit 2>/dev/null | grep -q .; then
+              echo "### APK generated"
+              find app/build/outputs/apk/debug \
+                -maxdepth 1 -type f -name "*.apk" \
+                -printf -- "- \`%f\`\n"
             else
-              echo "No APK was generated."
+              echo "### APK not generated"
+              echo "Open the failed build step above for the compiler error."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
