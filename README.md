@@ -1,4 +1,4 @@
-# VUEO v0.2.2
+# VUEO v0.3.0
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -94,3 +94,45 @@ Addon Manager groups installed addons automatically by their manifest resources:
 - Torrent sources remain visible but are labelled as not directly playable until the torrent/debrid layer exists.
 
 The JavaScript Provider Plugin engine remains the next major content-source milestone after this playback path is verified.
+
+
+## v0.3.0 Nuvio-style Plugin Repository Manager
+
+VUEO now understands the common Nuvio provider repository manifest shape:
+
+- repository `name`
+- repository `version`
+- `scrapers` array
+- provider `id`
+- provider `name`
+- provider `filename`
+- `supportedTypes`
+- `enabled`
+- `logo`
+- `contentLanguage`
+- `formats`
+- `limited`
+- `disabledPlatforms`
+- `supportsExternalPlayer`
+
+Implemented:
+
+- Install repository by base URL or direct `manifest.json`
+- HTTPS-only repository installation
+- Persistent repository storage
+- Refresh repository manifest
+- Delete repository
+- Provider count
+- Global plugin-provider toggle
+- Enable/disable individual providers
+- Persist provider state
+- Compute provider JavaScript URL from repository base + filename
+
+Not yet implemented:
+
+- JavaScript execution runtime
+- `getStreams(tmdbId, mediaType, season, episode)` invocation
+- `fetch`, axios and cheerio compatibility layer
+- Plugin stream results in Unified Source Engine
+
+Those are the next runtime milestone.

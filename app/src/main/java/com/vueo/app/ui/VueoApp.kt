@@ -47,6 +47,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -83,6 +84,9 @@ import com.vueo.app.core.extensions.UnifiedMediaEngine
 import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.core.storage.PlaybackStore
 import com.vueo.app.core.model.SubtitleTrack
+import com.vueo.app.core.plugin.PluginStore
+import com.vueo.app.core.plugin.PluginRepositoryDescriptor
+import com.vueo.app.core.plugin.PluginRepositoryClient
 import com.vueo.app.core.model.EpisodeItem
 import com.vueo.app.core.model.MediaItem
 import com.vueo.app.core.model.StreamSource
@@ -602,10 +606,16 @@ private fun ContentManagerScreen(
         }
 
         item {
+            val pluginStore = PluginStore(
+                LocalContext.current.applicationContext
+            )
+            val repositoryCount = pluginStore.repositories().size
+            val providerCount = pluginStore.totalProviderCount()
+
             ContentManagerCard(
                 title = "Plugins",
                 subtitle = "JavaScript provider repositories for stream discovery.",
-                status = "Provider engine next",
+                status = "$repositoryCount repos • $providerCount providers",
                 icon = Icons.Default.SettingsInputComponent,
                 onClick = onPlugins,
             )
@@ -1030,6 +1040,34 @@ private fun AddonCard(
 private fun PluginsScreen(
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val store = remember {
+        PluginStore(context.applicationContext)
+    }
+    val scope = rememberCoroutineScope()
+
+    var repositories by remember {
+        mutableStateOf(store.repositories())
+    }
+    var pluginsEnabled by remember {
+        mutableStateOf(store.pluginsEnabled())
+    }
+    var showAddDialog by remember {
+        mutableStateOf(false)
+    }
+    var repositoryUrl by remember {
+        mutableStateOf("")
+    }
+    var busy by remember {
+        mutableStateOf(false)
+    }
+    var message by remember {
+        mutableStateOf<String?>(null)
+    }
+    var refreshingUrl by remember {
+        mutableStateOf<String?>(null)
+    }
+
     Column(
         modifier = Modifier.fillMaxSize(),
     ) {
@@ -1037,31 +1075,412 @@ private fun PluginsScreen(
             title = "Plugins",
             subtitle = "JavaScript provider repositories",
             onBack = onBack,
+            action = {
+                FilledIconButton(
+                    onClick = { showAddDialog = true },
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = "Add repository",
+                    )
+                }
+            },
         )
 
-        ElevatedCard(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(
+                horizontal = 20.dp,
+                vertical = 8.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                "Plugin providers",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                            )
+                            Text(
+                                "${repositories.size} repos • " +
+                                    "${store.enabledProviderCount()} enabled providers",
+                                color = MaterialTheme.colorScheme.onSurface.copy(
+                                    alpha = .6f
+                                ),
+                                fontSize = 12.sp,
+                            )
+                        }
+
+                        Switch(
+                            checked = pluginsEnabled,
+                            onCheckedChange = {
+                                pluginsEnabled = it
+                                store.setPluginsEnabled(it)
+                            },
+                        )
+                    }
+                }
+            }
+
+            if (repositories.isEmpty()) {
+                item {
+                    ElevatedCard(
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                "No plugin repositories",
+                                fontSize = 21.sp,
+                                fontWeight = FontWeight.Black,
+                            )
+                            Text(
+                                "Add a Nuvio-style provider repository URL. " +
+                                    "VUEO accepts either the repository base URL " +
+                                    "or a direct manifest.json URL.",
+                                color = MaterialTheme.colorScheme.onSurface.copy(
+                                    alpha = .68f
+                                ),
+                            )
+                            Button(
+                                onClick = { showAddDialog = true },
+                            ) {
+                                Text("Add Repository")
+                            }
+                        }
+                    }
+                }
+            }
+
+            items(
+                repositories,
+                key = { it.manifestUrl },
+            ) { repository ->
+                PluginRepositoryCard(
+                    repository = repository,
+                    store = store,
+                    refreshing = refreshingUrl == repository.manifestUrl,
+                    onRefresh = {
+                        scope.launch {
+                            refreshingUrl = repository.manifestUrl
+
+                            runCatching {
+                                PluginRepositoryClient.fetch(
+                                    repository.manifestUrl
+                                )
+                            }.onSuccess { refreshed ->
+                                store.upsert(refreshed)
+                                repositories = store.repositories()
+                            }.onFailure {
+                                message = it.message
+                            }
+
+                            refreshingUrl = null
+                        }
+                    },
+                    onDelete = {
+                        store.remove(repository.manifestUrl)
+                        repositories = store.repositories()
+                    },
+                    onProviderChanged = {
+                        repositories = store.repositories()
+                    },
+                )
+            }
+
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        Text(
+                            "Runtime status",
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "Repository compatibility and provider management " +
+                                "are active. JavaScript execution is intentionally " +
+                                "disabled in v0.3.0 and will be added as the next " +
+                                "runtime milestone.",
+                            color = MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = .62f
+                            ),
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!busy) {
+                    showAddDialog = false
+                    message = null
+                }
+            },
+            title = {
+                Text("Add Plugin Repository")
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        "Paste a repository base URL or direct manifest.json URL."
+                    )
+
+                    OutlinedTextField(
+                        value = repositoryUrl,
+                        onValueChange = {
+                            repositoryUrl = it
+                            message = null
+                        },
+                        label = {
+                            Text("Repository URL")
+                        },
+                        placeholder = {
+                            Text("https://.../main")
+                        },
+                        enabled = !busy,
+                        singleLine = true,
+                    )
+
+                    message?.let {
+                        Text(
+                            it,
+                            color = MaterialTheme.colorScheme.error,
+                            fontSize = 12.sp,
+                        )
+                    }
+
+                    if (busy) {
+                        LinearProgressIndicator(
+                            Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = repositoryUrl.isNotBlank() && !busy,
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            message = null
+
+                            runCatching {
+                                PluginRepositoryClient.fetch(
+                                    repositoryUrl
+                                )
+                            }.onSuccess { repository ->
+                                store.upsert(repository)
+                                repositories = store.repositories()
+                                repositoryUrl = ""
+                                showAddDialog = false
+                            }.onFailure {
+                                message = it.message
+                                    ?: "Unable to install repository."
+                            }
+
+                            busy = false
+                        }
+                    },
+                ) {
+                    Text("Install")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !busy,
+                    onClick = {
+                        showAddDialog = false
+                        message = null
+                    },
+                ) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun PluginRepositoryCard(
+    repository: PluginRepositoryDescriptor,
+    store: PluginStore,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
+    onDelete: () -> Unit,
+    onProviderChanged: () -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    "Provider plugin engine",
-                    fontSize = 21.sp,
-                    fontWeight = FontWeight.Black,
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "JS",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Black,
+                    )
+                }
+
+                Spacer(Modifier.width(12.dp))
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(
+                        repository.name,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 18.sp,
+                    )
+                    Text(
+                        "v${repository.version} • " +
+                            "${repository.providers.size} providers",
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = .55f
+                        ),
+                        fontSize = 12.sp,
+                    )
+                }
+
+                IconButton(
+                    enabled = !refreshing,
+                    onClick = onRefresh,
+                ) {
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = "Refresh",
+                    )
+                }
+
+                IconButton(
+                    onClick = onDelete,
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Delete",
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+
+            if (refreshing) {
+                LinearProgressIndicator(
+                    Modifier.fillMaxWidth()
                 )
+            }
+
+            repository.description?.let {
                 Text(
-                    "This section is reserved for the Nuvio-style JavaScript provider repository system we agreed on. It is intentionally not using the old generic VUEO extension format.",
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f),
+                    it,
+                    color = MaterialTheme.colorScheme.onSurface.copy(
+                        alpha = .65f
+                    ),
+                    fontSize = 12.sp,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    "Next: repository manifest, provider enable/disable, JavaScript sandbox, and unified stream results.",
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 13.sp,
+            }
+
+            HorizontalDivider()
+
+            repository.providers.forEach { provider ->
+                val enabled = store.isProviderEnabled(
+                    repository,
+                    provider,
                 )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            provider.name,
+                            fontWeight = FontWeight.Bold,
+                        )
+
+                        val details = buildList {
+                            if (provider.supportedTypes.isNotEmpty()) {
+                                add(
+                                    provider.supportedTypes
+                                        .sorted()
+                                        .joinToString("/")
+                                )
+                            }
+
+                            if (provider.formats.isNotEmpty()) {
+                                add(
+                                    provider.formats
+                                        .take(3)
+                                        .joinToString(", ")
+                                )
+                            }
+
+                            if (provider.limited) {
+                                add("limited")
+                            }
+                        }.joinToString(" • ")
+
+                        if (details.isNotBlank()) {
+                            Text(
+                                details,
+                                color = MaterialTheme.colorScheme.onSurface.copy(
+                                    alpha = .5f
+                                ),
+                                fontSize = 11.sp,
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = {
+                            store.setProviderEnabled(
+                                repository,
+                                provider,
+                                it,
+                            )
+                            onProviderChanged()
+                        },
+                    )
+                }
             }
         }
     }

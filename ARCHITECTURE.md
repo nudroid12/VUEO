@@ -60,3 +60,30 @@ Metadata
 ```
 
 Torrent `infoHash` results are retained in the unified source model, but direct torrent playback is not claimed in this milestone.
+
+
+## v0.3.0 plugin repository architecture
+
+```text
+Content Manager
+      |
+    Plugins
+      |
+Repository URL
+      |
+manifest.json
+      |
+ +----+----------------------+
+ |                           |
+Repository metadata       scrapers[]
+                             |
+                    Provider descriptors
+                             |
+                    Enable / disable state
+                             |
+                    Provider JS URL
+                             |
+                       Runtime next
+```
+
+v0.3.0 deliberately separates repository management from arbitrary JavaScript execution.
