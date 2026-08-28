@@ -2,6 +2,15 @@ package com.vueo.app.core.storage
 
 import android.content.Context
 
+enum class PlayerOrientation(
+    val label: String,
+) {
+    AUTO("Auto"),
+    LANDSCAPE("Landscape"),
+    PORTRAIT("Portrait"),
+    FOLLOW_DEVICE("Follow device"),
+}
+
 enum class PreferredQuality(
     val label: String,
     val rankKey: String?,
@@ -124,6 +133,40 @@ class SettingsStore(
             key = profileKey(KEY_PREFERRED_QUALITY),
             default = PreferredQuality.AUTO,
         )
+
+    fun playerOrientation(): PlayerOrientation =
+        enumValue(
+            key = profileKey(KEY_PLAYER_ORIENTATION),
+            default = PlayerOrientation.AUTO,
+        )
+
+    fun setPlayerOrientation(
+        value: PlayerOrientation,
+    ) {
+        prefs.edit()
+            .putString(
+                profileKey(KEY_PLAYER_ORIENTATION),
+                value.name,
+            )
+            .apply()
+    }
+
+    fun autoSourceRecoveryEnabled(): Boolean =
+        prefs.getBoolean(
+            profileKey(KEY_AUTO_SOURCE_RECOVERY),
+            false,
+        )
+
+    fun setAutoSourceRecoveryEnabled(
+        enabled: Boolean,
+    ) {
+        prefs.edit()
+            .putBoolean(
+                profileKey(KEY_AUTO_SOURCE_RECOVERY),
+                enabled,
+            )
+            .apply()
+    }
 
     fun setPreferredQuality(
         value: PreferredQuality,
@@ -519,6 +562,12 @@ class SettingsStore(
 
         private const val KEY_PREFERRED_QUALITY =
             "preferred_quality"
+
+        private const val KEY_PLAYER_ORIENTATION =
+            "player_orientation"
+
+        private const val KEY_AUTO_SOURCE_RECOVERY =
+            "auto_source_recovery"
 
         private const val KEY_SOURCE_TECHNICAL_DETAILS =
             "source_technical_details"

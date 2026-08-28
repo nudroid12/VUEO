@@ -70,6 +70,7 @@ import com.vueo.app.core.storage.AppAccent
 import com.vueo.app.core.storage.LibraryStore
 import com.vueo.app.core.storage.ProfileStore
 import com.vueo.app.core.storage.PreferredQuality
+import com.vueo.app.core.storage.PlayerOrientation
 import com.vueo.app.core.storage.SettingsStore
 import com.vueo.app.core.storage.SubtitleLanguage
 import com.vueo.app.core.storage.SubtitleSize
@@ -842,6 +843,19 @@ internal fun PlaybackSettingsScreen(
     var showQualityDialog by remember {
         mutableStateOf(false)
     }
+    var orientation by remember {
+        mutableStateOf(
+            settingsStore.playerOrientation()
+        )
+    }
+    var autoRecovery by remember {
+        mutableStateOf(
+            settingsStore.autoSourceRecoveryEnabled()
+        )
+    }
+    var showOrientationDialog by remember {
+        mutableStateOf(false)
+    }
 
     if (showQualityDialog) {
         AlertDialog(
@@ -872,6 +886,50 @@ internal fun PlaybackSettingsScreen(
         )
     }
 
+    if (showOrientationDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showOrientationDialog = false
+            },
+            title = {
+                Text("Player Orientation")
+            },
+            text = {
+                Column(
+                    verticalArrangement =
+                        Arrangement.spacedBy(4.dp),
+                ) {
+                    PlayerOrientation.values()
+                        .forEach { option ->
+                            VueoChoiceRow(
+                                label = option.label,
+                                selected =
+                                    orientation == option,
+                                onClick = {
+                                    orientation = option
+                                    settingsStore
+                                        .setPlayerOrientation(
+                                            option
+                                        )
+                                    showOrientationDialog =
+                                        false
+                                },
+                            )
+                        }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showOrientationDialog = false
+                    },
+                ) {
+                    Text("Close")
+                }
+            },
+        )
+    }
+
     VueoSettingsPage(
         title = "Playback",
         subtitle = "Player behavior and quality preference.",
@@ -895,6 +953,32 @@ internal fun PlaybackSettingsScreen(
                 subtitle = "Boost this resolution in Smart Source ranking without hiding alternatives.",
                 value = quality.label,
                 onClick = { showQualityDialog = true },
+            )
+        }
+
+        item {
+            VueoSettingsValueCard(
+                title = "Player Orientation",
+                subtitle = "Choose how VUEO enters playback on mobile.",
+                value = orientation.label,
+                onClick = {
+                    showOrientationDialog = true
+                },
+            )
+        }
+
+        item {
+            VueoSettingsToggleCard(
+                title = "Auto Source Recovery",
+                subtitle = "If a stream fails, automatically try the next playable source and keep the same timestamp.",
+                checked = autoRecovery,
+                onCheckedChange = { enabled ->
+                    autoRecovery = enabled
+                    settingsStore
+                        .setAutoSourceRecoveryEnabled(
+                            enabled
+                        )
+                },
             )
         }
 

@@ -1,13 +1,21 @@
 package com.vueo.app.ui
 
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.net.Uri
+import android.content.Context
+import android.content.pm.ActivityInfo
+import android.media.AudioManager
+import android.util.Rational
 import android.os.Build
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,8 +25,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -57,6 +67,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -79,15 +90,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.common.C
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -115,6 +129,7 @@ import com.vueo.app.core.storage.ProfileStore
 import com.vueo.app.core.storage.VueoProfile
 import com.vueo.app.core.storage.LibraryPlaybackEntry
 import com.vueo.app.core.storage.PreferredQuality
+import com.vueo.app.core.storage.PlayerOrientation
 import com.vueo.app.core.storage.SettingsStore
 import com.vueo.app.core.storage.VueoDataMigration
 import com.vueo.app.core.update.VueoUpdateManager
@@ -4203,6 +4218,9 @@ private fun MediaDetailsScreen(
     var selectedPlaybackVideoId by remember {
         mutableStateOf<String?>(null)
     }
+    var selectedPlaybackStartPositionMs by remember {
+        mutableStateOf(0L)
+    }
 
     LaunchedEffect(
         initialItem.id,
@@ -4453,6 +4471,369 @@ private fun MediaDetailsScreen(
         }
     }
 
+
+    fun startSourceDiscovery(
+        targetEpisode: EpisodeItem?,
+    ) {
+    val targetVideoId =
+        selectedVideoId(
+            item,
+            targetEpisode,
+        ) ?: return
+
+    sourceDiscoveryJob
+        ?.cancel()
+
+    val cacheKey =
+        SourceDiscoveryCache.key(
+            mediaType =
+                item.type,
+            mediaId =
+                item.id,
+            videoId =
+                targetVideoId,
+        )
+
+    val cached =
+        SourceDiscoveryCache
+            .get(cacheKey)
+
+    sourcePickerStreams =
+        cached?.streams
+            ?: emptyList()
+
+    sourcePickerRawCount =
+        cached?.rawCount
+            ?: 0
+
+    sourcePickerNotice =
+        cached?.notice
+
+    sourcePickerSearching =
+        true
+
+    sourcePickerFirstResultMs =
+        null
+
+    sourcePickerProgress =
+        if (cached != null) {
+            "Recent sources loaded instantly • refreshing in background"
+        } else {
+            "Starting source discovery…"
+        }
+
+    loadingStreams = true
+    sourceStatus = null
+
+    sourceDiscoveryJob =
+        scope.launch {
+            val startedAt =
+                System.nanoTime()
+
+            val cachedStreams =
+                cached?.streams
+                    .orEmpty()
+
+            var freshAddonStreams =
+                emptyList<StreamSource>()
+
+            var freshPluginStreams =
+                emptyList<StreamSource>()
+
+            var addonRawCount = 0
+            var pluginRawCount = 0
+
+            var addonCompleted = 0
+            var addonTotal = 0
+
+            var pluginCompleted = 0
+            var pluginTotal = 0
+
+            fun elapsedMs(): Long =
+                (
+                    System.nanoTime() -
+                        startedAt
+                ) / 1_000_000L
+
+            fun publish(
+                progress: String,
+            ) {
+                val fresh =
+                    SourceCleaner.clean(
+                        sources =
+                            freshAddonStreams +
+                                freshPluginStreams,
+                        preferredQuality =
+                            preferredSourceQuality,
+                    )
+
+                val display =
+                    if (
+                        sourcePickerSearching
+                    ) {
+                        SourceCleaner.clean(
+                            sources =
+                                cachedStreams +
+                                    fresh,
+                            preferredQuality =
+                                preferredSourceQuality,
+                        )
+                    } else {
+                        fresh
+                    }
+
+                if (
+                    sourcePickerFirstResultMs ==
+                    null &&
+                    display.isNotEmpty() &&
+                    cachedStreams.isEmpty()
+                ) {
+                    sourcePickerFirstResultMs =
+                        elapsedMs()
+                }
+
+                sourcePickerStreams =
+                    display
+
+                sourcePickerRawCount =
+                    maxOf(
+                        cached?.rawCount
+                            ?: 0,
+                        addonRawCount +
+                            pluginRawCount,
+                    )
+
+                sourcePickerProgress =
+                    progress
+            }
+
+            val subtitlesDeferred =
+                async {
+                    runCatching {
+                        engine.resolveSubtitles(
+                            type =
+                                item.type,
+                            videoId =
+                                targetVideoId,
+                        )
+                    }.getOrDefault(
+                        emptyList()
+                    )
+                }
+
+            val addonDeferred =
+                async {
+                    runCatching {
+                        engine
+                            .resolveStreamsProgressive(
+                                type =
+                                    item.type,
+                                videoId =
+                                    targetVideoId,
+                            ) { progress ->
+                                freshAddonStreams =
+                                    progress.streams
+
+                                addonRawCount =
+                                    progress.rawCount
+
+                                addonCompleted =
+                                    progress.completedAddons
+
+                                addonTotal =
+                                    progress.totalAddons
+
+                                publish(
+                                    "Searching • Addons " +
+                                        "$addonCompleted/$addonTotal • " +
+                                        "Plugins $pluginCompleted/$pluginTotal"
+                                )
+                            }
+                    }.getOrElse {
+                        emptyList()
+                    }
+                }
+
+            val pluginDeferred =
+                async {
+                    if (
+                        !pluginStore
+                            .pluginsEnabled() ||
+                        pluginStore
+                            .repositories()
+                            .isEmpty()
+                    ) {
+                        return@async null
+                    }
+
+                    val tmdbId =
+                        runCatching {
+                            TmdbResolver.resolve(
+                                media =
+                                    item,
+                                apiKey =
+                                    pluginStore
+                                        .tmdbApiKey(),
+                            )
+                        }.getOrNull()
+
+                    if (tmdbId == null) {
+                        sourcePickerNotice =
+                            "Plugin providers skipped: VUEO could not resolve a TMDB ID. Add your TMDB API key in Settings > Enhancements > TMDB."
+
+                        return@async null
+                    }
+
+                    val mediaType =
+                        if (
+                            item.type ==
+                            "series"
+                        ) {
+                            "tv"
+                        } else {
+                            "movie"
+                        }
+
+                    runCatching {
+                        pluginEngine
+                            .discoverProgressive(
+                                tmdbId =
+                                    tmdbId,
+                                mediaType =
+                                    mediaType,
+                                season =
+                                    targetEpisode
+                                        ?.season,
+                                episode =
+                                    targetEpisode
+                                        ?.episode,
+                            ) { progress ->
+                                freshPluginStreams =
+                                    progress
+                                        .result
+                                        .streams
+
+                                pluginRawCount =
+                                    freshPluginStreams
+                                        .size
+
+                                pluginCompleted =
+                                    progress
+                                        .completedProviders
+
+                                pluginTotal =
+                                    progress
+                                        .totalProviders
+
+                                publish(
+                                    "Searching • Addons " +
+                                        "$addonCompleted/$addonTotal • " +
+                                        "Plugins $pluginCompleted/$pluginTotal • " +
+                                        "${
+                                            SourceCleaner.clean(
+                                                sources =
+                                                    freshAddonStreams +
+                                                        freshPluginStreams,
+                                                preferredQuality =
+                                                    preferredSourceQuality,
+                                            ).size
+                                        } fresh sources"
+                                )
+                            }
+                    }.getOrNull()
+                }
+
+            val finalAddonStreams =
+                addonDeferred.await()
+
+            val pluginResult =
+                pluginDeferred.await()
+
+            sourcePickerSubtitles =
+                subtitlesDeferred.await()
+
+            freshAddonStreams =
+                finalAddonStreams
+
+            if (pluginResult != null) {
+                freshPluginStreams =
+                    pluginResult.streams
+
+                pluginRawCount =
+                    pluginResult.streams.size
+
+                sourcePickerNotice =
+                    "Plugins: ${pluginResult.attemptedProviders} checked • " +
+                        "${pluginResult.successfulProviders} online • " +
+                        "${pluginResult.slowProviders} slow • " +
+                        "${pluginResult.noResultProviders} no results • " +
+                        "${pluginResult.needsSetupProviders} setup • " +
+                        "${pluginResult.unavailableProviders} unavailable • " +
+                        "${pluginResult.blockedProviders} blocked • " +
+                        "${pluginResult.timeoutProviders} timeout • " +
+                        "${pluginResult.failedProviders} failed."
+            }
+
+            val freshFinal =
+                SourceCleaner.clean(
+                    sources =
+                        freshAddonStreams +
+                            freshPluginStreams,
+                    preferredQuality =
+                        preferredSourceQuality,
+                )
+
+            val finalStreams =
+                if (
+                    freshFinal.isNotEmpty()
+                ) {
+                    freshFinal
+                } else {
+                    cachedStreams
+                }
+
+            sourcePickerStreams =
+                finalStreams
+
+            sourcePickerRawCount =
+                maxOf(
+                    cached?.rawCount
+                        ?: 0,
+                    addonRawCount +
+                        pluginRawCount,
+                )
+
+            sourcePickerSearching =
+                false
+
+            loadingStreams = false
+
+            sourcePickerProgress =
+                if (
+                    finalStreams.isEmpty()
+                ) {
+                    "Search complete • no sources found"
+                } else {
+                    "Search complete • ${finalStreams.size} unique sources"
+                }
+
+            if (
+                finalStreams.isNotEmpty()
+            ) {
+                SourceDiscoveryCache.put(
+                    key =
+                        cacheKey,
+                    streams =
+                        finalStreams,
+                    rawCount =
+                        sourcePickerRawCount,
+                    notice =
+                        sourcePickerNotice,
+                )
+            }
+        }
+    }
+
     val playbackSource = selectedPlaybackSource
     val playbackVideoId = selectedPlaybackVideoId
 
@@ -4468,6 +4849,36 @@ private fun MediaDetailsScreen(
     }
 
     if (playbackSource != null && playbackVideoId != null) {
+        val nextEpisode =
+            if (
+                item.type == "series" &&
+                selectedEpisode != null
+            ) {
+                val currentEpisode =
+                    selectedEpisode!!
+
+                item.episodes
+                    .sortedWith(
+                        compareBy<EpisodeItem> {
+                            it.season
+                        }.thenBy {
+                            it.episode
+                        }
+                    )
+                    .firstOrNull { candidate ->
+                        candidate.season >
+                            currentEpisode.season ||
+                            (
+                                candidate.season ==
+                                    currentEpisode.season &&
+                                    candidate.episode >
+                                        currentEpisode.episode
+                            )
+                    }
+            } else {
+                null
+            }
+
         PlayerScreen(
             settingsStore =
                 settingsStore,
@@ -4482,14 +4893,44 @@ private fun MediaDetailsScreen(
                 playbackVideoId,
             episode =
                 selectedEpisode,
+            nextEpisode =
+                nextEpisode,
             source = playbackSource,
+            availableSources =
+                sourcePickerStreams
+                    .orEmpty(),
             subtitles =
                 sourcePickerSubtitles,
+            initialPositionMs =
+                selectedPlaybackStartPositionMs,
             onLibraryChanged =
                 onLibraryChanged,
+            onSwitchSource = {
+                nextSource,
+                positionMs ->
+                selectedPlaybackStartPositionMs =
+                    positionMs
+                selectedPlaybackSource =
+                    nextSource
+            },
+            onNextEpisode = { next ->
+                selectedSeason =
+                    next.season
+                selectedEpisode =
+                    next
+                selectedPlaybackSource =
+                    null
+                selectedPlaybackVideoId =
+                    null
+                selectedPlaybackStartPositionMs =
+                    0L
+                startSourceDiscovery(next)
+            },
             onBack = {
                 selectedPlaybackSource = null
                 selectedPlaybackVideoId = null
+                selectedPlaybackStartPositionMs =
+                    0L
             },
         )
         return
@@ -4524,6 +4965,8 @@ private fun MediaDetailsScreen(
                 val videoId = selectedVideoId(item, selectedEpisode)
 
                 if (videoId != null && source.isDirectPlayable) {
+                    selectedPlaybackStartPositionMs =
+                        0L
                     selectedPlaybackVideoId = videoId
                     selectedPlaybackSource = source
                 }
@@ -4861,361 +5304,10 @@ private fun MediaDetailsScreen(
                         videoId != null &&
                         (!seriesNeedsEpisode || selectedEpisode != null),
 onClick = {
-    val targetVideoId =
-        videoId
-            ?: return@Button
+    startSourceDiscovery(
+        selectedEpisode
+    )
 
-    sourceDiscoveryJob
-        ?.cancel()
-
-    val cacheKey =
-        SourceDiscoveryCache.key(
-            mediaType =
-                item.type,
-            mediaId =
-                item.id,
-            videoId =
-                targetVideoId,
-        )
-
-    val cached =
-        SourceDiscoveryCache
-            .get(cacheKey)
-
-    sourcePickerStreams =
-        cached?.streams
-            ?: emptyList()
-
-    sourcePickerRawCount =
-        cached?.rawCount
-            ?: 0
-
-    sourcePickerNotice =
-        cached?.notice
-
-    sourcePickerSearching =
-        true
-
-    sourcePickerFirstResultMs =
-        null
-
-    sourcePickerProgress =
-        if (cached != null) {
-            "Recent sources loaded instantly • refreshing in background"
-        } else {
-            "Starting source discovery…"
-        }
-
-    loadingStreams = true
-    sourceStatus = null
-
-    sourceDiscoveryJob =
-        scope.launch {
-            val startedAt =
-                System.nanoTime()
-
-            val cachedStreams =
-                cached?.streams
-                    .orEmpty()
-
-            var freshAddonStreams =
-                emptyList<StreamSource>()
-
-            var freshPluginStreams =
-                emptyList<StreamSource>()
-
-            var addonRawCount = 0
-            var pluginRawCount = 0
-
-            var addonCompleted = 0
-            var addonTotal = 0
-
-            var pluginCompleted = 0
-            var pluginTotal = 0
-
-            fun elapsedMs(): Long =
-                (
-                    System.nanoTime() -
-                        startedAt
-                ) / 1_000_000L
-
-            fun publish(
-                progress: String,
-            ) {
-                val fresh =
-                    SourceCleaner.clean(
-                        sources =
-                            freshAddonStreams +
-                                freshPluginStreams,
-                        preferredQuality =
-                            preferredSourceQuality,
-                    )
-
-                val display =
-                    if (
-                        sourcePickerSearching
-                    ) {
-                        SourceCleaner.clean(
-                            sources =
-                                cachedStreams +
-                                    fresh,
-                            preferredQuality =
-                                preferredSourceQuality,
-                        )
-                    } else {
-                        fresh
-                    }
-
-                if (
-                    sourcePickerFirstResultMs ==
-                    null &&
-                    display.isNotEmpty() &&
-                    cachedStreams.isEmpty()
-                ) {
-                    sourcePickerFirstResultMs =
-                        elapsedMs()
-                }
-
-                sourcePickerStreams =
-                    display
-
-                sourcePickerRawCount =
-                    maxOf(
-                        cached?.rawCount
-                            ?: 0,
-                        addonRawCount +
-                            pluginRawCount,
-                    )
-
-                sourcePickerProgress =
-                    progress
-            }
-
-            val subtitlesDeferred =
-                async {
-                    runCatching {
-                        engine.resolveSubtitles(
-                            type =
-                                item.type,
-                            videoId =
-                                targetVideoId,
-                        )
-                    }.getOrDefault(
-                        emptyList()
-                    )
-                }
-
-            val addonDeferred =
-                async {
-                    runCatching {
-                        engine
-                            .resolveStreamsProgressive(
-                                type =
-                                    item.type,
-                                videoId =
-                                    targetVideoId,
-                            ) { progress ->
-                                freshAddonStreams =
-                                    progress.streams
-
-                                addonRawCount =
-                                    progress.rawCount
-
-                                addonCompleted =
-                                    progress.completedAddons
-
-                                addonTotal =
-                                    progress.totalAddons
-
-                                publish(
-                                    "Searching • Addons " +
-                                        "$addonCompleted/$addonTotal • " +
-                                        "Plugins $pluginCompleted/$pluginTotal"
-                                )
-                            }
-                    }.getOrElse {
-                        emptyList()
-                    }
-                }
-
-            val pluginDeferred =
-                async {
-                    if (
-                        !pluginStore
-                            .pluginsEnabled() ||
-                        pluginStore
-                            .repositories()
-                            .isEmpty()
-                    ) {
-                        return@async null
-                    }
-
-                    val tmdbId =
-                        runCatching {
-                            TmdbResolver.resolve(
-                                media =
-                                    item,
-                                apiKey =
-                                    pluginStore
-                                        .tmdbApiKey(),
-                            )
-                        }.getOrNull()
-
-                    if (tmdbId == null) {
-                        sourcePickerNotice =
-                            "Plugin providers skipped: VUEO could not resolve a TMDB ID. Add your TMDB API key in Settings > Enhancements > TMDB."
-
-                        return@async null
-                    }
-
-                    val mediaType =
-                        if (
-                            item.type ==
-                            "series"
-                        ) {
-                            "tv"
-                        } else {
-                            "movie"
-                        }
-
-                    runCatching {
-                        pluginEngine
-                            .discoverProgressive(
-                                tmdbId =
-                                    tmdbId,
-                                mediaType =
-                                    mediaType,
-                                season =
-                                    selectedEpisode
-                                        ?.season,
-                                episode =
-                                    selectedEpisode
-                                        ?.episode,
-                            ) { progress ->
-                                freshPluginStreams =
-                                    progress
-                                        .result
-                                        .streams
-
-                                pluginRawCount =
-                                    freshPluginStreams
-                                        .size
-
-                                pluginCompleted =
-                                    progress
-                                        .completedProviders
-
-                                pluginTotal =
-                                    progress
-                                        .totalProviders
-
-                                publish(
-                                    "Searching • Addons " +
-                                        "$addonCompleted/$addonTotal • " +
-                                        "Plugins $pluginCompleted/$pluginTotal • " +
-                                        "${
-                                            SourceCleaner.clean(
-                                                sources =
-                                                    freshAddonStreams +
-                                                        freshPluginStreams,
-                                                preferredQuality =
-                                                    preferredSourceQuality,
-                                            ).size
-                                        } fresh sources"
-                                )
-                            }
-                    }.getOrNull()
-                }
-
-            val finalAddonStreams =
-                addonDeferred.await()
-
-            val pluginResult =
-                pluginDeferred.await()
-
-            sourcePickerSubtitles =
-                subtitlesDeferred.await()
-
-            freshAddonStreams =
-                finalAddonStreams
-
-            if (pluginResult != null) {
-                freshPluginStreams =
-                    pluginResult.streams
-
-                pluginRawCount =
-                    pluginResult.streams.size
-
-                sourcePickerNotice =
-                    "Plugins: ${pluginResult.attemptedProviders} checked • " +
-                        "${pluginResult.successfulProviders} online • " +
-                        "${pluginResult.slowProviders} slow • " +
-                        "${pluginResult.noResultProviders} no results • " +
-                        "${pluginResult.needsSetupProviders} setup • " +
-                        "${pluginResult.unavailableProviders} unavailable • " +
-                        "${pluginResult.blockedProviders} blocked • " +
-                        "${pluginResult.timeoutProviders} timeout • " +
-                        "${pluginResult.failedProviders} failed."
-            }
-
-            val freshFinal =
-                SourceCleaner.clean(
-                    sources =
-                        freshAddonStreams +
-                            freshPluginStreams,
-                    preferredQuality =
-                        preferredSourceQuality,
-                )
-
-            val finalStreams =
-                if (
-                    freshFinal.isNotEmpty()
-                ) {
-                    freshFinal
-                } else {
-                    cachedStreams
-                }
-
-            sourcePickerStreams =
-                finalStreams
-
-            sourcePickerRawCount =
-                maxOf(
-                    cached?.rawCount
-                        ?: 0,
-                    addonRawCount +
-                        pluginRawCount,
-                )
-
-            sourcePickerSearching =
-                false
-
-            loadingStreams = false
-
-            sourcePickerProgress =
-                if (
-                    finalStreams.isEmpty()
-                ) {
-                    "Search complete • no sources found"
-                } else {
-                    "Search complete • ${finalStreams.size} unique sources"
-                }
-
-            if (
-                finalStreams.isNotEmpty()
-            ) {
-                SourceDiscoveryCache.put(
-                    key =
-                        cacheKey,
-                    streams =
-                        finalStreams,
-                    rawCount =
-                        sourcePickerRawCount,
-                    notice =
-                        sourcePickerNotice,
-                )
-            }
-        }
 },
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null)
@@ -6120,86 +6212,137 @@ private fun PlayerScreen(
     media: MediaItem,
     videoId: String,
     episode: EpisodeItem?,
+    nextEpisode: EpisodeItem?,
     source: StreamSource,
+    availableSources: List<StreamSource>,
     subtitles: List<SubtitleTrack>,
+    initialPositionMs: Long,
     onLibraryChanged: () -> Unit,
+    onSwitchSource: (StreamSource, Long) -> Unit,
+    onNextEpisode: (EpisodeItem) -> Unit,
     onBack: () -> Unit,
 ) {
-    val context =
-        LocalContext.current
+    val context = LocalContext.current
+    val activity = context as? Activity
+    val audioManager = remember {
+        context.getSystemService(
+            Context.AUDIO_SERVICE
+        ) as AudioManager
+    }
+    val playbackStore = remember {
+        PlaybackStore(
+            context.applicationContext
+        )
+    }
+    val libraryStore = remember {
+        LibraryStore(
+            context.applicationContext
+        )
+    }
 
-    val playbackStore =
-        remember {
-            PlaybackStore(
-                context.applicationContext
-            )
-        }
-
-    val libraryStore =
-        remember {
-            LibraryStore(
-                context.applicationContext
-            )
-        }
-
-    val savedPositionMs =
-        remember(mediaKey) {
-            playbackStore.positionMs(
-                mediaKey
-            )
-        }
-
-    val resumePlaybackEnabled =
-        remember(mediaKey) {
-            settingsStore
-                .resumePlaybackEnabled()
-        }
-
+    val savedPositionMs = remember(mediaKey) {
+        playbackStore.positionMs(mediaKey)
+    }
+    val resumePlaybackEnabled = remember(mediaKey) {
+        settingsStore.resumePlaybackEnabled()
+    }
+    val sourceSwitchPosition = initialPositionMs
+        .coerceAtLeast(0L)
+    val shouldPromptResume =
+        sourceSwitchPosition <= 5_000L &&
+            resumePlaybackEnabled &&
+            savedPositionMs > 5_000L
     val initialPlaybackPositionMs =
-        if (
-            resumePlaybackEnabled
-        ) {
+        if (sourceSwitchPosition > 5_000L) {
+            sourceSwitchPosition
+        } else if (!shouldPromptResume && resumePlaybackEnabled) {
             savedPositionMs
         } else {
             0L
         }
 
     var resumePromptVisible by remember(
-        mediaKey
+        mediaKey,
+        source.url,
+        initialPositionMs,
     ) {
-        mutableStateOf(
-            resumePlaybackEnabled &&
-                savedPositionMs >
-                    5_000L
-        )
+        mutableStateOf(shouldPromptResume)
     }
-
     var playbackError by remember {
         mutableStateOf<String?>(null)
     }
-
     var isBuffering by remember {
         mutableStateOf(false)
     }
-
+    var isPlaying by remember {
+        mutableStateOf(false)
+    }
+    var currentPositionMs by remember {
+        mutableStateOf(initialPlaybackPositionMs)
+    }
+    var durationMs by remember {
+        mutableStateOf(0L)
+    }
+    var controlsVisible by remember {
+        mutableStateOf(true)
+    }
+    var controlsLocked by remember {
+        mutableStateOf(false)
+    }
+    var zoomed by remember {
+        mutableStateOf(false)
+    }
+    var gestureMessage by remember {
+        mutableStateOf<String?>(null)
+    }
+    var gestureSeekPositionMs by remember {
+        mutableStateOf<Long?>(null)
+    }
     var audioTracks by remember {
-        mutableStateOf<
-            List<PlayerTrackChoice>
-        >(emptyList())
+        mutableStateOf<List<PlayerTrackChoice>>(
+            emptyList()
+        )
     }
-
     var textTracks by remember {
-        mutableStateOf<
-            List<PlayerTrackChoice>
-        >(emptyList())
+        mutableStateOf<List<PlayerTrackChoice>>(
+            emptyList()
+        )
     }
-
     var showAudioDialog by remember {
         mutableStateOf(false)
     }
-
     var showSubtitleDialog by remember {
         mutableStateOf(false)
+    }
+    var showSourceDialog by remember {
+        mutableStateOf(false)
+    }
+    var showSpeedDialog by remember {
+        mutableStateOf(false)
+    }
+    var playbackSpeed by remember {
+        mutableStateOf(1f)
+    }
+    var nextEpisodeCountdown by remember {
+        mutableStateOf<Int?>(null)
+    }
+    var autoRecoveryAttempted by remember(
+        source.url
+    ) {
+        mutableStateOf(false)
+    }
+
+    val playableSources = remember(
+        availableSources,
+        source.url,
+    ) {
+        availableSources
+            .filter {
+                it.isDirectPlayable
+            }
+            .distinctBy {
+                it.url
+            }
     }
 
     BackHandler {
@@ -6210,8 +6353,16 @@ private fun PlayerScreen(
             showSubtitleDialog ->
                 showSubtitleDialog = false
 
-            else ->
-                onBack()
+            showSourceDialog ->
+                showSourceDialog = false
+
+            showSpeedDialog ->
+                showSpeedDialog = false
+
+            controlsLocked ->
+                controlsLocked = false
+
+            else -> onBack()
         }
     }
 
@@ -6219,25 +6370,21 @@ private fun PlayerScreen(
         source.url,
         source.headers,
         mediaKey,
+        initialPositionMs,
     ) {
         val httpFactory =
             DefaultHttpDataSource.Factory()
                 .setUserAgent(
                     "VUEO/${BuildConfig.VERSION_NAME}"
                 )
-                .setAllowCrossProtocolRedirects(
-                    true
-                )
+                .setAllowCrossProtocolRedirects(true)
                 .setDefaultRequestProperties(
                     source.headers
                 )
 
         val mediaSourceFactory =
-            DefaultMediaSourceFactory(
-                context
-            ).setDataSourceFactory(
-                httpFactory
-            )
+            DefaultMediaSourceFactory(context)
+                .setDataSourceFactory(httpFactory)
 
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(
@@ -6245,14 +6392,18 @@ private fun PlayerScreen(
             )
             .build()
             .apply {
-                val mediaItem =
+                setAudioAttributes(
+                    AudioAttributes.DEFAULT,
+                    true,
+                )
+
+                val playerMediaItem =
                     buildPlayerMediaItem(
                         sourceUrl =
                             requireNotNull(
                                 source.url
                             ),
-                        subtitles =
-                            subtitles,
+                        subtitles = subtitles,
                         preferredLanguageCode =
                             settingsStore
                                 .preferredSubtitleLanguage()
@@ -6272,7 +6423,10 @@ private fun PlayerScreen(
                                 .embeddedSubtitlePriority(),
                     )
 
-                setMediaItem(mediaItem)
+                setMediaItem(
+                    playerMediaItem,
+                    initialPlaybackPositionMs,
+                )
 
                 trackSelectionParameters =
                     trackSelectionParameters
@@ -6285,11 +6439,8 @@ private fun PlayerScreen(
                         .build()
 
                 prepare()
-
                 playWhenReady =
-                    !resumePlaybackEnabled ||
-                        savedPositionMs <=
-                            5_000L
+                    !resumePromptVisible
             }
     }
 
@@ -6297,83 +6448,88 @@ private fun PlayerScreen(
         libraryStore.recordPlayback(
             media = media,
             videoId = videoId,
-            episodeTitle =
-                episode?.title,
-            season =
-                episode?.season,
-            episode =
-                episode?.episode,
-            positionMs =
-                player.currentPosition,
-            durationMs =
-                player.duration,
+            episodeTitle = episode?.title,
+            season = episode?.season,
+            episode = episode?.episode,
+            positionMs = player.currentPosition,
+            durationMs = player.duration,
         )
     }
 
-    LaunchedEffect(
-        mediaKey,
-    ) {
-        libraryStore.recordPlayback(
-            media = media,
-            videoId = videoId,
-            episodeTitle =
-                episode?.title,
-            season =
-                episode?.season,
-            episode =
-                episode?.episode,
-            positionMs =
-                initialPlaybackPositionMs,
-            durationMs =
-                playbackStore.durationMs(
-                    mediaKey
-                ),
+    fun savePosition() {
+        playbackStore.savePositionMs(
+            mediaKey = mediaKey,
+            positionMs = player.currentPosition,
+            durationMs = player.duration,
         )
+        recordLibraryProgress()
     }
 
     fun refreshTrackChoices(
-        tracks: Tracks =
-            player.currentTracks,
+        tracks: Tracks = player.currentTracks,
     ) {
-        audioTracks =
-            playerTrackChoices(
-                tracks = tracks,
-                trackType =
-                    C.TRACK_TYPE_AUDIO,
-            )
+        audioTracks = playerTrackChoices(
+            tracks = tracks,
+            trackType = C.TRACK_TYPE_AUDIO,
+        )
+        textTracks = playerTrackChoices(
+            tracks = tracks,
+            trackType = C.TRACK_TYPE_TEXT,
+        )
+    }
 
-        textTracks =
-            playerTrackChoices(
-                tracks = tracks,
-                trackType =
-                    C.TRACK_TYPE_TEXT,
-            )
+    LaunchedEffect(mediaKey) {
+        libraryStore.recordPlayback(
+            media = media,
+            videoId = videoId,
+            episodeTitle = episode?.title,
+            season = episode?.season,
+            episode = episode?.episode,
+            positionMs = initialPlaybackPositionMs,
+            durationMs =
+                playbackStore.durationMs(mediaKey),
+        )
     }
 
     DisposableEffect(
         player,
         mediaKey,
+        source.url,
     ) {
         val listener =
             object : Player.Listener {
                 override fun onPlayerError(
-                    error:
-                        PlaybackException,
+                    error: PlaybackException,
                 ) {
-                    playbackError =
-                        friendlyPlaybackError(
-                            error
-                        )
-
                     isBuffering = false
+                    playbackError =
+                        friendlyPlaybackError(error)
+
+                    val alternate =
+                        playableSources
+                            .firstOrNull {
+                                it.url != source.url
+                            }
+
+                    if (
+                        settingsStore
+                            .autoSourceRecoveryEnabled() &&
+                        !autoRecoveryAttempted &&
+                        alternate != null
+                    ) {
+                        autoRecoveryAttempted = true
+                        savePosition()
+                        onSwitchSource(
+                            alternate,
+                            player.currentPosition,
+                        )
+                    }
                 }
 
                 override fun onTracksChanged(
                     tracks: Tracks,
                 ) {
-                    refreshTrackChoices(
-                        tracks
-                    )
+                    refreshTrackChoices(tracks)
                 }
 
                 override fun onPlaybackStateChanged(
@@ -6385,92 +6541,58 @@ private fun PlayerScreen(
 
                     if (
                         playbackState ==
-                        Player.STATE_READY
+                            Player.STATE_READY
                     ) {
                         playbackError = null
                     }
 
                     if (
                         playbackState ==
-                        Player.STATE_ENDED
+                            Player.STATE_ENDED
                     ) {
-                        playbackStore
-                            .clearPosition(
-                                mediaKey
-                            )
-
-                        libraryStore
-                            .recordPlayback(
-                                media = media,
-                                videoId =
-                                    videoId,
-                                episodeTitle =
-                                    episode?.title,
-                                season =
-                                    episode?.season,
-                                episode =
-                                    episode?.episode,
-                                positionMs =
-                                    player.duration
-                                        .coerceAtLeast(
-                                            0L
-                                        ),
-                                durationMs =
-                                    player.duration
-                                        .coerceAtLeast(
-                                            0L
-                                        ),
-                            )
-
+                        playbackStore.clearPosition(
+                            mediaKey
+                        )
+                        libraryStore.recordPlayback(
+                            media = media,
+                            videoId = videoId,
+                            episodeTitle =
+                                episode?.title,
+                            season = episode?.season,
+                            episode = episode?.episode,
+                            positionMs =
+                                player.duration
+                                    .coerceAtLeast(0L),
+                            durationMs =
+                                player.duration
+                                    .coerceAtLeast(0L),
+                        )
                         onLibraryChanged()
+                        if (nextEpisode != null) {
+                            nextEpisodeCountdown = 8
+                            controlsVisible = true
+                        }
                     }
                 }
 
                 override fun onIsPlayingChanged(
-                    isPlaying: Boolean,
+                    playing: Boolean,
                 ) {
-                    if (!isPlaying) {
-                        playbackStore
-                            .savePositionMs(
-                                mediaKey =
-                                    mediaKey,
-                                positionMs =
-                                    player
-                                        .currentPosition,
-                                durationMs =
-                                    player.duration,
-                            )
-
-                        recordLibraryProgress()
+                    isPlaying = playing
+                    if (!playing) {
+                        savePosition()
+                        controlsVisible = true
                     }
                 }
             }
 
-        player.addListener(
-            listener
-        )
-
+        player.addListener(listener)
         refreshTrackChoices()
 
         onDispose {
-            player.removeListener(
-                listener
-            )
-
-            playbackStore
-                .savePositionMs(
-                    mediaKey =
-                        mediaKey,
-                    positionMs =
-                        player
-                            .currentPosition,
-                    durationMs =
-                        player.duration,
-                )
-
-            recordLibraryProgress()
+            player.removeListener(listener)
+            savePosition()
             onLibraryChanged()
-
             player.release()
         }
     }
@@ -6480,48 +6602,79 @@ private fun PlayerScreen(
         mediaKey,
     ) {
         var librarySaveTicks = 0
-
         while (true) {
-            delay(10_000L)
-
-            playbackStore
-                .savePositionMs(
-                    mediaKey =
-                        mediaKey,
-                    positionMs =
-                        player.currentPosition,
-                    durationMs =
-                        player.duration,
-                )
+            delay(500L)
+            currentPositionMs =
+                player.currentPosition
+                    .coerceAtLeast(0L)
+            durationMs =
+                player.duration
+                    .coerceAtLeast(0L)
 
             librarySaveTicks++
-
-            if (
-                librarySaveTicks >= 3
-            ) {
-                recordLibraryProgress()
+            if (librarySaveTicks >= 20) {
+                playbackStore.savePositionMs(
+                    mediaKey = mediaKey,
+                    positionMs =
+                        player.currentPosition,
+                    durationMs = player.duration,
+                )
                 librarySaveTicks = 0
             }
         }
     }
 
+    LaunchedEffect(
+        controlsVisible,
+        isPlaying,
+        controlsLocked,
+    ) {
+        if (
+            controlsVisible &&
+            isPlaying &&
+            !controlsLocked
+        ) {
+            delay(3_000L)
+            controlsVisible = false
+        }
+    }
+
+    LaunchedEffect(nextEpisodeCountdown) {
+        val count = nextEpisodeCountdown
+        if (count != null && count > 0) {
+            delay(1_000L)
+            nextEpisodeCountdown = count - 1
+        } else if (
+            count == 0 &&
+            nextEpisode != null
+        ) {
+            nextEpisodeCountdown = null
+            onNextEpisode(nextEpisode)
+        }
+    }
+
     PlayerFullscreenEffect(
         context = context,
+        orientation =
+            settingsStore.playerOrientation(),
+    )
+
+    PlayerPictureInPictureEffect(
+        activity = activity,
     )
 
     if (resumePromptVisible) {
         AlertDialog(
             onDismissRequest = onBack,
             title = {
-                Text("Resume playback?")
+                Text("Resume watching?")
             },
             text = {
                 Text(
                     "Continue from " +
                         formatPlaybackTime(
                             savedPositionMs
-                        ) +
-                        " or start from the beginning."
+                        )
                 )
             },
             confirmButton = {
@@ -6530,10 +6683,8 @@ private fun PlayerScreen(
                         player.seekTo(
                             savedPositionMs
                         )
-                        player.playWhenReady =
-                            true
-                        resumePromptVisible =
-                            false
+                        player.playWhenReady = true
+                        resumePromptVisible = false
                     },
                 ) {
                     Text(
@@ -6548,14 +6699,10 @@ private fun PlayerScreen(
                 TextButton(
                     onClick = {
                         playbackStore
-                            .clearPosition(
-                                mediaKey
-                            )
+                            .clearPosition(mediaKey)
                         player.seekTo(0L)
-                        player.playWhenReady =
-                            true
-                        resumePromptVisible =
-                            false
+                        player.playWhenReady = true
+                        resumePromptVisible = false
                     },
                 ) {
                     Text("Start Over")
@@ -6572,25 +6719,18 @@ private fun PlayerScreen(
             offLabel = null,
             onAutomatic = {
                 clearTrackOverride(
-                    player =
-                        player,
-                    trackType =
-                        C.TRACK_TYPE_AUDIO,
+                    player = player,
+                    trackType = C.TRACK_TYPE_AUDIO,
                     disable = false,
                 )
                 showAudioDialog = false
             },
             onOff = null,
-            onSelect = {
-                choice ->
-
+            onSelect = { choice ->
                 applyTrackChoice(
-                    player =
-                        player,
-                    trackType =
-                        C.TRACK_TYPE_AUDIO,
-                    choice =
-                        choice,
+                    player = player,
+                    trackType = C.TRACK_TYPE_AUDIO,
+                    choice = choice,
                 )
                 showAudioDialog = false
             },
@@ -6608,34 +6748,25 @@ private fun PlayerScreen(
             offLabel = "Off",
             onAutomatic = {
                 clearTrackOverride(
-                    player =
-                        player,
-                    trackType =
-                        C.TRACK_TYPE_TEXT,
+                    player = player,
+                    trackType = C.TRACK_TYPE_TEXT,
                     disable = false,
                 )
                 showSubtitleDialog = false
             },
             onOff = {
                 clearTrackOverride(
-                    player =
-                        player,
-                    trackType =
-                        C.TRACK_TYPE_TEXT,
+                    player = player,
+                    trackType = C.TRACK_TYPE_TEXT,
                     disable = true,
                 )
                 showSubtitleDialog = false
             },
-            onSelect = {
-                choice ->
-
+            onSelect = { choice ->
                 applyTrackChoice(
-                    player =
-                        player,
-                    trackType =
-                        C.TRACK_TYPE_TEXT,
-                    choice =
-                        choice,
+                    player = player,
+                    trackType = C.TRACK_TYPE_TEXT,
+                    choice = choice,
                 )
                 showSubtitleDialog = false
             },
@@ -6645,319 +6776,928 @@ private fun PlayerScreen(
         )
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black),
-    ) {
-        AndroidView(
-            modifier =
-                Modifier.fillMaxSize(),
-            factory = {
-                playerContext ->
-
-                PlayerView(
-                    playerContext
-                ).apply {
-                    this.player =
-                        player
-                    useController = true
-                    keepScreenOn = true
-                }
+    if (showSourceDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showSourceDialog = false
             },
-            update = {
-                view ->
-
-                view.player = player
+            title = {
+                Text("Sources")
             },
-        )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(
-                    Alignment.TopCenter
-                )
-                .background(
-                    Color.Black.copy(
-                        alpha = .58f
-                    )
-                )
-                .padding(
-                    horizontal = 8.dp,
-                    vertical = 6.dp,
-                ),
-            verticalAlignment =
-                Alignment.CenterVertically,
-        ) {
-            IconButton(
-                onClick = onBack,
-            ) {
-                Icon(
-                    Icons.Default.ArrowBack,
-                    contentDescription =
-                        "Back",
-                    tint = Color.White,
-                )
-            }
-
-            Column(
-                modifier =
-                    Modifier.weight(1f),
-            ) {
-                Text(
-                    title,
-                    color = Color.White,
-                    fontWeight =
-                        FontWeight.Bold,
-                    maxLines = 1,
-                    overflow =
-                        TextOverflow.Ellipsis,
-                )
-
-                Text(
-                    source.providerName +
-                        " • " +
-                        (
-                            source.quality
-                                ?: "Auto"
-                        ),
-                    color =
-                        Color.White.copy(
-                            alpha = .62f
-                        ),
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow =
-                        TextOverflow.Ellipsis,
-                )
-            }
-
-            if (isBuffering) {
-                Text(
-                    "BUFFERING",
-                    color =
-                        Color.White.copy(
-                            alpha = .72f
-                        ),
-                    fontSize = 10.sp,
-                    fontWeight =
-                        FontWeight.Bold,
-                )
-            }
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(
-                    Alignment.BottomCenter
-                )
-                .background(
-                    Color.Black.copy(
-                        alpha = .62f
-                    )
-                )
-                .padding(12.dp),
-            verticalArrangement =
-                Arrangement.spacedBy(8.dp),
-        ) {
-            playbackError?.let {
-                error ->
-
-                ElevatedCard(
+            text = {
+                LazyColumn(
                     modifier =
-                        Modifier.fillMaxWidth(),
+                        Modifier.heightIn(
+                            max = 420.dp
+                        ),
+                    verticalArrangement =
+                        Arrangement.spacedBy(6.dp),
                 ) {
-                    Column(
-                        modifier =
-                            Modifier.padding(
-                                14.dp
-                            ),
-                        verticalArrangement =
-                            Arrangement.spacedBy(
-                                8.dp
-                            ),
-                    ) {
-                        Text(
-                            "Playback problem",
-                            fontWeight =
-                                FontWeight.Black,
-                        )
-
-                        Text(
-                            error,
+                    items(
+                        playableSources,
+                        key = {
+                            it.url ?: it.name
+                        },
+                    ) { candidate ->
+                        val current =
+                            candidate.url == source.url
+                        Surface(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable(
+                                        enabled = !current,
+                                    ) {
+                                        savePosition()
+                                        showSourceDialog = false
+                                        onSwitchSource(
+                                            candidate,
+                                            player.currentPosition,
+                                        )
+                                    },
+                            shape =
+                                RoundedCornerShape(14.dp),
                             color =
-                                MaterialTheme
-                                    .colorScheme
-                                    .onSurface
-                                    .copy(
-                                        alpha = .72f
-                                    ),
-                            fontSize = 12.sp,
-                        )
-
-                        Row(
-                            horizontalArrangement =
-                                Arrangement.spacedBy(
-                                    8.dp
-                                ),
-                        ) {
-                            Button(
-                                onClick = {
-                                    playbackError =
-                                        null
-                                    player.prepare()
-                                    player.playWhenReady =
-                                        true
+                                if (current) {
+                                    VueoPalette.Accent
+                                        .copy(alpha = .14f)
+                                } else {
+                                    VueoPalette.SurfaceStrong
                                 },
-                            ) {
-                                Text("Retry")
-                            }
-
-                            OutlinedButton(
-                                onClick = onBack,
+                        ) {
+                            Column(
+                                modifier =
+                                    Modifier.padding(12.dp),
                             ) {
                                 Text(
-                                    "Other Source"
+                                    buildString {
+                                        if (current) {
+                                            append("✓ ")
+                                        }
+                                        append(
+                                            candidate.quality
+                                                ?: "Auto"
+                                        )
+                                        append(" • ")
+                                        append(
+                                            candidate.providerName
+                                        )
+                                    },
+                                    color = Color.White,
+                                    fontWeight =
+                                        FontWeight.Bold,
+                                )
+                                Text(
+                                    listOfNotNull(
+                                        candidate.codec,
+                                        candidate.hdr,
+                                        candidate.audio,
+                                    ).joinToString(" • ")
+                                        .ifBlank {
+                                            "Direct playable stream"
+                                        },
+                                    color = VueoPalette.Muted,
+                                    fontSize = 11.sp,
                                 )
                             }
                         }
                     }
                 }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showSourceDialog = false
+                    },
+                ) {
+                    Text("Close")
+                }
+            },
+        )
+    }
+
+    if (showSpeedDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showSpeedDialog = false
+            },
+            title = {
+                Text("Playback Speed")
+            },
+            text = {
+                Column(
+                    verticalArrangement =
+                        Arrangement.spacedBy(4.dp),
+                ) {
+                    listOf(
+                        0.5f,
+                        0.75f,
+                        1f,
+                        1.25f,
+                        1.5f,
+                        2f,
+                    ).forEach { speed ->
+                        PlayerTrackDialogRow(
+                            label = "${speed}x",
+                            selected =
+                                playbackSpeed == speed,
+                            onClick = {
+                                playbackSpeed = speed
+                                player.setPlaybackSpeed(
+                                    speed
+                                )
+                                showSpeedDialog = false
+                            },
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showSpeedDialog = false
+                    },
+                ) {
+                    Text("Close")
+                }
+            },
+        )
+    }
+
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .pointerInput(
+                    player,
+                    durationMs,
+                    controlsLocked,
+                ) {
+                    if (controlsLocked) {
+                        return@pointerInput
+                    }
+
+                    var totalX = 0f
+                    var totalY = 0f
+                    var startX = 0f
+                    var startPosition = 0L
+                    var startVolume = 0
+                    var startBrightness = 0.5f
+                    var horizontal = false
+
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            totalX = 0f
+                            totalY = 0f
+                            startX = offset.x
+                            startPosition =
+                                player.currentPosition
+                            startVolume =
+                                audioManager
+                                    .getStreamVolume(
+                                        AudioManager.STREAM_MUSIC
+                                    )
+                            startBrightness =
+                                activity?.window
+                                    ?.attributes
+                                    ?.screenBrightness
+                                    ?.takeIf {
+                                        it >= 0f
+                                    }
+                                    ?: 0.5f
+                            horizontal = false
+                        },
+                        onDrag = { change, amount ->
+                            change.consume()
+                            totalX += amount.x
+                            totalY += amount.y
+
+                            if (
+                                kotlin.math.abs(totalX) > 18f ||
+                                kotlin.math.abs(totalY) > 18f
+                            ) {
+                                horizontal =
+                                    kotlin.math.abs(totalX) >=
+                                        kotlin.math.abs(totalY)
+                            }
+
+                            if (horizontal) {
+                                val fraction =
+                                    totalX / size.width
+                                val span =
+                                    if (durationMs > 0L) {
+                                        durationMs
+                                    } else {
+                                        60L * 60L * 1000L
+                                    }
+                                val preview =
+                                    (startPosition +
+                                        (span * fraction).toLong())
+                                        .coerceIn(
+                                            0L,
+                                            durationMs
+                                                .takeIf {
+                                                    it > 0L
+                                                }
+                                                ?: Long.MAX_VALUE,
+                                        )
+                                gestureSeekPositionMs =
+                                    preview
+                                gestureMessage =
+                                    formatPlaybackTime(
+                                        preview
+                                    ) +
+                                        " / " +
+                                        formatPlaybackTime(
+                                            durationMs
+                                        )
+                            } else {
+                                val delta =
+                                    -totalY / size.height
+                                if (startX < size.width / 2f) {
+                                    val brightness =
+                                        (startBrightness + delta)
+                                            .coerceIn(
+                                                0.02f,
+                                                1f,
+                                            )
+                                    activity?.window?.let {
+                                        window ->
+                                        val attrs =
+                                            window.attributes
+                                        attrs.screenBrightness =
+                                            brightness
+                                        window.attributes = attrs
+                                    }
+                                    gestureMessage =
+                                        "Brightness " +
+                                            "${(brightness * 100).toInt()}%"
+                                } else {
+                                    val maxVolume =
+                                        audioManager
+                                            .getStreamMaxVolume(
+                                                AudioManager.STREAM_MUSIC
+                                            )
+                                    val volume =
+                                        (startVolume +
+                                            delta * maxVolume)
+                                            .toInt()
+                                            .coerceIn(
+                                                0,
+                                                maxVolume,
+                                            )
+                                    audioManager
+                                        .setStreamVolume(
+                                            AudioManager.STREAM_MUSIC,
+                                            volume,
+                                            0,
+                                        )
+                                    gestureMessage =
+                                        "Volume " +
+                                            "${(volume * 100 / maxVolume.coerceAtLeast(1))}%"
+                                }
+                            }
+                        },
+                        onDragEnd = {
+                            gestureSeekPositionMs
+                                ?.let {
+                                    player.seekTo(it)
+                                }
+                            gestureSeekPositionMs = null
+                            gestureMessage = null
+                        },
+                        onDragCancel = {
+                            gestureSeekPositionMs = null
+                            gestureMessage = null
+                        },
+                    )
+                }
+                .pointerInput(controlsLocked) {
+                    if (controlsLocked) {
+                        return@pointerInput
+                    }
+                    detectTransformGestures {
+                        _,
+                        _,
+                        zoom,
+                        _ ->
+                        if (zoom > 1.04f) {
+                            zoomed = true
+                            gestureMessage = "Zoom"
+                        } else if (zoom < 0.96f) {
+                            zoomed = false
+                            gestureMessage = "Fit"
+                        }
+                    }
+                },
+    ) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { playerContext ->
+                PlayerView(playerContext).apply {
+                    this.player = player
+                    useController = false
+                    keepScreenOn = true
+                    resizeMode =
+                        if (zoomed) {
+                            AspectRatioFrameLayout
+                                .RESIZE_MODE_ZOOM
+                        } else {
+                            AspectRatioFrameLayout
+                                .RESIZE_MODE_FIT
+                        }
+                }
+            },
+            update = { view ->
+                view.player = player
+                view.useController = false
+                view.resizeMode =
+                    if (zoomed) {
+                        AspectRatioFrameLayout
+                            .RESIZE_MODE_ZOOM
+                    } else {
+                        AspectRatioFrameLayout
+                            .RESIZE_MODE_FIT
+                    }
+            },
+        )
+
+        if (!controlsLocked) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                PlayerTapZone(
+                    modifier = Modifier.weight(1f),
+                    onTap = {
+                        controlsVisible =
+                            !controlsVisible
+                    },
+                    onDoubleTap = {
+                        player.seekTo(
+                            (player.currentPosition -
+                                10_000L)
+                                .coerceAtLeast(0L)
+                        )
+                        gestureMessage = "-10 sec"
+                    },
+                )
+                PlayerTapZone(
+                    modifier = Modifier.weight(1f),
+                    onTap = {
+                        controlsVisible =
+                            !controlsVisible
+                    },
+                    onDoubleTap = {
+                        if (player.isPlaying) {
+                            player.pause()
+                        } else {
+                            player.play()
+                        }
+                        controlsVisible = true
+                    },
+                )
+                PlayerTapZone(
+                    modifier = Modifier.weight(1f),
+                    onTap = {
+                        controlsVisible =
+                            !controlsVisible
+                    },
+                    onDoubleTap = {
+                        player.seekTo(
+                            player.currentPosition +
+                                10_000L
+                        )
+                        gestureMessage = "+10 sec"
+                    },
+                )
+            }
+        }
+
+        if (controlsVisible && !controlsLocked) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Black.copy(
+                                    alpha = .72f
+                                ),
+                                Color.Transparent,
+                                Color.Black.copy(
+                                    alpha = .82f
+                                ),
+                            )
+                        )
+                    ),
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .padding(
+                        horizontal = 10.dp,
+                        vertical = 8.dp,
+                    ),
+                verticalAlignment =
+                    Alignment.CenterVertically,
+            ) {
+                IconButton(
+                    onClick = {
+                        savePosition()
+                        onBack()
+                    },
+                ) {
+                    Icon(
+                        Icons.Default.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color.White,
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(
+                        title,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        buildString {
+                            episode?.let {
+                                append(
+                                    "S${it.season} E${it.episode} • "
+                                )
+                            }
+                            append(source.providerName)
+                            append(" • ")
+                            append(
+                                source.quality ?: "Auto"
+                            )
+                        },
+                        color = Color.White.copy(
+                            alpha = .68f
+                        ),
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                    )
+                }
+
+                if (isBuffering) {
+                    Text(
+                        "BUFFERING",
+                        color = VueoPalette.Accent,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
             }
 
             Row(
-                modifier =
-                    Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(12.dp),
                 horizontalArrangement =
-                    Arrangement.spacedBy(
-                        8.dp
-                    ),
+                    Arrangement.spacedBy(24.dp),
+                verticalAlignment =
+                    Alignment.CenterVertically,
             ) {
-                OutlinedButton(
-                    modifier =
-                        Modifier.weight(1f),
-                    enabled =
-                        audioTracks
-                            .isNotEmpty(),
+                PlayerRoundAction(
+                    label = "-10",
                     onClick = {
-                        showAudioDialog =
-                            true
+                        player.seekTo(
+                            (player.currentPosition -
+                                10_000L)
+                                .coerceAtLeast(0L)
+                        )
                     },
-                ) {
-                    Text(
-                        if (
-                            audioTracks
-                                .isEmpty()
-                        ) {
-                            "Audio"
+                )
+                PlayerRoundAction(
+                    label =
+                        if (isPlaying) "Pause" else "Play",
+                    primary = true,
+                    onClick = {
+                        if (player.isPlaying) {
+                            player.pause()
                         } else {
-                            "Audio " +
-                                audioTracks.size
+                            player.play()
                         }
-                    )
-                }
-
-                OutlinedButton(
-                    modifier =
-                        Modifier.weight(1f),
-                    enabled =
-                        textTracks
-                            .isNotEmpty() ||
-                        subtitles
-                            .isNotEmpty(),
-                    onClick = {
-                        showSubtitleDialog =
-                            true
+                        controlsVisible = true
                     },
-                ) {
-                    Text(
-                        "Subtitles " +
-                            maxOf(
-                                textTracks.size,
-                                subtitles.size,
-                            )
-                    )
-                }
+                )
+                PlayerRoundAction(
+                    label = "+10",
+                    onClick = {
+                        player.seekTo(
+                            player.currentPosition +
+                                10_000L
+                        )
+                    },
+                )
             }
 
-            Text(
-                buildString {
-                    append(
-                        source.quality
-                            ?: "Direct stream"
-                    )
-
-                    source.codec
-                        ?.takeIf {
-                            it.isNotBlank()
-                        }
-                        ?.let {
-                            append(" • ")
-                            append(it)
-                        }
-
-                    source.hdr
-                        ?.takeIf {
-                            it.isNotBlank()
-                        }
-                        ?.let {
-                            append(" • ")
-                            append(it)
-                        }
-
-                    append(" • ")
-                    append(
-                        source.providerName
-                    )
-                },
-                color =
-                    Color.White.copy(
-                        alpha = .62f
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .padding(
+                        horizontal = 14.dp,
+                        vertical = 10.dp,
                     ),
-                fontSize = 11.sp,
-                maxLines = 1,
-                overflow =
-                    TextOverflow.Ellipsis,
+                verticalArrangement =
+                    Arrangement.spacedBy(7.dp),
+            ) {
+                playbackError?.let { error ->
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = VueoPalette.SurfaceElevated,
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement =
+                                Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                "Playback problem",
+                                color = Color.White,
+                                fontWeight = FontWeight.Black,
+                            )
+                            Text(
+                                error,
+                                color = VueoPalette.Muted,
+                                fontSize = 12.sp,
+                            )
+                            Row(
+                                horizontalArrangement =
+                                    Arrangement.spacedBy(8.dp),
+                            ) {
+                                Button(
+                                    onClick = {
+                                        playbackError = null
+                                        player.prepare()
+                                        player.play()
+                                    },
+                                ) {
+                                    Text("Try Again")
+                                }
+                                OutlinedButton(
+                                    enabled =
+                                        playableSources.size > 1,
+                                    onClick = {
+                                        showSourceDialog = true
+                                    },
+                                ) {
+                                    Text("Switch Source")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                nextEpisodeCountdown?.let { count ->
+                    nextEpisode?.let { next ->
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = VueoPalette.SurfaceElevated,
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment =
+                                    Alignment.CenterVertically,
+                            ) {
+                                Column(
+                                    modifier =
+                                        Modifier.weight(1f),
+                                ) {
+                                    Text(
+                                        "Next Episode",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Text(
+                                        "S${next.season} E${next.episode} • ${next.title}",
+                                        color = VueoPalette.Muted,
+                                        fontSize = 11.sp,
+                                    )
+                                }
+                                TextButton(
+                                    onClick = {
+                                        nextEpisodeCountdown = null
+                                    },
+                                ) {
+                                    Text("Cancel")
+                                }
+                                Button(
+                                    onClick = {
+                                        nextEpisodeCountdown = null
+                                        onNextEpisode(next)
+                                    },
+                                ) {
+                                    Text("Play Now ($count)")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Slider(
+                    value =
+                        (gestureSeekPositionMs
+                            ?: currentPositionMs)
+                            .toFloat()
+                            .coerceIn(
+                                0f,
+                                durationMs
+                                    .coerceAtLeast(1L)
+                                    .toFloat(),
+                            ),
+                    onValueChange = { value ->
+                        gestureSeekPositionMs =
+                            value.toLong()
+                    },
+                    onValueChangeFinished = {
+                        gestureSeekPositionMs
+                            ?.let {
+                                player.seekTo(it)
+                            }
+                        gestureSeekPositionMs = null
+                    },
+                    valueRange =
+                        0f..durationMs
+                            .coerceAtLeast(1L)
+                            .toFloat(),
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment =
+                        Alignment.CenterVertically,
+                ) {
+                    Text(
+                        formatPlaybackTime(
+                            gestureSeekPositionMs
+                                ?: currentPositionMs
+                        ),
+                        color = Color.White,
+                        fontSize = 11.sp,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        "-${formatPlaybackTime((durationMs - currentPositionMs).coerceAtLeast(0L))}",
+                        color = Color.White.copy(
+                            alpha = .72f
+                        ),
+                        fontSize = 11.sp,
+                    )
+                }
+
+                LazyRow(
+                    horizontalArrangement =
+                        Arrangement.spacedBy(8.dp),
+                ) {
+                    item {
+                        PlayerControlChip(
+                            label = "CC",
+                            onClick = {
+                                showSubtitleDialog = true
+                            },
+                        )
+                    }
+                    item {
+                        PlayerControlChip(
+                            label = "Audio",
+                            onClick = {
+                                showAudioDialog = true
+                            },
+                        )
+                    }
+                    item {
+                        PlayerControlChip(
+                            label = "Source",
+                            enabled =
+                                playableSources.isNotEmpty(),
+                            onClick = {
+                                showSourceDialog = true
+                            },
+                        )
+                    }
+                    item {
+                        PlayerControlChip(
+                            label = "${playbackSpeed}x",
+                            onClick = {
+                                showSpeedDialog = true
+                            },
+                        )
+                    }
+                    item {
+                        PlayerControlChip(
+                            label =
+                                if (zoomed) "Zoom" else "Fit",
+                            onClick = {
+                                zoomed = !zoomed
+                            },
+                        )
+                    }
+                    item {
+                        PlayerControlChip(
+                            label = "PiP",
+                            enabled =
+                                Build.VERSION.SDK_INT >= 26,
+                            onClick = {
+                                enterVueoPictureInPicture(
+                                    activity
+                                )
+                            },
+                        )
+                    }
+                    item {
+                        PlayerControlChip(
+                            label = "Lock",
+                            onClick = {
+                                controlsLocked = true
+                                controlsVisible = false
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        if (controlsLocked) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(14.dp)
+                    .clickable {
+                        controlsLocked = false
+                        controlsVisible = true
+                    },
+                shape = RoundedCornerShape(50),
+                color = Color.Black.copy(
+                    alpha = .62f
+                ),
+            ) {
+                Text(
+                    "Unlock",
+                    modifier = Modifier.padding(
+                        horizontal = 16.dp,
+                        vertical = 10.dp,
+                    ),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+
+        gestureMessage?.let { message ->
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(20.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = Color.Black.copy(
+                    alpha = .74f
+                ),
+            ) {
+                Text(
+                    message,
+                    modifier = Modifier.padding(
+                        horizontal = 18.dp,
+                        vertical = 12.dp,
+                    ),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerTapZone(
+    modifier: Modifier,
+    onTap: () -> Unit,
+    onDoubleTap: () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .combinedClickable(
+                onClick = onTap,
+                onDoubleClick = onDoubleTap,
+            ),
+    )
+}
+
+@Composable
+private fun PlayerRoundAction(
+    label: String,
+    primary: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .size(
+                if (primary) 74.dp else 58.dp
+            )
+            .clickable(onClick = onClick),
+        shape = androidx.compose.foundation.shape.CircleShape,
+        color =
+            if (primary) {
+                Color.White
+            } else {
+                Color.Black.copy(alpha = .52f)
+            },
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                label,
+                color =
+                    if (primary) {
+                        Color.Black
+                    } else {
+                        Color.White
+                    },
+                fontWeight = FontWeight.Black,
+                fontSize =
+                    if (primary) 14.sp else 12.sp,
             )
         }
     }
 }
 
 @Composable
+private fun PlayerControlChip(
+    label: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    OutlinedButton(
+        enabled = enabled,
+        onClick = onClick,
+        contentPadding = PaddingValues(
+            horizontal = 13.dp,
+            vertical = 8.dp,
+        ),
+    ) {
+        Text(
+            label,
+            maxLines = 1,
+            fontSize = 11.sp,
+        )
+    }
+}
+
+@Composable
 private fun PlayerFullscreenEffect(
     context: android.content.Context,
+    orientation: PlayerOrientation,
 ) {
-    DisposableEffect(context) {
-        val activity =
-            context as? Activity
-
-        val window =
-            activity?.window
-
-        val decor =
-            window?.decorView
-
+    DisposableEffect(
+        context,
+        orientation,
+    ) {
+        val activity = context as? Activity
+        val window = activity?.window
+        val decor = window?.decorView
         val previousFlags =
-            decor?.systemUiVisibility
-                ?: 0
+            decor?.systemUiVisibility ?: 0
+        val previousOrientation =
+            activity?.requestedOrientation
+                ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
 
-        if (
-            Build.VERSION.SDK_INT >= 30
-        ) {
-            window
-                ?.insetsController
-                ?.apply {
-                    hide(
-                        WindowInsets.Type
-                            .systemBars()
-                    )
+        activity?.requestedOrientation =
+            when (orientation) {
+                PlayerOrientation.AUTO,
+                PlayerOrientation.LANDSCAPE ->
+                    ActivityInfo
+                        .SCREEN_ORIENTATION_SENSOR_LANDSCAPE
 
-                    systemBarsBehavior =
-                        WindowInsetsController
-                            .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                }
+                PlayerOrientation.PORTRAIT ->
+                    ActivityInfo
+                        .SCREEN_ORIENTATION_SENSOR_PORTRAIT
+
+                PlayerOrientation.FOLLOW_DEVICE ->
+                    ActivityInfo
+                        .SCREEN_ORIENTATION_UNSPECIFIED
+            }
+
+        if (Build.VERSION.SDK_INT >= 30) {
+            window?.insetsController?.apply {
+                hide(WindowInsets.Type.systemBars())
+                systemBarsBehavior =
+                    WindowInsetsController
+                        .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
         } else {
             decor?.systemUiVisibility =
                 View.SYSTEM_UI_FLAG_FULLSCREEN or
@@ -6969,20 +7709,75 @@ private fun PlayerFullscreenEffect(
         }
 
         onDispose {
-            if (
-                Build.VERSION.SDK_INT >= 30
-            ) {
-                window
-                    ?.insetsController
-                    ?.show(
-                        WindowInsets.Type
-                            .systemBars()
-                    )
+            activity?.requestedOrientation =
+                previousOrientation
+
+            if (Build.VERSION.SDK_INT >= 30) {
+                window?.insetsController?.show(
+                    WindowInsets.Type.systemBars()
+                )
             } else {
                 decor?.systemUiVisibility =
                     previousFlags
             }
         }
+    }
+}
+
+@Composable
+private fun PlayerPictureInPictureEffect(
+    activity: Activity?,
+) {
+    DisposableEffect(activity) {
+        if (
+            activity != null &&
+            Build.VERSION.SDK_INT >= 31
+        ) {
+            activity.setPictureInPictureParams(
+                PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(16, 9))
+                    .setAutoEnterEnabled(true)
+                    .build()
+            )
+        }
+
+        onDispose {
+            if (
+                activity != null &&
+                Build.VERSION.SDK_INT >= 31 &&
+                !activity.isInPictureInPictureMode
+            ) {
+                activity.setPictureInPictureParams(
+                    PictureInPictureParams.Builder()
+                        .setAspectRatio(
+                            Rational(16, 9)
+                        )
+                        .setAutoEnterEnabled(false)
+                        .build()
+                )
+            }
+        }
+    }
+}
+
+private fun enterVueoPictureInPicture(
+    activity: Activity?,
+) {
+    if (
+        activity == null ||
+        Build.VERSION.SDK_INT < 26
+    ) {
+        return
+    }
+
+    runCatching {
+        activity.enterPictureInPictureMode(
+            PictureInPictureParams.Builder()
+                .setAspectRatio(
+                    Rational(16, 9)
+                )
+                .build()
+        )
     }
 }
 
