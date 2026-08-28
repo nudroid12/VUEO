@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SettingsInputComponent
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.AlertDialog
@@ -103,9 +104,12 @@ import com.vueo.app.core.extensions.SourceCleaner
 import com.vueo.app.core.extensions.SourceDiscoveryCache
 import com.vueo.app.core.extensions.CatalogDiscoveryCache
 import com.vueo.app.core.model.CatalogRow
+import com.vueo.app.BuildConfig
 import com.vueo.app.core.storage.PlaybackStore
 import com.vueo.app.core.storage.LibraryStore
 import com.vueo.app.core.storage.LibraryPlaybackEntry
+import com.vueo.app.core.storage.PreferredQuality
+import com.vueo.app.core.storage.SettingsStore
 import com.vueo.app.core.model.SubtitleTrack
 import com.vueo.app.core.plugin.PluginStore
 import com.vueo.app.core.plugin.ProviderCodeSyncManager
@@ -131,11 +135,12 @@ private enum class AppTab {
     HOME,
     SEARCH,
     LIBRARY,
-    CONTENT_MANAGER,
+    SETTINGS,
 }
 
-private enum class ContentPage {
+private enum class SettingsPage {
     ROOT,
+    CONTENT_MANAGER,
     ADDONS,
     PLUGINS,
 }
@@ -163,6 +168,11 @@ fun VueoApp() {
             context.applicationContext
         )
     }
+    val settingsStore = remember {
+        SettingsStore(
+            context.applicationContext
+        )
+    }
     val providerCodeSync = remember {
         ProviderCodeSyncManager(
             context.applicationContext
@@ -170,7 +180,7 @@ fun VueoApp() {
     }
 
     var selectedTab by remember { mutableStateOf(AppTab.HOME) }
-    var contentPage by remember { mutableStateOf(ContentPage.ROOT) }
+    var settingsPage by remember { mutableStateOf(SettingsPage.ROOT) }
     var contentVersion by remember { mutableIntStateOf(0) }
     var booting by remember {
         mutableStateOf(true)
@@ -193,6 +203,16 @@ fun VueoApp() {
     }
 
     LaunchedEffect(Unit) {
+        CatalogDiscoveryCache
+            .restoreHome(
+                context.applicationContext
+            )
+
+        SourceDiscoveryCache
+            .clearExpired()
+
+        contentVersion++
+
         store.seedDevelopmentDefaultsIfNeeded()
         pluginStore.seedDevelopmentDefaultsIfNeeded()
 
@@ -215,6 +235,8 @@ fun VueoApp() {
     if (selectedMedia != null) {
         MediaDetailsScreen(
             engine = engine,
+            settingsStore =
+                settingsStore,
             initialItem = selectedMedia!!,
             initialLibraryEntry =
                 selectedLibraryEntry,
@@ -285,13 +307,14 @@ fun VueoApp() {
                 ) { selectedTab = it }
 
                 BottomTab(
-                    tab = AppTab.CONTENT_MANAGER,
+                    tab = AppTab.SETTINGS,
                     selected = selectedTab,
-                    icon = Icons.Default.SettingsInputComponent,
-                    label = "Content",
+                    icon = Icons.Default.Settings,
+                    label = "Settings",
                 ) {
                     selectedTab = it
-                    contentPage = ContentPage.ROOT
+                    settingsPage =
+                        SettingsPage.ROOT
                 }
             }
         },
@@ -311,9 +334,10 @@ fun VueoApp() {
                     booting = booting,
                     onOpenContentManager = {
                         selectedTab =
-                            AppTab.CONTENT_MANAGER
-                        contentPage =
-                            ContentPage.ROOT
+                            AppTab.SETTINGS
+                        settingsPage =
+                            SettingsPage
+                                .CONTENT_MANAGER
                     },
                     onSearch = {
                         selectedTab =
@@ -369,24 +393,70 @@ fun VueoApp() {
                     },
                 )
 
-                AppTab.CONTENT_MANAGER -> when (contentPage) {
-                    ContentPage.ROOT -> ContentManagerScreen(
-                        engine = engine,
-                        onAddons = { contentPage = ContentPage.ADDONS },
-                        onPlugins = { contentPage = ContentPage.PLUGINS },
-                    )
+                AppTab.SETTINGS -> when (
+                    settingsPage
+                ) {
+                    SettingsPage.ROOT ->
+                        SettingsScreen(
+                            engine = engine,
+                            settingsStore =
+                                settingsStore,
+                            libraryStore =
+                                libraryStore,
+                            onLibraryChanged = {
+                                libraryVersion++
+                            },
+                            onCatalogCacheCleared = {
+                                contentVersion++
+                            },
+                            onContentManager = {
+                                settingsPage =
+                                    SettingsPage
+                                        .CONTENT_MANAGER
+                            },
+                        )
 
-                    ContentPage.ADDONS -> AddonsScreen(
-                        engine = engine,
-                        store = store,
-                        contentVersion = contentVersion,
-                        onContentChanged = { contentVersion++ },
-                        onBack = { contentPage = ContentPage.ROOT },
-                    )
+                    SettingsPage.CONTENT_MANAGER ->
+                        ContentManagerScreen(
+                            engine = engine,
+                            onBack = {
+                                settingsPage =
+                                    SettingsPage.ROOT
+                            },
+                            onAddons = {
+                                settingsPage =
+                                    SettingsPage.ADDONS
+                            },
+                            onPlugins = {
+                                settingsPage =
+                                    SettingsPage.PLUGINS
+                            },
+                        )
 
-                    ContentPage.PLUGINS -> PluginsScreen(
-                        onBack = { contentPage = ContentPage.ROOT },
-                    )
+                    SettingsPage.ADDONS ->
+                        AddonsScreen(
+                            engine = engine,
+                            store = store,
+                            contentVersion =
+                                contentVersion,
+                            onContentChanged = {
+                                contentVersion++
+                            },
+                            onBack = {
+                                settingsPage =
+                                    SettingsPage
+                                        .CONTENT_MANAGER
+                            },
+                        )
+
+                    SettingsPage.PLUGINS ->
+                        PluginsScreen(
+                            onBack = {
+                                settingsPage =
+                                    SettingsPage
+                                        .CONTENT_MANAGER
+                            },
+                        )
                 }
             }
         }
@@ -456,6 +526,9 @@ private fun HomeScreen(
     onSearch: () -> Unit,
     onMediaClick: (MediaItem) -> Unit,
 ) {
+    val context =
+        LocalContext.current
+
     var rows by remember {
         mutableStateOf(
             CatalogDiscoveryCache
@@ -478,18 +551,65 @@ private fun HomeScreen(
     }
 
     LaunchedEffect(contentVersion) {
-        if (booting) return@LaunchedEffect
+        CatalogDiscoveryCache
+            .home(
+                allowStale = true
+            )
+            ?.takeIf {
+                it.isNotEmpty()
+            }
+            ?.let {
+                rows = it
+            }
 
-        loading = rows.isEmpty()
+        if (booting) {
+            loading = false
+            return@LaunchedEffect
+        }
+
+        loading =
+            rows.isEmpty()
+
         error = null
 
         runCatching {
-            engine.loadCatalogRows()
+            engine.loadCatalogRows(
+                forceRefresh =
+                    rows.isNotEmpty(),
+            )
         }.onSuccess {
-            rows = it
+            fresh ->
+
+            if (
+                fresh.isNotEmpty()
+            ) {
+                rows = fresh
+
+                CatalogDiscoveryCache
+                    .persistHome(
+                        context =
+                            context
+                                .applicationContext,
+                        rows = fresh,
+                    )
+            }
         }.onFailure {
-            rows = emptyList()
-            error = it.message
+            failure ->
+
+            error =
+                failure.message
+
+            if (
+                rows.isEmpty()
+            ) {
+                rows =
+                    CatalogDiscoveryCache
+                        .home(
+                            allowStale =
+                                true
+                        )
+                        .orEmpty()
+            }
         }
 
         loading = false
@@ -2327,9 +2447,1019 @@ private fun playbackEntrySubtitle(
                 }
     }
 
+
+@Composable
+private fun SettingsScreen(
+    engine: UnifiedMediaEngine,
+    settingsStore: SettingsStore,
+    libraryStore: LibraryStore,
+    onLibraryChanged: () -> Unit,
+    onCatalogCacheCleared: () -> Unit,
+    onContentManager: () -> Unit,
+) {
+    val context =
+        LocalContext.current
+
+    val pluginStore =
+        remember {
+            PluginStore(
+                context.applicationContext
+            )
+        }
+
+    val scope =
+        rememberCoroutineScope()
+
+    var resumePlayback by remember {
+        mutableStateOf(
+            settingsStore
+                .resumePlaybackEnabled()
+        )
+    }
+
+    var preferredQuality by remember {
+        mutableStateOf(
+            settingsStore
+                .preferredQuality()
+        )
+    }
+
+    var technicalDetails by remember {
+        mutableStateOf(
+            settingsStore
+                .showSourceTechnicalDetails()
+        )
+    }
+
+    var showQualityDialog by remember {
+        mutableStateOf(false)
+    }
+
+    var confirmAction by remember {
+        mutableStateOf<
+            SettingsConfirmAction?
+        >(null)
+    }
+
+    var feedback by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    val addons =
+        engine.stremioAddons()
+
+    val repositories =
+        pluginStore.repositories()
+
+    val providerCount =
+        pluginStore
+            .totalProviderCount()
+
+    if (showQualityDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showQualityDialog = false
+            },
+            title = {
+                Text(
+                    "Preferred Quality"
+                )
+            },
+            text = {
+                Column(
+                    verticalArrangement =
+                        Arrangement.spacedBy(
+                            4.dp
+                        ),
+                ) {
+                    Text(
+                        "VUEO will boost this quality in Smart Source ranking. Auto keeps the normal quality-first ranking.",
+                        color =
+                            MaterialTheme
+                                .colorScheme
+                                .onSurface
+                                .copy(
+                                    alpha = .68f
+                                ),
+                        fontSize = 12.sp,
+                    )
+
+                    PreferredQuality
+                        .entries
+                        .forEach {
+                            quality ->
+
+                            Row(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            preferredQuality =
+                                                quality
+
+                                            settingsStore
+                                                .setPreferredQuality(
+                                                    quality
+                                                )
+
+                                            showQualityDialog =
+                                                false
+
+                                            feedback =
+                                                "Preferred quality set to ${quality.label}."
+                                        }
+                                        .padding(
+                                            vertical = 8.dp
+                                        ),
+                                verticalAlignment =
+                                    Alignment
+                                        .CenterVertically,
+                            ) {
+                                RadioButton(
+                                    selected =
+                                        preferredQuality ==
+                                            quality,
+                                    onClick = null,
+                                )
+
+                                Spacer(
+                                    Modifier.width(
+                                        8.dp
+                                    )
+                                )
+
+                                Text(
+                                    quality.label,
+                                    fontWeight =
+                                        if (
+                                            preferredQuality ==
+                                            quality
+                                        ) {
+                                            FontWeight.Bold
+                                        } else {
+                                            FontWeight.Normal
+                                        },
+                                )
+                            }
+                        }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showQualityDialog =
+                            false
+                    },
+                ) {
+                    Text("Close")
+                }
+            },
+        )
+    }
+
+    confirmAction?.let {
+        action ->
+
+        AlertDialog(
+            onDismissRequest = {
+                confirmAction = null
+            },
+            title = {
+                Text(action.title)
+            },
+            text = {
+                Text(action.message)
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        when (action) {
+                            SettingsConfirmAction
+                                .CATALOG_CACHE -> {
+                                scope.launch {
+                                    CatalogDiscoveryCache
+                                        .clearAll(
+                                            context
+                                                .applicationContext
+                                        )
+
+                                    onCatalogCacheCleared()
+
+                                    feedback =
+                                        "Catalog and search cache cleared."
+                                }
+                            }
+
+                            SettingsConfirmAction
+                                .SOURCE_CACHE -> {
+                                SourceDiscoveryCache
+                                    .clearAll()
+
+                                feedback =
+                                    "Recent source cache cleared."
+                            }
+
+                            SettingsConfirmAction
+                                .CONTINUE_WATCHING -> {
+                                libraryStore
+                                    .clearContinueWatching()
+
+                                onLibraryChanged()
+
+                                feedback =
+                                    "Continue Watching cleared."
+                            }
+
+                            SettingsConfirmAction
+                                .WATCH_HISTORY -> {
+                                libraryStore
+                                    .clearHistory()
+
+                                onLibraryChanged()
+
+                                feedback =
+                                    "Watch History cleared."
+                            }
+                        }
+
+                        confirmAction =
+                            null
+                    },
+                ) {
+                    Text("Clear")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        confirmAction = null
+                    },
+                ) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    LazyColumn(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(
+                    VueoPalette.Background
+                ),
+        contentPadding =
+            PaddingValues(
+                horizontal = 20.dp,
+                vertical = 20.dp,
+            ),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                14.dp
+            ),
+    ) {
+        item {
+            Column(
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        5.dp
+                    ),
+            ) {
+                Text(
+                    "VUEO",
+                    color =
+                        VueoPalette.Neon,
+                    fontSize = 11.sp,
+                    fontWeight =
+                        FontWeight.Black,
+                    letterSpacing = 1.4.sp,
+                )
+
+                Text(
+                    "Settings",
+                    color = Color.White,
+                    fontSize = 30.sp,
+                    fontWeight =
+                        FontWeight.Black,
+                )
+
+                Text(
+                    "Content, playback, source behavior, local data, and app information.",
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 12.sp,
+                )
+            }
+        }
+
+        feedback
+            ?.let {
+                message ->
+
+                item {
+                    Surface(
+                        shape =
+                            RoundedCornerShape(
+                                14.dp
+                            ),
+                        color =
+                            VueoPalette.Neon
+                                .copy(
+                                    alpha = .10f
+                                ),
+                    ) {
+                        Text(
+                            message,
+                            modifier =
+                                Modifier.padding(
+                                    horizontal =
+                                        14.dp,
+                                    vertical =
+                                        10.dp,
+                                ),
+                            color =
+                                VueoPalette.Neon,
+                            fontSize = 11.sp,
+                            fontWeight =
+                                FontWeight.Bold,
+                        )
+                    }
+                }
+            }
+
+        item {
+            SettingsSectionLabel(
+                "CONTENT"
+            )
+        }
+
+        item {
+            SettingsNavigationCard(
+                title =
+                    "Content Manager",
+                subtitle =
+                    "Manage addons, plugin repositories, providers, health, and diagnostics.",
+                status =
+                    "${addons.size} addons • " +
+                        "${repositories.size} repos • " +
+                        "$providerCount providers",
+                icon =
+                    Icons.Default.Extension,
+                onClick =
+                    onContentManager,
+            )
+        }
+
+        item {
+            SettingsSectionLabel(
+                "PLAYBACK"
+            )
+        }
+
+        item {
+            SettingsToggleCard(
+                title =
+                    "Resume Playback",
+                subtitle =
+                    "Ask to continue from your saved position when a title is opened again.",
+                checked =
+                    resumePlayback,
+                onCheckedChange = {
+                    enabled ->
+
+                    resumePlayback =
+                        enabled
+
+                    settingsStore
+                        .setResumePlaybackEnabled(
+                            enabled
+                        )
+
+                    feedback =
+                        if (enabled) {
+                            "Resume Playback enabled."
+                        } else {
+                            "Resume Playback disabled."
+                        }
+                },
+            )
+        }
+
+        item {
+            SettingsValueCard(
+                title =
+                    "Preferred Quality",
+                subtitle =
+                    "Boost one resolution in Smart Source ranking without hiding other sources.",
+                value =
+                    preferredQuality.label,
+                onClick = {
+                    showQualityDialog =
+                        true
+                },
+            )
+        }
+
+        item {
+            SettingsSectionLabel(
+                "SOURCES"
+            )
+        }
+
+        item {
+            SettingsToggleCard(
+                title =
+                    "Technical Source Details",
+                subtitle =
+                    "Show codec, HDR, and audio information on source cards.",
+                checked =
+                    technicalDetails,
+                onCheckedChange = {
+                    enabled ->
+
+                    technicalDetails =
+                        enabled
+
+                    settingsStore
+                        .setShowSourceTechnicalDetails(
+                            enabled
+                        )
+
+                    feedback =
+                        if (enabled) {
+                            "Technical source details enabled."
+                        } else {
+                            "Technical source details hidden."
+                        }
+                },
+            )
+        }
+
+        item {
+            SettingsSectionLabel(
+                "DATA"
+            )
+        }
+
+        item {
+            SettingsActionCard(
+                title =
+                    "Catalog & Search Cache",
+                subtitle =
+                    "Clear the persistent Home snapshot and in-memory search cache.",
+                action = "Clear",
+                onClick = {
+                    confirmAction =
+                        SettingsConfirmAction
+                            .CATALOG_CACHE
+                },
+            )
+        }
+
+        item {
+            SettingsActionCard(
+                title =
+                    "Recent Source Cache",
+                subtitle =
+                    "Clear short-lived source results kept for faster repeat searches.",
+                action = "Clear",
+                onClick = {
+                    confirmAction =
+                        SettingsConfirmAction
+                            .SOURCE_CACHE
+                },
+            )
+        }
+
+        item {
+            SettingsActionCard(
+                title =
+                    "Continue Watching",
+                subtitle =
+                    "Remove all unfinished playback entries from Continue Watching.",
+                action = "Clear",
+                onClick = {
+                    confirmAction =
+                        SettingsConfirmAction
+                            .CONTINUE_WATCHING
+                },
+            )
+        }
+
+        item {
+            SettingsActionCard(
+                title =
+                    "Watch History",
+                subtitle =
+                    "Clear completed and previously watched playback history. My List is not affected.",
+                action = "Clear",
+                onClick = {
+                    confirmAction =
+                        SettingsConfirmAction
+                            .WATCH_HISTORY
+                },
+            )
+        }
+
+        item {
+            SettingsSectionLabel(
+                "ABOUT"
+            )
+        }
+
+        item {
+            Card(
+                shape =
+                    RoundedCornerShape(
+                        20.dp
+                    ),
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor =
+                            VueoPalette
+                                .SurfaceElevated
+                    ),
+            ) {
+                Column(
+                    modifier =
+                        Modifier.padding(
+                            17.dp
+                        ),
+                    verticalArrangement =
+                        Arrangement.spacedBy(
+                            7.dp
+                        ),
+                ) {
+                    Row(
+                        modifier =
+                            Modifier.fillMaxWidth(),
+                        verticalAlignment =
+                            Alignment
+                                .CenterVertically,
+                    ) {
+                        Column(
+                            modifier =
+                                Modifier.weight(1f),
+                        ) {
+                            Text(
+                                "VUEO",
+                                color =
+                                    Color.White,
+                                fontSize = 18.sp,
+                                fontWeight =
+                                    FontWeight.Black,
+                            )
+
+                            Text(
+                                "Version ${BuildConfig.VERSION_NAME}",
+                                color =
+                                    VueoPalette.Neon,
+                                fontSize = 11.sp,
+                                fontWeight =
+                                    FontWeight.Bold,
+                            )
+                        }
+
+                        Surface(
+                            shape =
+                                RoundedCornerShape(
+                                    50
+                                ),
+                            color =
+                                VueoPalette.Neon
+                                    .copy(
+                                        alpha = .10f
+                                    ),
+                        ) {
+                            Text(
+                                "APK",
+                                modifier =
+                                    Modifier.padding(
+                                        horizontal =
+                                            10.dp,
+                                        vertical =
+                                            6.dp,
+                                    ),
+                                color =
+                                    VueoPalette.Neon,
+                                fontSize = 10.sp,
+                                fontWeight =
+                                    FontWeight.Black,
+                            )
+                        }
+                    }
+
+                    Text(
+                        "Direct APK distribution build. Content sources are managed separately through Content Manager.",
+                        color =
+                            VueoPalette.Muted,
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+        }
+
+        item {
+            Spacer(
+                Modifier.height(
+                    8.dp
+                )
+            )
+        }
+    }
+}
+
+private enum class SettingsConfirmAction(
+    val title: String,
+    val message: String,
+) {
+    CATALOG_CACHE(
+        title =
+            "Clear catalog cache?",
+        message =
+            "Home and Search will fetch fresh catalog data again.",
+    ),
+    SOURCE_CACHE(
+        title =
+            "Clear source cache?",
+        message =
+            "Recent source results will be discarded. The next Watch action will perform a fresh source search.",
+    ),
+    CONTINUE_WATCHING(
+        title =
+            "Clear Continue Watching?",
+        message =
+            "All unfinished playback entries will be removed from Continue Watching.",
+    ),
+    WATCH_HISTORY(
+        title =
+            "Clear Watch History?",
+        message =
+            "Previously watched playback history will be removed. My List will remain unchanged.",
+    ),
+}
+
+@Composable
+private fun SettingsSectionLabel(
+    label: String,
+) {
+    Text(
+        label,
+        color =
+            VueoPalette.Muted,
+        fontSize = 10.sp,
+        fontWeight =
+            FontWeight.Black,
+        letterSpacing = 1.4.sp,
+    )
+}
+
+@Composable
+private fun SettingsNavigationCard(
+    title: String,
+    subtitle: String,
+    status: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(
+                    onClick =
+                        onClick
+                ),
+        shape =
+            RoundedCornerShape(
+                20.dp
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    VueoPalette
+                        .SurfaceElevated
+            ),
+    ) {
+        Row(
+            modifier =
+                Modifier.padding(
+                    17.dp
+                ),
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(
+                            48.dp
+                        )
+                        .clip(
+                            RoundedCornerShape(
+                                14.dp
+                            )
+                        )
+                        .background(
+                            VueoPalette
+                                .SurfaceStrong
+                        ),
+                contentAlignment =
+                    Alignment.Center,
+            ) {
+                Icon(
+                    icon,
+                    contentDescription =
+                        null,
+                    tint =
+                        VueoPalette.Neon,
+                )
+            }
+
+            Spacer(
+                Modifier.width(
+                    14.dp
+                )
+            )
+
+            Column(
+                modifier =
+                    Modifier.weight(
+                        1f
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        3.dp
+                    ),
+            ) {
+                Text(
+                    title,
+                    color =
+                        Color.White,
+                    fontSize = 17.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                )
+
+                Text(
+                    subtitle,
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 11.sp,
+                )
+
+                Text(
+                    status,
+                    color =
+                        VueoPalette.Neon,
+                    fontSize = 10.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                )
+            }
+
+            Text(
+                "›",
+                color =
+                    VueoPalette.Muted,
+                fontSize = 28.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsToggleCard(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange:
+        (Boolean) -> Unit,
+) {
+    Card(
+        shape =
+            RoundedCornerShape(
+                18.dp
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    VueoPalette.Surface
+            ),
+    ) {
+        Row(
+            modifier =
+                Modifier.padding(
+                    16.dp
+                ),
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier =
+                    Modifier.weight(1f),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        4.dp
+                    ),
+            ) {
+                Text(
+                    title,
+                    color =
+                        Color.White,
+                    fontWeight =
+                        FontWeight.Bold,
+                    fontSize = 15.sp,
+                )
+
+                Text(
+                    subtitle,
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 11.sp,
+                )
+            }
+
+            Spacer(
+                Modifier.width(12.dp)
+            )
+
+            Switch(
+                checked = checked,
+                onCheckedChange =
+                    onCheckedChange,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsValueCard(
+    title: String,
+    subtitle: String,
+    value: String,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(
+                    onClick =
+                        onClick
+                ),
+        shape =
+            RoundedCornerShape(
+                18.dp
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    VueoPalette.Surface
+            ),
+    ) {
+        Row(
+            modifier =
+                Modifier.padding(
+                    16.dp
+                ),
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier =
+                    Modifier.weight(1f),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        4.dp
+                    ),
+            ) {
+                Text(
+                    title,
+                    color =
+                        Color.White,
+                    fontWeight =
+                        FontWeight.Bold,
+                    fontSize = 15.sp,
+                )
+
+                Text(
+                    subtitle,
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 11.sp,
+                )
+            }
+
+            Spacer(
+                Modifier.width(12.dp)
+            )
+
+            Surface(
+                shape =
+                    RoundedCornerShape(
+                        50
+                    ),
+                color =
+                    VueoPalette.Neon
+                        .copy(
+                            alpha = .10f
+                        ),
+            ) {
+                Text(
+                    value,
+                    modifier =
+                        Modifier.padding(
+                            horizontal =
+                                10.dp,
+                            vertical =
+                                6.dp,
+                        ),
+                    color =
+                        VueoPalette.Neon,
+                    fontSize = 11.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsActionCard(
+    title: String,
+    subtitle: String,
+    action: String,
+    onClick: () -> Unit,
+) {
+    Card(
+        shape =
+            RoundedCornerShape(
+                18.dp
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    VueoPalette.Surface
+            ),
+    ) {
+        Row(
+            modifier =
+                Modifier.padding(
+                    16.dp
+                ),
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier =
+                    Modifier.weight(1f),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        4.dp
+                    ),
+            ) {
+                Text(
+                    title,
+                    color =
+                        Color.White,
+                    fontWeight =
+                        FontWeight.Bold,
+                    fontSize = 15.sp,
+                )
+
+                Text(
+                    subtitle,
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 11.sp,
+                )
+            }
+
+            Spacer(
+                Modifier.width(12.dp)
+            )
+
+            TextButton(
+                onClick = onClick,
+            ) {
+                Text(
+                    action,
+                    color =
+                        VueoPalette.Neon,
+                    fontWeight =
+                        FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun ContentManagerScreen(
     engine: UnifiedMediaEngine,
+    onBack: () -> Unit,
     onAddons: () -> Unit,
     onPlugins: () -> Unit,
 ) {
@@ -2372,36 +3502,61 @@ private fun ContentManagerScreen(
             ),
     ) {
         item {
-            Column(
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        5.dp
-                    ),
+            Row(
+                verticalAlignment =
+                    Alignment.Top,
             ) {
-                Text(
-                    "CONTROL CENTER",
-                    color =
-                        VueoPalette.Neon,
-                    fontSize = 11.sp,
-                    fontWeight =
-                        FontWeight.Black,
-                    letterSpacing = 1.4.sp,
+                IconButton(
+                    onClick = onBack,
+                ) {
+                    Icon(
+                        Icons.Default.ArrowBack,
+                        contentDescription =
+                            "Back to Settings",
+                        tint =
+                            Color.White,
+                    )
+                }
+
+                Spacer(
+                    Modifier.width(
+                        4.dp
+                    )
                 )
 
-                Text(
-                    "Content Manager",
-                    color = Color.White,
-                    fontSize = 30.sp,
-                    fontWeight =
-                        FontWeight.Black,
-                )
+                Column(
+                    modifier =
+                        Modifier.weight(1f),
+                    verticalArrangement =
+                        Arrangement.spacedBy(
+                            5.dp
+                        ),
+                ) {
+                    Text(
+                        "CONTROL CENTER",
+                        color =
+                            VueoPalette.Neon,
+                        fontSize = 11.sp,
+                        fontWeight =
+                            FontWeight.Black,
+                        letterSpacing = 1.4.sp,
+                    )
 
-                Text(
-                    "Manage the catalogs, stream addons, and JavaScript providers that power VUEO.",
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 12.sp,
-                )
+                    Text(
+                        "Content Manager",
+                        color = Color.White,
+                        fontSize = 30.sp,
+                        fontWeight =
+                            FontWeight.Black,
+                    )
+
+                    Text(
+                        "Manage the catalogs, stream addons, and JavaScript providers that power VUEO.",
+                        color =
+                            VueoPalette.Muted,
+                        fontSize = 12.sp,
+                    )
+                }
             }
         }
 
@@ -3947,6 +5102,7 @@ private fun ProviderHealthRow(
 @Composable
 private fun MediaDetailsScreen(
     engine: UnifiedMediaEngine,
+    settingsStore: SettingsStore,
     initialItem: MediaItem,
     initialLibraryEntry:
         LibraryPlaybackEntry?,
@@ -3970,6 +5126,15 @@ private fun MediaDetailsScreen(
             store = pluginStore,
         )
     }
+
+    val preferredSourceQuality =
+        settingsStore
+            .preferredQuality()
+            .rankKey
+
+    val showSourceTechnicalDetails =
+        settingsStore
+            .showSourceTechnicalDetails()
 
     var item by remember(initialItem) { mutableStateOf(initialItem) }
     var loadingMeta by remember { mutableStateOf(true) }
@@ -4102,6 +5267,8 @@ private fun MediaDetailsScreen(
 
     if (playbackSource != null && playbackVideoId != null) {
         PlayerScreen(
+            settingsStore =
+                settingsStore,
             title = playbackTitle(
                 media = item,
                 episode = selectedEpisode,
@@ -4138,6 +5305,8 @@ private fun MediaDetailsScreen(
             searching = sourcePickerSearching,
             progressText = sourcePickerProgress,
             firstResultMs = sourcePickerFirstResultMs,
+            showTechnicalDetails =
+                showSourceTechnicalDetails,
             onBack = {
                 sourceDiscoveryJob?.cancel()
                 sourceDiscoveryJob = null
@@ -4565,8 +5734,11 @@ onClick = {
             ) {
                 val fresh =
                     SourceCleaner.clean(
-                        freshAddonStreams +
-                            freshPluginStreams
+                        sources =
+                            freshAddonStreams +
+                                freshPluginStreams,
+                        preferredQuality =
+                            preferredSourceQuality,
                     )
 
                 val display =
@@ -4574,8 +5746,11 @@ onClick = {
                         sourcePickerSearching
                     ) {
                         SourceCleaner.clean(
-                            cachedStreams +
-                                fresh
+                            sources =
+                                cachedStreams +
+                                    fresh,
+                            preferredQuality =
+                                preferredSourceQuality,
                         )
                     } else {
                         fresh
@@ -4678,7 +5853,7 @@ onClick = {
 
                     if (tmdbId == null) {
                         sourcePickerNotice =
-                            "Plugin providers skipped: VUEO could not resolve a TMDB ID. Add your TMDB API key in Content Manager > Plugins."
+                            "Plugin providers skipped: VUEO could not resolve a TMDB ID. Add your TMDB API key in Settings > Content Manager > Plugins."
 
                         return@async null
                     }
@@ -4728,7 +5903,15 @@ onClick = {
                                     "Searching • Addons " +
                                         "$addonCompleted/$addonTotal • " +
                                         "Plugins $pluginCompleted/$pluginTotal • " +
-                                        "${SourceCleaner.clean(freshAddonStreams + freshPluginStreams).size} fresh sources"
+                                        "${
+                                            SourceCleaner.clean(
+                                                sources =
+                                                    freshAddonStreams +
+                                                        freshPluginStreams,
+                                                preferredQuality =
+                                                    preferredSourceQuality,
+                                            ).size
+                                        } fresh sources"
                                 )
                             }
                     }.getOrNull()
@@ -4767,8 +5950,11 @@ onClick = {
 
             val freshFinal =
                 SourceCleaner.clean(
-                    freshAddonStreams +
-                        freshPluginStreams
+                    sources =
+                        freshAddonStreams +
+                            freshPluginStreams,
+                    preferredQuality =
+                        preferredSourceQuality,
                 )
 
             val finalStreams =
@@ -5078,6 +6264,7 @@ private fun SourcePickerScreen(
     searching: Boolean,
     progressText: String,
     firstResultMs: Long?,
+    showTechnicalDetails: Boolean,
     onBack: () -> Unit,
     onPlay: (StreamSource) -> Unit,
 ) {
@@ -5420,6 +6607,8 @@ private fun SourcePickerScreen(
             ) { source ->
                 StreamSourceCard(
                     source = source,
+                    showTechnicalDetails =
+                        showTechnicalDetails,
                     onClick =
                         if (
                             source.isDirectPlayable
@@ -5439,6 +6628,7 @@ private fun SourcePickerScreen(
 @Composable
 private fun StreamSourceCard(
     source: StreamSource,
+    showTechnicalDetails: Boolean,
     onClick: (() -> Unit)? = null,
 ) {
     Card(
@@ -5574,6 +6764,7 @@ private fun StreamSourceCard(
                 ).joinToString(" • ")
 
             if (
+                showTechnicalDetails &&
                 tags.isNotBlank()
             ) {
                 Text(
@@ -5592,6 +6783,7 @@ private fun StreamSourceCard(
 
 @Composable
 private fun PlayerScreen(
+    settingsStore: SettingsStore,
     title: String,
     mediaKey: String,
     media: MediaItem,
@@ -5626,11 +6818,28 @@ private fun PlayerScreen(
             )
         }
 
+    val resumePlaybackEnabled =
+        remember(mediaKey) {
+            settingsStore
+                .resumePlaybackEnabled()
+        }
+
+    val initialPlaybackPositionMs =
+        if (
+            resumePlaybackEnabled
+        ) {
+            savedPositionMs
+        } else {
+            0L
+        }
+
     var resumePromptVisible by remember(
         mediaKey
     ) {
         mutableStateOf(
-            savedPositionMs > 5_000L
+            resumePlaybackEnabled &&
+                savedPositionMs >
+                    5_000L
         )
     }
 
@@ -5706,8 +6915,9 @@ private fun PlayerScreen(
                 prepare()
 
                 playWhenReady =
-                    savedPositionMs <=
-                        5_000L
+                    !resumePlaybackEnabled ||
+                        savedPositionMs <=
+                            5_000L
             }
     }
 
@@ -5741,7 +6951,7 @@ private fun PlayerScreen(
             episode =
                 episode?.episode,
             positionMs =
-                savedPositionMs,
+                initialPlaybackPositionMs,
             durationMs =
                 playbackStore.durationMs(
                     mediaKey
@@ -5897,6 +7107,8 @@ private fun PlayerScreen(
         player,
         mediaKey,
     ) {
+        var librarySaveTicks = 0
+
         while (true) {
             delay(10_000L)
 
@@ -5910,7 +7122,14 @@ private fun PlayerScreen(
                         player.duration,
                 )
 
-            recordLibraryProgress()
+            librarySaveTicks++
+
+            if (
+                librarySaveTicks >= 3
+            ) {
+                recordLibraryProgress()
+                librarySaveTicks = 0
+            }
         }
     }
 

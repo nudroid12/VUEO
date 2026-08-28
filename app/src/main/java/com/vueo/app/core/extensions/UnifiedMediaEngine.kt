@@ -7,6 +7,7 @@ import com.vueo.app.core.model.SubtitleTrack
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.CopyOnWriteArrayList
@@ -61,10 +62,16 @@ class UnifiedMediaEngine {
                     async {
                         runCatching {
                             val page =
-                                extension.catalog(
-                                    catalog.type,
-                                    catalog.id,
-                                )
+                                withTimeoutOrNull(
+                                    ADDON_REQUEST_TIMEOUT_MS
+                                ) {
+                                    extension.catalog(
+                                        catalog.type,
+                                        catalog.id,
+                                    )
+                                }
+                                    ?: return@runCatching
+                                        null
 
                             CatalogRow(
                                 id =
@@ -153,17 +160,22 @@ class UnifiedMediaEngine {
 
                     async {
                         runCatching {
-                            extension.catalog(
-                                type =
-                                    catalog.type,
-                                catalogId =
-                                    catalog.id,
-                                extras =
-                                    mapOf(
-                                        "search" to
-                                            normalized
-                                    ),
-                            ).items
+                            withTimeoutOrNull(
+                                ADDON_REQUEST_TIMEOUT_MS
+                            ) {
+                                extension.catalog(
+                                    type =
+                                        catalog.type,
+                                    catalogId =
+                                        catalog.id,
+                                    extras =
+                                        mapOf(
+                                            "search" to
+                                                normalized
+                                        ),
+                                ).items
+                            }
+                                ?: emptyList()
                         }.getOrDefault(
                             emptyList()
                         )
@@ -197,12 +209,27 @@ class UnifiedMediaEngine {
         combined
     }
 
-    suspend fun loadMeta(item: MediaItem): MediaItem =
-        extension(item.sourceExtensionId)
-            ?.let { provider ->
-                runCatching { provider.meta(item.type, item.id) }.getOrNull()
+    suspend fun loadMeta(
+        item: MediaItem,
+    ): MediaItem {
+        val provider =
+            extension(
+                item.sourceExtensionId
+            )
+                ?: return item
+
+        return runCatching {
+            withTimeoutOrNull(
+                ADDON_REQUEST_TIMEOUT_MS
+            ) {
+                provider.meta(
+                    item.type,
+                    item.id,
+                )
             }
+        }.getOrNull()
             ?: item
+    }
 
     suspend fun resolveStreams(
         type: String,
@@ -239,10 +266,15 @@ class UnifiedMediaEngine {
             async {
                 val result =
                     runCatching {
-                        extension.streams(
-                            type,
-                            videoId,
-                        )
+                        withTimeoutOrNull(
+                            ADDON_STREAM_TIMEOUT_MS
+                        ) {
+                            extension.streams(
+                                type,
+                                videoId,
+                            )
+                        }
+                            ?: emptyList()
                     }.getOrDefault(
                         emptyList()
                     )
@@ -285,14 +317,32 @@ class UnifiedMediaEngine {
             .filter { "subtitles" in it.descriptor.resources }
             .map { extension ->
                 async {
-                    runCatching { extension.subtitles(type, videoId) }
-                        .getOrDefault(emptyList())
+                    runCatching {
+                        withTimeoutOrNull(
+                            ADDON_REQUEST_TIMEOUT_MS
+                        ) {
+                            extension.subtitles(
+                                type,
+                                videoId,
+                            )
+                        }
+                            ?: emptyList()
+                    }.getOrDefault(
+                        emptyList()
+                    )
                 }
             }
             .awaitAll()
             .flatten()
             .filter { it.url.startsWith("https://") }
             .distinctBy { it.url }
+    }
+    companion object {
+        private const val ADDON_REQUEST_TIMEOUT_MS =
+            8_000L
+
+        private const val ADDON_STREAM_TIMEOUT_MS =
+            10_000L
     }
 }
 
@@ -304,39 +354,122 @@ data class AddonStreamProgress(
 )
 
 object SourceRanker {
-    private fun score(source: StreamSource): Int {
-        val q = source.quality.orEmpty().lowercase()
-        val hdr = source.hdr.orEmpty().lowercase()
-        val codec = source.codec.orEmpty().lowercase()
+    private fun score(
+        source: StreamSource,
+        preferredQuality: String? = null,
+    ): Int {
+        val q =
+            source.quality
+                .orEmpty()
+                .lowercase()
+
+        val hdr =
+            source.hdr
+                .orEmpty()
+                .lowercase()
+
+        val codec =
+            source.codec
+                .orEmpty()
+                .lowercase()
+
+        val detectedQuality =
+            when {
+                "2160" in q ||
+                    "4k" in q ||
+                    "uhd" in q ->
+                    "4K"
+
+                "1080" in q ->
+                    "1080p"
+
+                "720" in q ->
+                    "720p"
+
+                else ->
+                    "Other"
+            }
+
+        val preferenceBoost =
+            if (
+                preferredQuality != null &&
+                detectedQuality ==
+                    preferredQuality
+            ) {
+                55
+            } else {
+                0
+            }
 
         return source.rankBoost +
-            (if (source.isDirectPlayable) 100 else 0) + when {
-            "2160" in q || "4k" in q -> 40
-            "1080" in q -> 30
-            "720" in q -> 20
-            else -> 10
-        } + when {
-            "dolby vision" in hdr || hdr == "dv" -> 15
-            "hdr" in hdr -> 10
-            else -> 0
-        } + when {
-            "hevc" in codec || "h265" in codec || "av1" in codec -> 8
-            else -> 0
-        }
+            preferenceBoost +
+            (
+                if (
+                    source.isDirectPlayable
+                ) {
+                    100
+                } else {
+                    0
+                }
+            ) +
+            when (
+                detectedQuality
+            ) {
+                "4K" -> 40
+                "1080p" -> 30
+                "720p" -> 20
+                else -> 10
+            } +
+            when {
+                "dolby vision" in hdr ||
+                    hdr == "dv" ->
+                    15
+
+                "hdr" in hdr ->
+                    10
+
+                else ->
+                    0
+            } +
+            when {
+                "hevc" in codec ||
+                    "h265" in codec ||
+                    "av1" in codec ->
+                    8
+
+                else ->
+                    0
+            }
     }
 
-    val comparator = compareByDescending<StreamSource> { score(it) }
-        .thenBy { it.sizeBytes ?: Long.MAX_VALUE }
+    fun comparator(
+        preferredQuality: String? = null,
+    ) =
+        compareByDescending<
+            StreamSource
+        > {
+            score(
+                source = it,
+                preferredQuality =
+                    preferredQuality,
+            )
+        }.thenBy {
+            it.sizeBytes
+                ?: Long.MAX_VALUE
+        }
 }
 
 
 object SourceCleaner {
     fun clean(
         sources: List<StreamSource>,
+        preferredQuality: String? = null,
     ): List<StreamSource> {
         val sorted =
             sources.sortedWith(
-                SourceRanker.comparator
+                SourceRanker.comparator(
+                    preferredQuality
+                )
             )
 
         val seen =

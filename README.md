@@ -1,4 +1,4 @@
-# VUEO v0.8.0
+# VUEO v0.9.1
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -580,3 +580,132 @@ The neon accent is used as a VUEO identity and state cue rather than filling the
 - technical controls remain available deeper in each section
 
 This milestone intentionally focuses on consistency and hierarchy rather than adding new backend features.
+
+
+## v0.9.0 Performance, Caching & Stability
+
+This milestone freezes large feature work and hardens the VUEO runtime.
+
+### Cold Home cache
+
+Home catalog rows are now persisted locally as a compact public-media cache.
+
+Startup behavior:
+
+```text
+launch
+  -> restore last Home snapshot from local disk
+  -> render cached rows
+  -> install / restore addon runtime
+  -> refresh catalogs in the background
+  -> replace stale rows only when fresh data succeeds
+```
+
+The disk snapshot is capped by row/item count and expires after 48 hours. Normal in-memory Home freshness remains 10 minutes.
+
+### Stremio network pooling
+
+Stremio addon requests now share VUEO's pooled OkHttp transport and resilient DNS layer instead of opening a fresh `HttpURLConnection` for each request.
+
+Benefits:
+
+- connection reuse
+- fewer TCP / TLS handshakes
+- consistent DNS fallback
+- one transport policy for addons and plugin fetches
+- declared oversized responses are rejected
+
+### Addon isolation
+
+Catalog, search, metadata, stream and subtitle calls now have per-addon timeout boundaries.
+
+A slow or broken addon should not indefinitely block:
+
+- Home
+- universal Search
+- Details metadata
+- progressive source discovery
+- subtitle discovery
+
+### Provider Health storage v2
+
+Provider Health no longer parses and rewrites the complete health-history JSON blob every time one provider finishes.
+
+Each provider record is now persisted independently. The previous v1 format migrates automatically on first use.
+
+This is especially important during large plugin searches where dozens of providers can complete in a short period.
+
+### Player / Library write reduction
+
+Playback resume position remains saved every 10 seconds.
+
+The richer Library history snapshot is now written every 30 seconds during continuous playback, while pause, player close and playback completion still force meaningful updates.
+
+This reduces repeated JSON history rewrites without sacrificing resume accuracy.
+
+### Cache maintenance
+
+Expired in-memory source sessions are cleaned at startup. Source URLs remain short-lived and are intentionally not persisted to disk.
+
+
+## v0.9.1 Settings Foundation
+
+The primary navigation is now:
+
+```text
+Home | Search | Library | Settings
+```
+
+Content Manager is no longer a standalone bottom tab. It lives inside Settings.
+
+### Settings
+
+The first functional Settings foundation includes:
+
+- Content Manager entry with Addon, repository and provider counts
+- Resume Playback toggle
+- Preferred Quality: Auto, 4K, 1080p or 720p
+- Technical Source Details toggle
+- Clear Catalog and Search cache
+- Clear recent Source cache
+- Clear Continue Watching
+- Clear Watch History
+- About card with the installed VUEO version
+
+### Preferred Quality behavior
+
+Preferred Quality is a ranking preference, not a hard filter.
+
+For example, when 1080p is selected, VUEO boosts direct 1080p sources in Smart Source ranking while still showing 4K, 720p and other usable sources.
+
+This avoids creating a no-source situation just because the requested resolution is unavailable.
+
+### Resume Playback
+
+When Resume Playback is disabled, VUEO starts new player sessions from the beginning without showing the resume dialog. Playback progress can still be recorded for Library and History.
+
+### Content hierarchy
+
+```text
+Settings
+   |
+   +-- Content Manager
+   |      |
+   |      +-- Addons
+   |      |
+   |      +-- Plugins
+   |             |
+   |             +-- Provider Health
+   |             +-- Provider controls
+   |             +-- TMDB Bridge
+   |
+   +-- Playback
+   |
+   +-- Sources
+   |
+   +-- Data
+   |
+   +-- About
+```
+
+This structure leaves room for Update Checker and Backup / Restore without expanding the bottom navigation.

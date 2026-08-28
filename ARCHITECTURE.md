@@ -435,3 +435,75 @@ LibraryStore uses app-private SharedPreferences with compact JSON records. This 
 ```
 
 The UI overhaul is deliberately presentation-only. Core discovery, provider, player and Library logic remain separate from the visual layer.
+
+
+## v0.9.0 runtime hardening
+
+```text
+APP START
+   |
+   +--> Catalog disk snapshot
+   |       |
+   |       +--> Home renders cached rows
+   |
+   +--> Addon bootstrap
+           |
+           +--> pooled OkHttp + resilient DNS
+           |
+           +--> background fresh catalogs
+                       |
+                       +--> memory cache
+                       +--> bounded disk snapshot
+
+
+WATCH
+   |
+   +--> recent SourceDiscoveryCache
+   |
+   +--> Stremio addons
+   |       +--> per-addon timeout
+   |
+   +--> QuickJS providers
+           +--> provider timeout
+           +--> Provider Health v2 per-record writes
+           +--> progressive source updates
+
+
+PLAYER
+   |
+   +--> PlaybackStore every 10s
+   |
+   +--> LibraryStore every 30s
+           + pause / close / complete force updates
+```
+
+Source stream URLs remain memory-only because provider links may expire. Public catalog metadata can safely use a bounded local disk snapshot for fast cold startup.
+
+
+## v0.9.1 settings architecture
+
+```text
+Bottom Navigation
+   |
+   +-- Home
+   +-- Search
+   +-- Library
+   +-- Settings
+           |
+           +-- Content Manager
+           |      +-- Addons
+           |      +-- Plugins
+           |
+           +-- Playback Preferences
+           +-- Source Preferences
+           +-- Local Data Controls
+           +-- About
+```
+
+`SettingsStore` uses app-private SharedPreferences and currently owns:
+
+- resume playback
+- preferred source quality
+- source-card technical detail visibility
+
+Preferred quality feeds the Smart Source ranking layer. It is intentionally implemented as a scoring boost rather than a source filter.

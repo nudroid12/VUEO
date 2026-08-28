@@ -1,110 +1,204 @@
 package com.vueo.app.core.stremio
 
+import com.vueo.app.core.plugin.PluginHttp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.net.HttpURLConnection
+import okhttp3.Request
 import java.net.URI
-import java.net.URL
 
+/**
+ * Shared pooled HTTP transport for Stremio addons and resilient public
+ * repository downloads.
+ *
+ * VUEO reuses the same OkHttp connection pool and resilient DNS layer used by
+ * the plugin runtime instead of creating a new HttpURLConnection for every
+ * catalog, metadata, stream, or subtitle request.
+ */
 object SimpleHttp {
-    suspend fun get(url: String): String =
-        withContext(Dispatchers.IO) {
+    private const val MAX_DECLARED_BODY_BYTES =
+        8L * 1024L * 1024L
+
+    suspend fun get(
+        url: String,
+    ): String =
+        withContext(
+            Dispatchers.IO
+        ) {
             getBlocking(url)
         }
 
-    /**
-     * Resilient transport for repository manifests and provider scripts.
-     *
-     * Some mobile DNS/network configurations cannot resolve
-     * raw.githubusercontent.com reliably. For public GitHub raw URLs,
-     * VUEO tries the jsDelivr GitHub CDN representation first, then the
-     * original raw URL. Non-GitHub URLs are requested normally.
-     */
-    suspend fun getResilient(url: String): String =
-        withContext(Dispatchers.IO) {
-            val candidates = candidateUrls(url)
-            val failures = mutableListOf<String>()
+    suspend fun getResilient(
+        url: String,
+    ): String =
+        withContext(
+            Dispatchers.IO
+        ) {
+            val candidates =
+                candidateUrls(url)
 
-            for (candidate in candidates) {
-                val result = runCatching {
-                    getBlocking(candidate)
-                }
+            val failures =
+                mutableListOf<String>()
 
-                result.getOrNull()?.let {
-                    return@withContext it
-                }
+            for (
+                candidate in
+                candidates
+            ) {
+                val result =
+                    runCatching {
+                        getBlocking(
+                            candidate
+                        )
+                    }
 
-                val error = result.exceptionOrNull()
-                val host = runCatching {
-                    URL(candidate).host
-                }.getOrDefault(candidate)
+                result.getOrNull()
+                    ?.let {
+                        return@withContext it
+                    }
 
-                failures += "$host: ${error?.message ?: "request failed"}"
+                val error =
+                    result
+                        .exceptionOrNull()
+
+                val host =
+                    runCatching {
+                        URI(candidate)
+                            .host
+                    }.getOrNull()
+                        ?: candidate
+
+                failures +=
+                    "$host: " +
+                        (
+                            error?.message
+                                ?: "request failed"
+                        )
             }
 
             error(
                 "Unable to download resource. " +
-                    failures.joinToString(" | ")
+                    failures
+                        .joinToString(
+                            " | "
+                        )
             )
         }
 
-    fun candidateUrls(url: String): List<String> {
-        val mirror = githubJsDelivrMirror(url)
+    fun candidateUrls(
+        url: String,
+    ): List<String> {
+        val mirror =
+            githubJsDelivrMirror(
+                url
+            )
 
-        return if (mirror == null) {
+        return if (
+            mirror == null
+        ) {
             listOf(url)
         } else {
-            // Prefer the CDN on mobile networks where raw.githubusercontent.com
-            // may be DNS-blocked, while keeping raw GitHub as a fallback.
-            listOf(mirror, url).distinct()
+            listOf(
+                mirror,
+                url,
+            ).distinct()
         }
     }
 
-    private fun getBlocking(url: String): String {
-        val connection =
-            (URL(url).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 8_000
-                readTimeout = 15_000
-                instanceFollowRedirects = true
-                setRequestProperty("Accept", "*/*")
-                setRequestProperty("User-Agent", "VUEO/0.3.3")
-            }
-
-        try {
-            val code = connection.responseCode
-
-            if (code !in 200..299) {
-                error("HTTP $code from ${URL(url).host}")
-            }
-
-            return connection.inputStream
-                .bufferedReader()
-                .use { it.readText() }
-        } finally {
-            connection.disconnect()
+    private fun getBlocking(
+        url: String,
+    ): String {
+        require(
+            url.startsWith(
+                "https://"
+            )
+        ) {
+            "VUEO network requests require HTTPS."
         }
+
+        val request =
+            Request.Builder()
+                .url(url)
+                .header(
+                    "Accept",
+                    "*/*",
+                )
+                .header(
+                    "User-Agent",
+                    "VUEO/0.9.0",
+                )
+                .build()
+
+        return PluginHttp.client
+            .newCall(request)
+            .execute()
+            .use { response ->
+                if (
+                    !response.isSuccessful
+                ) {
+                    error(
+                        "HTTP " +
+                            "${response.code} " +
+                            "from " +
+                            response.request
+                                .url
+                                .host
+                    )
+                }
+
+                val length =
+                    response.body
+                        .contentLength()
+
+                if (
+                    length >
+                    MAX_DECLARED_BODY_BYTES
+                ) {
+                    error(
+                        "Response too large " +
+                            "($length bytes)"
+                    )
+                }
+
+                response.body.string()
+            }
     }
 
-    private fun githubJsDelivrMirror(rawUrl: String): String? {
-        val uri = runCatching { URI(rawUrl) }.getOrNull()
-            ?: return null
+    private fun githubJsDelivrMirror(
+        rawUrl: String,
+    ): String? {
+        val uri =
+            runCatching {
+                URI(rawUrl)
+            }.getOrNull()
+                ?: return null
 
-        if (!uri.host.equals("raw.githubusercontent.com", ignoreCase = true)) {
+        if (
+            !uri.host.equals(
+                "raw.githubusercontent.com",
+                ignoreCase = true,
+            )
+        ) {
             return null
         }
 
-        val parts = uri.path
-            .trim('/')
-            .split('/')
-            .filter { it.isNotBlank() }
+        val parts =
+            uri.path
+                .trim('/')
+                .split('/')
+                .filter {
+                    it.isNotBlank()
+                }
 
-        if (parts.size < 4) {
+        if (
+            parts.size < 4
+        ) {
             return null
         }
 
-        val owner = parts[0]
-        val repo = parts[1]
+        val owner =
+            parts[0]
+
+        val repo =
+            parts[1]
 
         val branch: String
         val fileStart: Int
@@ -114,21 +208,30 @@ object SimpleHttp {
             parts[2] == "refs" &&
             parts[3] == "heads"
         ) {
-            branch = parts[4]
+            branch =
+                parts[4]
+
             fileStart = 5
         } else {
-            branch = parts[2]
+            branch =
+                parts[2]
+
             fileStart = 3
         }
 
-        if (fileStart >= parts.size) {
+        if (
+            fileStart >=
+            parts.size
+        ) {
             return null
         }
 
-        val filePath = parts
-            .drop(fileStart)
-            .joinToString("/")
+        val filePath =
+            parts
+                .drop(fileStart)
+                .joinToString("/")
 
-        return "https://cdn.jsdelivr.net/gh/$owner/$repo@$branch/$filePath"
+        return "https://cdn.jsdelivr.net/gh/" +
+            "$owner/$repo@$branch/$filePath"
     }
 }

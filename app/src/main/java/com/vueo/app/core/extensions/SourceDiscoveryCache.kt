@@ -43,6 +43,37 @@ object SourceDiscoveryCache {
     }
 
     @Synchronized
+    fun clearExpired() {
+        val now =
+            System.currentTimeMillis()
+
+        val iterator =
+            sessions.entries
+                .iterator()
+
+        while (
+            iterator.hasNext()
+        ) {
+            val entry =
+                iterator.next()
+
+            if (
+                now -
+                    entry.value
+                        .cachedAtEpochMs >
+                    TTL_MS
+            ) {
+                iterator.remove()
+            }
+        }
+    }
+
+    @Synchronized
+    fun clearAll() {
+        sessions.clear()
+    }
+
+    @Synchronized
     fun put(
         key: String,
         streams: List<StreamSource>,
