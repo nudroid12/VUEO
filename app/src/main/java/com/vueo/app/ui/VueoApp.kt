@@ -143,6 +143,16 @@ private enum class SettingsPage {
     CONTENT_MANAGER,
     ADDONS,
     PLUGINS,
+    ENHANCEMENTS,
+    TMDB,
+    MDBLIST,
+    PLAYBACK,
+    SUBTITLES,
+    SOURCES,
+    APPEARANCE,
+    DATA_STORAGE,
+    UPDATES,
+    ABOUT,
 }
 
 private enum class HomeMediaFilter(
@@ -397,22 +407,35 @@ fun VueoApp() {
                     settingsPage
                 ) {
                     SettingsPage.ROOT ->
-                        SettingsScreen(
+                        VueoSettingsHub(
                             engine = engine,
-                            settingsStore =
-                                settingsStore,
-                            libraryStore =
-                                libraryStore,
-                            onLibraryChanged = {
-                                libraryVersion++
-                            },
-                            onCatalogCacheCleared = {
-                                contentVersion++
-                            },
+                            settingsStore = settingsStore,
                             onContentManager = {
-                                settingsPage =
-                                    SettingsPage
-                                        .CONTENT_MANAGER
+                                settingsPage = SettingsPage.CONTENT_MANAGER
+                            },
+                            onEnhancements = {
+                                settingsPage = SettingsPage.ENHANCEMENTS
+                            },
+                            onPlayback = {
+                                settingsPage = SettingsPage.PLAYBACK
+                            },
+                            onSubtitles = {
+                                settingsPage = SettingsPage.SUBTITLES
+                            },
+                            onSources = {
+                                settingsPage = SettingsPage.SOURCES
+                            },
+                            onAppearance = {
+                                settingsPage = SettingsPage.APPEARANCE
+                            },
+                            onDataStorage = {
+                                settingsPage = SettingsPage.DATA_STORAGE
+                            },
+                            onUpdates = {
+                                settingsPage = SettingsPage.UPDATES
+                            },
+                            onAbout = {
+                                settingsPage = SettingsPage.ABOUT
                             },
                         )
 
@@ -420,16 +443,13 @@ fun VueoApp() {
                         ContentManagerScreen(
                             engine = engine,
                             onBack = {
-                                settingsPage =
-                                    SettingsPage.ROOT
+                                settingsPage = SettingsPage.ROOT
                             },
                             onAddons = {
-                                settingsPage =
-                                    SettingsPage.ADDONS
+                                settingsPage = SettingsPage.ADDONS
                             },
                             onPlugins = {
-                                settingsPage =
-                                    SettingsPage.PLUGINS
+                                settingsPage = SettingsPage.PLUGINS
                             },
                         )
 
@@ -437,24 +457,109 @@ fun VueoApp() {
                         AddonsScreen(
                             engine = engine,
                             store = store,
-                            contentVersion =
-                                contentVersion,
+                            contentVersion = contentVersion,
                             onContentChanged = {
                                 contentVersion++
                             },
                             onBack = {
-                                settingsPage =
-                                    SettingsPage
-                                        .CONTENT_MANAGER
+                                settingsPage = SettingsPage.CONTENT_MANAGER
                             },
                         )
 
                     SettingsPage.PLUGINS ->
                         PluginsScreen(
                             onBack = {
-                                settingsPage =
-                                    SettingsPage
-                                        .CONTENT_MANAGER
+                                settingsPage = SettingsPage.CONTENT_MANAGER
+                            },
+                        )
+
+                    SettingsPage.ENHANCEMENTS ->
+                        EnhancementsSettingsScreen(
+                            settingsStore = settingsStore,
+                            onBack = {
+                                settingsPage = SettingsPage.ROOT
+                            },
+                            onTmdb = {
+                                settingsPage = SettingsPage.TMDB
+                            },
+                            onMdblist = {
+                                settingsPage = SettingsPage.MDBLIST
+                            },
+                        )
+
+                    SettingsPage.TMDB ->
+                        TmdbEnhancementSettingsScreen(
+                            settingsStore = settingsStore,
+                            onBack = {
+                                settingsPage = SettingsPage.ENHANCEMENTS
+                            },
+                        )
+
+                    SettingsPage.MDBLIST ->
+                        MdblistEnhancementSettingsScreen(
+                            settingsStore = settingsStore,
+                            onBack = {
+                                settingsPage = SettingsPage.ENHANCEMENTS
+                            },
+                        )
+
+                    SettingsPage.PLAYBACK ->
+                        PlaybackSettingsScreen(
+                            settingsStore = settingsStore,
+                            onBack = {
+                                settingsPage = SettingsPage.ROOT
+                            },
+                        )
+
+                    SettingsPage.SUBTITLES ->
+                        SubtitleSettingsScreen(
+                            settingsStore = settingsStore,
+                            onBack = {
+                                settingsPage = SettingsPage.ROOT
+                            },
+                        )
+
+                    SettingsPage.SOURCES ->
+                        SourceSettingsScreen(
+                            settingsStore = settingsStore,
+                            onBack = {
+                                settingsPage = SettingsPage.ROOT
+                            },
+                        )
+
+                    SettingsPage.APPEARANCE ->
+                        AppearanceSettingsScreen(
+                            onBack = {
+                                settingsPage = SettingsPage.ROOT
+                            },
+                        )
+
+                    SettingsPage.DATA_STORAGE ->
+                        DataStorageSettingsScreen(
+                            libraryStore = libraryStore,
+                            onLibraryChanged = {
+                                libraryVersion++
+                            },
+                            onCatalogCacheCleared = {
+                                contentVersion++
+                            },
+                            onBack = {
+                                settingsPage = SettingsPage.ROOT
+                            },
+                        )
+
+                    SettingsPage.UPDATES ->
+                        UpdatesSettingsScreen(
+                            settingsStore = settingsStore,
+                            onBack = {
+                                settingsPage = SettingsPage.ROOT
+                            },
+                        )
+
+                    SettingsPage.ABOUT ->
+                        AboutVueoSettingsScreen(
+                            onBack = {
+                                settingsPage = SettingsPage.ROOT
                             },
                         )
                 }
@@ -843,7 +948,7 @@ private fun HomeFilterRow(
             Arrangement.spacedBy(8.dp),
     ) {
         items(
-            HomeMediaFilter.entries
+            HomeMediaFilter.values().toList()
         ) { filter ->
             FilterChip(
                 selected =
@@ -2449,1014 +2554,6 @@ private fun playbackEntrySubtitle(
 
 
 @Composable
-private fun SettingsScreen(
-    engine: UnifiedMediaEngine,
-    settingsStore: SettingsStore,
-    libraryStore: LibraryStore,
-    onLibraryChanged: () -> Unit,
-    onCatalogCacheCleared: () -> Unit,
-    onContentManager: () -> Unit,
-) {
-    val context =
-        LocalContext.current
-
-    val pluginStore =
-        remember {
-            PluginStore(
-                context.applicationContext
-            )
-        }
-
-    val scope =
-        rememberCoroutineScope()
-
-    var resumePlayback by remember {
-        mutableStateOf(
-            settingsStore
-                .resumePlaybackEnabled()
-        )
-    }
-
-    var preferredQuality by remember {
-        mutableStateOf(
-            settingsStore
-                .preferredQuality()
-        )
-    }
-
-    var technicalDetails by remember {
-        mutableStateOf(
-            settingsStore
-                .showSourceTechnicalDetails()
-        )
-    }
-
-    var showQualityDialog by remember {
-        mutableStateOf(false)
-    }
-
-    var confirmAction by remember {
-        mutableStateOf<
-            SettingsConfirmAction?
-        >(null)
-    }
-
-    var feedback by remember {
-        mutableStateOf<String?>(null)
-    }
-
-    val addons =
-        engine.stremioAddons()
-
-    val repositories =
-        pluginStore.repositories()
-
-    val providerCount =
-        pluginStore
-            .totalProviderCount()
-
-    if (showQualityDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                showQualityDialog = false
-            },
-            title = {
-                Text(
-                    "Preferred Quality"
-                )
-            },
-            text = {
-                Column(
-                    verticalArrangement =
-                        Arrangement.spacedBy(
-                            4.dp
-                        ),
-                ) {
-                    Text(
-                        "VUEO will boost this quality in Smart Source ranking. Auto keeps the normal quality-first ranking.",
-                        color =
-                            MaterialTheme
-                                .colorScheme
-                                .onSurface
-                                .copy(
-                                    alpha = .68f
-                                ),
-                        fontSize = 12.sp,
-                    )
-
-                    PreferredQuality
-                        .entries
-                        .forEach {
-                            quality ->
-
-                            Row(
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            preferredQuality =
-                                                quality
-
-                                            settingsStore
-                                                .setPreferredQuality(
-                                                    quality
-                                                )
-
-                                            showQualityDialog =
-                                                false
-
-                                            feedback =
-                                                "Preferred quality set to ${quality.label}."
-                                        }
-                                        .padding(
-                                            vertical = 8.dp
-                                        ),
-                                verticalAlignment =
-                                    Alignment
-                                        .CenterVertically,
-                            ) {
-                                RadioButton(
-                                    selected =
-                                        preferredQuality ==
-                                            quality,
-                                    onClick = null,
-                                )
-
-                                Spacer(
-                                    Modifier.width(
-                                        8.dp
-                                    )
-                                )
-
-                                Text(
-                                    quality.label,
-                                    fontWeight =
-                                        if (
-                                            preferredQuality ==
-                                            quality
-                                        ) {
-                                            FontWeight.Bold
-                                        } else {
-                                            FontWeight.Normal
-                                        },
-                                )
-                            }
-                        }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showQualityDialog =
-                            false
-                    },
-                ) {
-                    Text("Close")
-                }
-            },
-        )
-    }
-
-    confirmAction?.let {
-        action ->
-
-        AlertDialog(
-            onDismissRequest = {
-                confirmAction = null
-            },
-            title = {
-                Text(action.title)
-            },
-            text = {
-                Text(action.message)
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        when (action) {
-                            SettingsConfirmAction
-                                .CATALOG_CACHE -> {
-                                scope.launch {
-                                    CatalogDiscoveryCache
-                                        .clearAll(
-                                            context
-                                                .applicationContext
-                                        )
-
-                                    onCatalogCacheCleared()
-
-                                    feedback =
-                                        "Catalog and search cache cleared."
-                                }
-                            }
-
-                            SettingsConfirmAction
-                                .SOURCE_CACHE -> {
-                                SourceDiscoveryCache
-                                    .clearAll()
-
-                                feedback =
-                                    "Recent source cache cleared."
-                            }
-
-                            SettingsConfirmAction
-                                .CONTINUE_WATCHING -> {
-                                libraryStore
-                                    .clearContinueWatching()
-
-                                onLibraryChanged()
-
-                                feedback =
-                                    "Continue Watching cleared."
-                            }
-
-                            SettingsConfirmAction
-                                .WATCH_HISTORY -> {
-                                libraryStore
-                                    .clearHistory()
-
-                                onLibraryChanged()
-
-                                feedback =
-                                    "Watch History cleared."
-                            }
-                        }
-
-                        confirmAction =
-                            null
-                    },
-                ) {
-                    Text("Clear")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        confirmAction = null
-                    },
-                ) {
-                    Text("Cancel")
-                }
-            },
-        )
-    }
-
-    LazyColumn(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .background(
-                    VueoPalette.Background
-                ),
-        contentPadding =
-            PaddingValues(
-                horizontal = 20.dp,
-                vertical = 20.dp,
-            ),
-        verticalArrangement =
-            Arrangement.spacedBy(
-                14.dp
-            ),
-    ) {
-        item {
-            Column(
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        5.dp
-                    ),
-            ) {
-                Text(
-                    "VUEO",
-                    color =
-                        VueoPalette.Neon,
-                    fontSize = 11.sp,
-                    fontWeight =
-                        FontWeight.Black,
-                    letterSpacing = 1.4.sp,
-                )
-
-                Text(
-                    "Settings",
-                    color = Color.White,
-                    fontSize = 30.sp,
-                    fontWeight =
-                        FontWeight.Black,
-                )
-
-                Text(
-                    "Content, playback, source behavior, local data, and app information.",
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 12.sp,
-                )
-            }
-        }
-
-        feedback
-            ?.let {
-                message ->
-
-                item {
-                    Surface(
-                        shape =
-                            RoundedCornerShape(
-                                14.dp
-                            ),
-                        color =
-                            VueoPalette.Neon
-                                .copy(
-                                    alpha = .10f
-                                ),
-                    ) {
-                        Text(
-                            message,
-                            modifier =
-                                Modifier.padding(
-                                    horizontal =
-                                        14.dp,
-                                    vertical =
-                                        10.dp,
-                                ),
-                            color =
-                                VueoPalette.Neon,
-                            fontSize = 11.sp,
-                            fontWeight =
-                                FontWeight.Bold,
-                        )
-                    }
-                }
-            }
-
-        item {
-            SettingsSectionLabel(
-                "CONTENT"
-            )
-        }
-
-        item {
-            SettingsNavigationCard(
-                title =
-                    "Content Manager",
-                subtitle =
-                    "Manage addons, plugin repositories, providers, health, and diagnostics.",
-                status =
-                    "${addons.size} addons • " +
-                        "${repositories.size} repos • " +
-                        "$providerCount providers",
-                icon =
-                    Icons.Default.Extension,
-                onClick =
-                    onContentManager,
-            )
-        }
-
-        item {
-            SettingsSectionLabel(
-                "PLAYBACK"
-            )
-        }
-
-        item {
-            SettingsToggleCard(
-                title =
-                    "Resume Playback",
-                subtitle =
-                    "Ask to continue from your saved position when a title is opened again.",
-                checked =
-                    resumePlayback,
-                onCheckedChange = {
-                    enabled ->
-
-                    resumePlayback =
-                        enabled
-
-                    settingsStore
-                        .setResumePlaybackEnabled(
-                            enabled
-                        )
-
-                    feedback =
-                        if (enabled) {
-                            "Resume Playback enabled."
-                        } else {
-                            "Resume Playback disabled."
-                        }
-                },
-            )
-        }
-
-        item {
-            SettingsValueCard(
-                title =
-                    "Preferred Quality",
-                subtitle =
-                    "Boost one resolution in Smart Source ranking without hiding other sources.",
-                value =
-                    preferredQuality.label,
-                onClick = {
-                    showQualityDialog =
-                        true
-                },
-            )
-        }
-
-        item {
-            SettingsSectionLabel(
-                "SOURCES"
-            )
-        }
-
-        item {
-            SettingsToggleCard(
-                title =
-                    "Technical Source Details",
-                subtitle =
-                    "Show codec, HDR, and audio information on source cards.",
-                checked =
-                    technicalDetails,
-                onCheckedChange = {
-                    enabled ->
-
-                    technicalDetails =
-                        enabled
-
-                    settingsStore
-                        .setShowSourceTechnicalDetails(
-                            enabled
-                        )
-
-                    feedback =
-                        if (enabled) {
-                            "Technical source details enabled."
-                        } else {
-                            "Technical source details hidden."
-                        }
-                },
-            )
-        }
-
-        item {
-            SettingsSectionLabel(
-                "DATA"
-            )
-        }
-
-        item {
-            SettingsActionCard(
-                title =
-                    "Catalog & Search Cache",
-                subtitle =
-                    "Clear the persistent Home snapshot and in-memory search cache.",
-                action = "Clear",
-                onClick = {
-                    confirmAction =
-                        SettingsConfirmAction
-                            .CATALOG_CACHE
-                },
-            )
-        }
-
-        item {
-            SettingsActionCard(
-                title =
-                    "Recent Source Cache",
-                subtitle =
-                    "Clear short-lived source results kept for faster repeat searches.",
-                action = "Clear",
-                onClick = {
-                    confirmAction =
-                        SettingsConfirmAction
-                            .SOURCE_CACHE
-                },
-            )
-        }
-
-        item {
-            SettingsActionCard(
-                title =
-                    "Continue Watching",
-                subtitle =
-                    "Remove all unfinished playback entries from Continue Watching.",
-                action = "Clear",
-                onClick = {
-                    confirmAction =
-                        SettingsConfirmAction
-                            .CONTINUE_WATCHING
-                },
-            )
-        }
-
-        item {
-            SettingsActionCard(
-                title =
-                    "Watch History",
-                subtitle =
-                    "Clear completed and previously watched playback history. My List is not affected.",
-                action = "Clear",
-                onClick = {
-                    confirmAction =
-                        SettingsConfirmAction
-                            .WATCH_HISTORY
-                },
-            )
-        }
-
-        item {
-            SettingsSectionLabel(
-                "ABOUT"
-            )
-        }
-
-        item {
-            Card(
-                shape =
-                    RoundedCornerShape(
-                        20.dp
-                    ),
-                colors =
-                    CardDefaults.cardColors(
-                        containerColor =
-                            VueoPalette
-                                .SurfaceElevated
-                    ),
-            ) {
-                Column(
-                    modifier =
-                        Modifier.padding(
-                            17.dp
-                        ),
-                    verticalArrangement =
-                        Arrangement.spacedBy(
-                            7.dp
-                        ),
-                ) {
-                    Row(
-                        modifier =
-                            Modifier.fillMaxWidth(),
-                        verticalAlignment =
-                            Alignment
-                                .CenterVertically,
-                    ) {
-                        Column(
-                            modifier =
-                                Modifier.weight(1f),
-                        ) {
-                            Text(
-                                "VUEO",
-                                color =
-                                    Color.White,
-                                fontSize = 18.sp,
-                                fontWeight =
-                                    FontWeight.Black,
-                            )
-
-                            Text(
-                                "Version ${BuildConfig.VERSION_NAME}",
-                                color =
-                                    VueoPalette.Neon,
-                                fontSize = 11.sp,
-                                fontWeight =
-                                    FontWeight.Bold,
-                            )
-                        }
-
-                        Surface(
-                            shape =
-                                RoundedCornerShape(
-                                    50
-                                ),
-                            color =
-                                VueoPalette.Neon
-                                    .copy(
-                                        alpha = .10f
-                                    ),
-                        ) {
-                            Text(
-                                "APK",
-                                modifier =
-                                    Modifier.padding(
-                                        horizontal =
-                                            10.dp,
-                                        vertical =
-                                            6.dp,
-                                    ),
-                                color =
-                                    VueoPalette.Neon,
-                                fontSize = 10.sp,
-                                fontWeight =
-                                    FontWeight.Black,
-                            )
-                        }
-                    }
-
-                    Text(
-                        "Direct APK distribution build. Content sources are managed separately through Content Manager.",
-                        color =
-                            VueoPalette.Muted,
-                        fontSize = 11.sp,
-                    )
-                }
-            }
-        }
-
-        item {
-            Spacer(
-                Modifier.height(
-                    8.dp
-                )
-            )
-        }
-    }
-}
-
-private enum class SettingsConfirmAction(
-    val title: String,
-    val message: String,
-) {
-    CATALOG_CACHE(
-        title =
-            "Clear catalog cache?",
-        message =
-            "Home and Search will fetch fresh catalog data again.",
-    ),
-    SOURCE_CACHE(
-        title =
-            "Clear source cache?",
-        message =
-            "Recent source results will be discarded. The next Watch action will perform a fresh source search.",
-    ),
-    CONTINUE_WATCHING(
-        title =
-            "Clear Continue Watching?",
-        message =
-            "All unfinished playback entries will be removed from Continue Watching.",
-    ),
-    WATCH_HISTORY(
-        title =
-            "Clear Watch History?",
-        message =
-            "Previously watched playback history will be removed. My List will remain unchanged.",
-    ),
-}
-
-@Composable
-private fun SettingsSectionLabel(
-    label: String,
-) {
-    Text(
-        label,
-        color =
-            VueoPalette.Muted,
-        fontSize = 10.sp,
-        fontWeight =
-            FontWeight.Black,
-        letterSpacing = 1.4.sp,
-    )
-}
-
-@Composable
-private fun SettingsNavigationCard(
-    title: String,
-    subtitle: String,
-    status: String,
-    icon: ImageVector,
-    onClick: () -> Unit,
-) {
-    Card(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .clickable(
-                    onClick =
-                        onClick
-                ),
-        shape =
-            RoundedCornerShape(
-                20.dp
-            ),
-        colors =
-            CardDefaults.cardColors(
-                containerColor =
-                    VueoPalette
-                        .SurfaceElevated
-            ),
-    ) {
-        Row(
-            modifier =
-                Modifier.padding(
-                    17.dp
-                ),
-            verticalAlignment =
-                Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier =
-                    Modifier
-                        .size(
-                            48.dp
-                        )
-                        .clip(
-                            RoundedCornerShape(
-                                14.dp
-                            )
-                        )
-                        .background(
-                            VueoPalette
-                                .SurfaceStrong
-                        ),
-                contentAlignment =
-                    Alignment.Center,
-            ) {
-                Icon(
-                    icon,
-                    contentDescription =
-                        null,
-                    tint =
-                        VueoPalette.Neon,
-                )
-            }
-
-            Spacer(
-                Modifier.width(
-                    14.dp
-                )
-            )
-
-            Column(
-                modifier =
-                    Modifier.weight(
-                        1f
-                    ),
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        3.dp
-                    ),
-            ) {
-                Text(
-                    title,
-                    color =
-                        Color.White,
-                    fontSize = 17.sp,
-                    fontWeight =
-                        FontWeight.Bold,
-                )
-
-                Text(
-                    subtitle,
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 11.sp,
-                )
-
-                Text(
-                    status,
-                    color =
-                        VueoPalette.Neon,
-                    fontSize = 10.sp,
-                    fontWeight =
-                        FontWeight.Bold,
-                )
-            }
-
-            Text(
-                "›",
-                color =
-                    VueoPalette.Muted,
-                fontSize = 28.sp,
-            )
-        }
-    }
-}
-
-@Composable
-private fun SettingsToggleCard(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange:
-        (Boolean) -> Unit,
-) {
-    Card(
-        shape =
-            RoundedCornerShape(
-                18.dp
-            ),
-        colors =
-            CardDefaults.cardColors(
-                containerColor =
-                    VueoPalette.Surface
-            ),
-    ) {
-        Row(
-            modifier =
-                Modifier.padding(
-                    16.dp
-                ),
-            verticalAlignment =
-                Alignment.CenterVertically,
-        ) {
-            Column(
-                modifier =
-                    Modifier.weight(1f),
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        4.dp
-                    ),
-            ) {
-                Text(
-                    title,
-                    color =
-                        Color.White,
-                    fontWeight =
-                        FontWeight.Bold,
-                    fontSize = 15.sp,
-                )
-
-                Text(
-                    subtitle,
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 11.sp,
-                )
-            }
-
-            Spacer(
-                Modifier.width(12.dp)
-            )
-
-            Switch(
-                checked = checked,
-                onCheckedChange =
-                    onCheckedChange,
-            )
-        }
-    }
-}
-
-@Composable
-private fun SettingsValueCard(
-    title: String,
-    subtitle: String,
-    value: String,
-    onClick: () -> Unit,
-) {
-    Card(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .clickable(
-                    onClick =
-                        onClick
-                ),
-        shape =
-            RoundedCornerShape(
-                18.dp
-            ),
-        colors =
-            CardDefaults.cardColors(
-                containerColor =
-                    VueoPalette.Surface
-            ),
-    ) {
-        Row(
-            modifier =
-                Modifier.padding(
-                    16.dp
-                ),
-            verticalAlignment =
-                Alignment.CenterVertically,
-        ) {
-            Column(
-                modifier =
-                    Modifier.weight(1f),
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        4.dp
-                    ),
-            ) {
-                Text(
-                    title,
-                    color =
-                        Color.White,
-                    fontWeight =
-                        FontWeight.Bold,
-                    fontSize = 15.sp,
-                )
-
-                Text(
-                    subtitle,
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 11.sp,
-                )
-            }
-
-            Spacer(
-                Modifier.width(12.dp)
-            )
-
-            Surface(
-                shape =
-                    RoundedCornerShape(
-                        50
-                    ),
-                color =
-                    VueoPalette.Neon
-                        .copy(
-                            alpha = .10f
-                        ),
-            ) {
-                Text(
-                    value,
-                    modifier =
-                        Modifier.padding(
-                            horizontal =
-                                10.dp,
-                            vertical =
-                                6.dp,
-                        ),
-                    color =
-                        VueoPalette.Neon,
-                    fontSize = 11.sp,
-                    fontWeight =
-                        FontWeight.Bold,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsActionCard(
-    title: String,
-    subtitle: String,
-    action: String,
-    onClick: () -> Unit,
-) {
-    Card(
-        shape =
-            RoundedCornerShape(
-                18.dp
-            ),
-        colors =
-            CardDefaults.cardColors(
-                containerColor =
-                    VueoPalette.Surface
-            ),
-    ) {
-        Row(
-            modifier =
-                Modifier.padding(
-                    16.dp
-                ),
-            verticalAlignment =
-                Alignment.CenterVertically,
-        ) {
-            Column(
-                modifier =
-                    Modifier.weight(1f),
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        4.dp
-                    ),
-            ) {
-                Text(
-                    title,
-                    color =
-                        Color.White,
-                    fontWeight =
-                        FontWeight.Bold,
-                    fontSize = 15.sp,
-                )
-
-                Text(
-                    subtitle,
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 11.sp,
-                )
-            }
-
-            Spacer(
-                Modifier.width(12.dp)
-            )
-
-            TextButton(
-                onClick = onClick,
-            ) {
-                Text(
-                    action,
-                    color =
-                        VueoPalette.Neon,
-                    fontWeight =
-                        FontWeight.Bold,
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun ContentManagerScreen(
     engine: UnifiedMediaEngine,
     onBack: () -> Unit,
@@ -3857,7 +2954,7 @@ private fun AddonsScreen(
                 }
             }
         } else {
-            val groupedAddons = AddonCategory.entries
+            val groupedAddons = AddonCategory.values().toList()
                 .mapNotNull { category ->
                     val addons = installed.filter {
                         it.descriptor.primaryAddonCategory() == category
@@ -4186,14 +3283,6 @@ private fun PluginsScreen(
             store.pluginsEnabled()
         )
     }
-    var tmdbKey by remember {
-        mutableStateOf(
-            store.tmdbApiKey()
-        )
-    }
-    var tmdbSaved by remember {
-        mutableStateOf(false)
-    }
     var showAddDialog by remember {
         mutableStateOf(false)
     }
@@ -4378,76 +3467,6 @@ private fun PluginsScreen(
                 }
             }
 
-            item {
-                ElevatedCard(
-                    modifier =
-                        Modifier.fillMaxWidth(),
-                ) {
-                    Column(
-                        modifier =
-                            Modifier.padding(18.dp),
-                        verticalArrangement =
-                            Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(
-                            "TMDB Bridge",
-                            fontWeight =
-                                FontWeight.Bold,
-                            fontSize = 18.sp,
-                        )
-
-                        Text(
-                            "Plugin providers need a numeric TMDB ID. " +
-                                "Enter a TMDB v3 API key so VUEO can map " +
-                                "Cinemeta IMDb IDs to TMDB IDs.",
-                            color =
-                                MaterialTheme
-                                    .colorScheme
-                                    .onSurface
-                                    .copy(alpha = .62f),
-                            fontSize = 12.sp,
-                        )
-
-                        OutlinedTextField(
-                            value = tmdbKey,
-                            onValueChange = {
-                                tmdbKey = it
-                                tmdbSaved = false
-                            },
-                            label = {
-                                Text(
-                                    "TMDB API Key"
-                                )
-                            },
-                            singleLine = true,
-                            modifier =
-                                Modifier.fillMaxWidth(),
-                        )
-
-                        Button(
-                            onClick = {
-                                store.setTmdbApiKey(
-                                    tmdbKey
-                                )
-                                tmdbSaved = true
-                            },
-                        ) {
-                            Text("Save TMDB Key")
-                        }
-
-                        if (tmdbSaved) {
-                            Text(
-                                "TMDB key saved.",
-                                color =
-                                    MaterialTheme
-                                        .colorScheme
-                                        .primary,
-                                fontSize = 12.sp,
-                            )
-                        }
-                    }
-                }
-            }
 
             if (repositories.isEmpty()) {
                 item {
@@ -6909,9 +5928,37 @@ private fun PlayerScreen(
                             ),
                         subtitles =
                             subtitles,
+                        preferredLanguageCode =
+                            settingsStore
+                                .preferredSubtitleLanguage()
+                                .languageCode,
+                        secondaryLanguageCode =
+                            settingsStore
+                                .secondarySubtitleLanguage()
+                                .languageCode,
+                        subtitlesOnByDefault =
+                            settingsStore
+                                .subtitlesOnByDefault(),
+                        autoSelectPreferred =
+                            settingsStore
+                                .autoSelectPreferredSubtitle(),
+                        embeddedPriority =
+                            settingsStore
+                                .embeddedSubtitlePriority(),
                     )
 
                 setMediaItem(mediaItem)
+
+                trackSelectionParameters =
+                    trackSelectionParameters
+                        .buildUpon()
+                        .setTrackTypeDisabled(
+                            C.TRACK_TYPE_TEXT,
+                            !settingsStore
+                                .subtitlesOnByDefault(),
+                        )
+                        .build()
+
                 prepare()
 
                 playWhenReady =
@@ -8010,8 +7057,21 @@ private fun formatPlaybackTime(
 private fun buildPlayerMediaItem(
     sourceUrl: String,
     subtitles: List<SubtitleTrack>,
+    preferredLanguageCode: String?,
+    secondaryLanguageCode: String?,
+    subtitlesOnByDefault: Boolean,
+    autoSelectPreferred: Boolean,
+    embeddedPriority: Boolean,
 ): Media3MediaItem {
-    val subtitleConfigurations =
+    val normalizedPreferred =
+        preferredLanguageCode
+            ?.lowercase()
+
+    val normalizedSecondary =
+        secondaryLanguageCode
+            ?.lowercase()
+
+    val orderedSubtitles =
         subtitles
             .filter {
                 it.url.startsWith(
@@ -8021,31 +7081,74 @@ private fun buildPlayerMediaItem(
             .distinctBy {
                 it.url
             }
-            .map {
+            .sortedBy {
                 subtitle ->
 
-                Media3MediaItem
-                    .SubtitleConfiguration
-                    .Builder(
-                        Uri.parse(
-                            subtitle.url
+                subtitleLanguagePriority(
+                    language =
+                        subtitle.language,
+                    preferred =
+                        normalizedPreferred,
+                    secondary =
+                        normalizedSecondary,
+                )
+            }
+
+    val subtitleConfigurations =
+        orderedSubtitles
+            .mapIndexed {
+                index,
+                subtitle ->
+
+                val builder =
+                    Media3MediaItem
+                        .SubtitleConfiguration
+                        .Builder(
+                            Uri.parse(
+                                subtitle.url
+                            )
                         )
-                    )
-                    .setId(
-                        subtitle.id
-                    )
-                    .setLabel(
-                        subtitle.language
-                    )
-                    .setLanguage(
-                        subtitle.language
-                    )
-                    .setMimeType(
-                        subtitleMimeType(
-                            subtitle.url
+                        .setId(
+                            subtitle.id
                         )
+                        .setLabel(
+                            subtitle.language
+                        )
+                        .setLanguage(
+                            subtitle.language
+                        )
+                        .setMimeType(
+                            subtitleMimeType(
+                                subtitle.url
+                            )
+                        )
+
+                val shouldMarkDefault =
+                    subtitlesOnByDefault &&
+                        autoSelectPreferred &&
+                        !embeddedPriority &&
+                        (
+                            subtitleLanguagePriority(
+                                language =
+                                    subtitle.language,
+                                preferred =
+                                    normalizedPreferred,
+                                secondary =
+                                    normalizedSecondary,
+                            ) == 0 ||
+                                (
+                                    normalizedPreferred == null &&
+                                        index == 0
+                                )
+                        )
+
+                if (shouldMarkDefault) {
+                    builder.setSelectionFlags(
+                        C.SELECTION_FLAG_DEFAULT
                     )
-                    .build()
+                }
+
+                builder.build()
             }
 
     return Media3MediaItem
@@ -8057,6 +7160,37 @@ private fun buildPlayerMediaItem(
             subtitleConfigurations
         )
         .build()
+}
+
+private fun subtitleLanguagePriority(
+    language: String,
+    preferred: String?,
+    secondary: String?,
+): Int {
+    val normalized =
+        language
+            .trim()
+            .lowercase()
+
+    return when {
+        preferred != null &&
+            (
+                normalized == preferred ||
+                    normalized.startsWith(
+                        "$preferred-"
+                    )
+            ) -> 0
+
+        secondary != null &&
+            (
+                normalized == secondary ||
+                    normalized.startsWith(
+                        "$secondary-"
+                    )
+            ) -> 1
+
+        else -> 2
+    }
 }
 
 private fun subtitleMimeType(

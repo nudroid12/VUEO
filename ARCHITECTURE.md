@@ -507,3 +507,34 @@ Bottom Navigation
 - source-card technical detail visibility
 
 Preferred quality feeds the Smart Source ranking layer. It is intentionally implemented as a scoring boost rather than a source filter.
+
+
+## v0.9.1 Settings and optional enhancement architecture
+
+```text
+Settings
+   |
+   +-- Content Manager
+   |      +-- Stremio Addons
+   |      +-- Plugin Repositories
+   |      +-- Providers
+   |      +-- Provider Health / Diagnostics
+   |
+   +-- Enhancements
+   |      +-- TMDB        optional
+   |      +-- MDBList     optional
+   |
+   +-- Playback
+   +-- Subtitles
+   +-- Sources
+   +-- Appearance
+   +-- Data & Storage
+   +-- Updates
+   +-- About VUEO
+```
+
+TMDB and MDBList are enrichment modules, not VUEO core dependencies. No enhancement key is required for normal catalog browsing, source discovery, playback, Library, or Content Manager operation.
+
+TMDB's existing provider ID bridge continues to use the locally stored key while the user-facing configuration lives under Enhancements. MDBList is isolated in Settings storage until the v0.9.2 rating enrichment layer consumes it.
+
+Subtitle source acquisition remains part of Stremio Addons in Content Manager. Subtitle preference and presentation behavior live under Settings > Subtitles.

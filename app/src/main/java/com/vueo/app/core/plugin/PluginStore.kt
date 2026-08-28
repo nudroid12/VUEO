@@ -170,10 +170,9 @@ class PluginStore(context: Context) {
         private const val KEY_DEV_DEFAULTS_REVISION =
             "plugin_dev_defaults_revision"
 
-        private const val DEV_DEFAULTS_REVISION = 2
+        private const val DEV_DEFAULTS_REVISION = 1
 
         val DEVELOPMENT_DEFAULT_MANIFESTS = setOf(
-            "https://raw.githubusercontent.com/Luckez12/VUEO-Providers/refs/heads/main/manifest.json",
             "https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/main/manifest.json",
             "https://raw.githubusercontent.com/D3adlyRocket/All-in-One-Nuvio/refs/heads/main/manifest.json",
         )

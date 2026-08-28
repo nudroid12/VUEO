@@ -165,7 +165,7 @@ TMDB bridge:
 
 - Numeric or `tmdb:` media IDs are used directly
 - IMDb IDs can be mapped through TMDB `/find`
-- User supplies their own TMDB v3 API key in Content Manager > Plugins
+- User supplies their own TMDB v3 API key in Settings > Enhancements > TMDB
 
 Compatibility note:
 
@@ -648,7 +648,7 @@ This reduces repeated JSON history rewrites without sacrificing resume accuracy.
 Expired in-memory source sessions are cleaned at startup. Source URLs remain short-lived and are intentionally not persisted to disk.
 
 
-## v0.9.1 Settings Foundation
+## v0.9.1 Settings architecture
 
 The primary navigation is now:
 
@@ -656,56 +656,78 @@ The primary navigation is now:
 Home | Search | Library | Settings
 ```
 
-Content Manager is no longer a standalone bottom tab. It lives inside Settings.
+Settings is a navigation hub instead of one long mixed page:
 
-### Settings
+- Content Manager
+- Enhancements
+- Playback
+- Subtitles
+- Sources
+- Appearance
+- Data & Storage
+- Updates
+- About VUEO
 
-The first functional Settings foundation includes:
+### Content Manager
 
-- Content Manager entry with Addon, repository and provider counts
-- Resume Playback toggle
-- Preferred Quality: Auto, 4K, 1080p or 720p
+Content Manager keeps its own identity. It contains Stremio Addons, JavaScript plugin repositories, providers, Provider Health, and diagnostics.
+
+TMDB configuration is no longer shown inside Plugins.
+
+### Enhancements
+
+Enhancements are optional. VUEO core continues to work without TMDB or MDBList configuration.
+
+TMDB configuration lives under Settings > Enhancements > TMDB. The locally stored TMDB key still supports plugin-provider TMDB ID resolution. Metadata enrichment, recommendations, similar titles, and artwork preferences are persisted for the v0.9.2 discovery layer.
+
+MDBList has an optional locally stored API key plus rating preferences for IMDb, Rotten Tomatoes, Metacritic, TMDB, and Trakt. Network rating enrichment is connected in v0.9.2.
+
+### Playback
+
+- Resume Playback
+- Preferred Quality: Auto, 4K, 1080p, or 720p
+
+Preferred Quality is a Smart Source ranking boost, not a hard filter. Other usable qualities remain available.
+
+### Subtitles
+
+Subtitle settings are first-class and separate from subtitle providers.
+
+- preferred language
+- secondary fallback language
+- subtitles on by default
+- automatic preferred-language selection
+- embedded subtitle priority
+- subtitle size preference
+
+Subtitle addons such as OpenSubtitles remain managed through Content Manager.
+
+### Sources
+
+- Smart Source Ranking status
+- Provider Health influence status
 - Technical Source Details toggle
-- Clear Catalog and Search cache
-- Clear recent Source cache
-- Clear Continue Watching
-- Clear Watch History
-- About card with the installed VUEO version
+- Progressive discovery information
 
-### Preferred Quality behavior
+### Data & Storage
 
-Preferred Quality is a ranking preference, not a hard filter.
+- clear Catalog and Search cache
+- clear Recent Source cache
+- clear Continue Watching
+- clear Watch History without changing My List
+- Backup & Restore location reserved for the Distribution & Data milestone
 
-For example, when 1080p is selected, VUEO boosts direct 1080p sources in Smart Source ranking while still showing 4K, 720p and other usable sources.
+### Updates
 
-This avoids creating a no-source situation just because the requested resolution is unavailable.
+The page shows the installed version and stores the Automatic Update Checks preference. Actual update checking and Telegram APK delivery remain part of the Distribution & Data milestone.
 
-### Resume Playback
+### Existing v0.9 hardening retained
 
-When Resume Playback is disabled, VUEO starts new player sessions from the beginning without showing the resume dialog. Playback progress can still be recorded for Library and History.
-
-### Content hierarchy
-
-```text
-Settings
-   |
-   +-- Content Manager
-   |      |
-   |      +-- Addons
-   |      |
-   |      +-- Plugins
-   |             |
-   |             +-- Provider Health
-   |             +-- Provider controls
-   |             +-- TMDB Bridge
-   |
-   +-- Playback
-   |
-   +-- Sources
-   |
-   +-- Data
-   |
-   +-- About
-```
-
-This structure leaves room for Update Checker and Backup / Restore without expanding the bottom navigation.
+- persistent Home catalog snapshot
+- background refresh after cached Home restore
+- addon request timeouts
+- pooled OkHttp transport
+- optimized provider health persistence
+- recent source cache maintenance
+- reduced Library progress write frequency
+- preferred quality boost in Smart Source ranking
