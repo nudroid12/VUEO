@@ -50,10 +50,24 @@ data class LibraryPlaybackEntry(
 class LibraryStore(
     context: Context,
 ) {
+    private val appContext =
+        context.applicationContext
+
     private val prefs =
-        context.getSharedPreferences(
+        appContext.getSharedPreferences(
             PREFS_NAME,
             Context.MODE_PRIVATE,
+        )
+
+    private val profileStore =
+        ProfileStore(appContext)
+
+    private fun scopedKey(
+        key: String,
+    ): String =
+        ProfileStore.scopedPreferenceKey(
+            profileStore.activeProfileId(),
+            key,
         )
 
     @Synchronized
@@ -138,7 +152,9 @@ class LibraryStore(
             }
 
         writeArray(
-            KEY_WATCHLIST,
+            scopedKey(
+                KEY_WATCHLIST
+            ),
             entries,
         )
 
@@ -166,7 +182,9 @@ class LibraryStore(
                 }
 
         writeArray(
-            KEY_WATCHLIST,
+            scopedKey(
+                KEY_WATCHLIST
+            ),
             entries,
         )
     }
@@ -257,7 +275,9 @@ class LibraryStore(
     fun clearHistory() {
         prefs.edit()
             .remove(
-                KEY_HISTORY
+                scopedKey(
+                    KEY_HISTORY
+                )
             )
             .apply()
     }
@@ -280,7 +300,9 @@ class LibraryStore(
     private fun readWatchlist():
         List<JSONObject> =
         readObjectArray(
-            KEY_WATCHLIST
+            scopedKey(
+                KEY_WATCHLIST
+            )
         )
 
     private fun watchlistTimestamp(
@@ -294,7 +316,9 @@ class LibraryStore(
     private fun readHistory():
         List<LibraryPlaybackEntry> =
         readObjectArray(
-            KEY_HISTORY
+            scopedKey(
+                KEY_HISTORY
+            )
         ).mapNotNull {
             runCatching {
                 playbackFromJson(
@@ -308,7 +332,9 @@ class LibraryStore(
             List<LibraryPlaybackEntry>,
     ) {
         writeArray(
-            KEY_HISTORY,
+            scopedKey(
+                KEY_HISTORY
+            ),
             entries.map {
                 playbackToJson(
                     it

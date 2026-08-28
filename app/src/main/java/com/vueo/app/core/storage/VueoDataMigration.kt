@@ -5,7 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 object VueoDataMigration {
-    const val CURRENT_SCHEMA_VERSION = 1
+    const val CURRENT_SCHEMA_VERSION = 2
 
     private const val PREFS_NAME = "vueo_data_migrations"
     private const val KEY_SCHEMA_VERSION = "schema_version"
@@ -27,6 +27,13 @@ object VueoDataMigration {
         if (version < 1) {
             migrateTmdbKeyIfNeeded(appContext)
             version = 1
+        }
+
+        if (version < 2) {
+            ProfileStore(
+                appContext
+            ).ensureDefaultProfile()
+            version = 2
         }
 
         if (version != migrationPrefs.getInt(KEY_SCHEMA_VERSION, 0)) {

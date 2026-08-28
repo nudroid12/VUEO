@@ -26,7 +26,7 @@ data class VueoRestoreSummary(
 )
 
 object VueoBackupManager {
-    const val CURRENT_SCHEMA_VERSION = 1
+    const val CURRENT_SCHEMA_VERSION = 2
 
     private const val FORMAT = "vueo-backup"
 
@@ -36,6 +36,7 @@ object VueoBackupManager {
         "vueo_settings",
         "vueo_library",
         "vueo_playback",
+        "vueo_profiles",
     )
 
     private val CREDENTIAL_KEYS = mapOf(

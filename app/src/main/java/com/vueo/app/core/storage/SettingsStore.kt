@@ -51,17 +51,30 @@ enum class SubtitleSize(
 class SettingsStore(
     context: Context,
 ) {
+    private val appContext =
+        context.applicationContext
+
     private val prefs =
-        context
-            .applicationContext
+        appContext
             .getSharedPreferences(
                 PREFS_NAME,
                 Context.MODE_PRIVATE,
             )
 
+    private val profileStore =
+        ProfileStore(appContext)
+
+    private fun profileKey(
+        key: String,
+    ): String =
+        ProfileStore.scopedPreferenceKey(
+            profileStore.activeProfileId(),
+            key,
+        )
+
     fun resumePlaybackEnabled(): Boolean =
         prefs.getBoolean(
-            KEY_RESUME_PLAYBACK,
+            profileKey(KEY_RESUME_PLAYBACK),
             true,
         )
 
@@ -70,7 +83,7 @@ class SettingsStore(
     ) {
         prefs.edit()
             .putBoolean(
-                KEY_RESUME_PLAYBACK,
+                profileKey(KEY_RESUME_PLAYBACK),
                 enabled,
             )
             .apply()
@@ -78,7 +91,7 @@ class SettingsStore(
 
     fun preferredQuality(): PreferredQuality =
         enumValue(
-            key = KEY_PREFERRED_QUALITY,
+            key = profileKey(KEY_PREFERRED_QUALITY),
             default = PreferredQuality.AUTO,
         )
 
@@ -87,7 +100,7 @@ class SettingsStore(
     ) {
         prefs.edit()
             .putString(
-                KEY_PREFERRED_QUALITY,
+                profileKey(KEY_PREFERRED_QUALITY),
                 value.name,
             )
             .apply()
@@ -112,7 +125,7 @@ class SettingsStore(
 
     fun preferredSubtitleLanguage(): SubtitleLanguage =
         enumValue(
-            key = KEY_SUBTITLE_LANGUAGE,
+            key = profileKey(KEY_SUBTITLE_LANGUAGE),
             default = SubtitleLanguage.ENGLISH,
         )
 
@@ -121,7 +134,7 @@ class SettingsStore(
     ) {
         prefs.edit()
             .putString(
-                KEY_SUBTITLE_LANGUAGE,
+                profileKey(KEY_SUBTITLE_LANGUAGE),
                 value.name,
             )
             .apply()
@@ -129,7 +142,7 @@ class SettingsStore(
 
     fun secondarySubtitleLanguage(): SubtitleLanguage =
         enumValue(
-            key = KEY_SECONDARY_SUBTITLE_LANGUAGE,
+            key = profileKey(KEY_SECONDARY_SUBTITLE_LANGUAGE),
             default = SubtitleLanguage.AUTO,
         )
 
@@ -138,7 +151,7 @@ class SettingsStore(
     ) {
         prefs.edit()
             .putString(
-                KEY_SECONDARY_SUBTITLE_LANGUAGE,
+                profileKey(KEY_SECONDARY_SUBTITLE_LANGUAGE),
                 value.name,
             )
             .apply()
@@ -146,7 +159,7 @@ class SettingsStore(
 
     fun subtitlesOnByDefault(): Boolean =
         prefs.getBoolean(
-            KEY_SUBTITLES_ON_BY_DEFAULT,
+            profileKey(KEY_SUBTITLES_ON_BY_DEFAULT),
             true,
         )
 
@@ -155,7 +168,7 @@ class SettingsStore(
     ) {
         prefs.edit()
             .putBoolean(
-                KEY_SUBTITLES_ON_BY_DEFAULT,
+                profileKey(KEY_SUBTITLES_ON_BY_DEFAULT),
                 enabled,
             )
             .apply()
@@ -163,7 +176,7 @@ class SettingsStore(
 
     fun autoSelectPreferredSubtitle(): Boolean =
         prefs.getBoolean(
-            KEY_AUTO_SELECT_SUBTITLE,
+            profileKey(KEY_AUTO_SELECT_SUBTITLE),
             true,
         )
 
@@ -172,7 +185,7 @@ class SettingsStore(
     ) {
         prefs.edit()
             .putBoolean(
-                KEY_AUTO_SELECT_SUBTITLE,
+                profileKey(KEY_AUTO_SELECT_SUBTITLE),
                 enabled,
             )
             .apply()
@@ -180,7 +193,7 @@ class SettingsStore(
 
     fun embeddedSubtitlePriority(): Boolean =
         prefs.getBoolean(
-            KEY_EMBEDDED_SUBTITLE_PRIORITY,
+            profileKey(KEY_EMBEDDED_SUBTITLE_PRIORITY),
             true,
         )
 
@@ -189,7 +202,7 @@ class SettingsStore(
     ) {
         prefs.edit()
             .putBoolean(
-                KEY_EMBEDDED_SUBTITLE_PRIORITY,
+                profileKey(KEY_EMBEDDED_SUBTITLE_PRIORITY),
                 enabled,
             )
             .apply()
@@ -197,7 +210,7 @@ class SettingsStore(
 
     fun subtitleSize(): SubtitleSize =
         enumValue(
-            key = KEY_SUBTITLE_SIZE,
+            key = profileKey(KEY_SUBTITLE_SIZE),
             default = SubtitleSize.MEDIUM,
         )
 
@@ -206,7 +219,7 @@ class SettingsStore(
     ) {
         prefs.edit()
             .putString(
-                KEY_SUBTITLE_SIZE,
+                profileKey(KEY_SUBTITLE_SIZE),
                 value.name,
             )
             .apply()

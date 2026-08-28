@@ -110,6 +110,8 @@ import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.BuildConfig
 import com.vueo.app.core.storage.PlaybackStore
 import com.vueo.app.core.storage.LibraryStore
+import com.vueo.app.core.storage.ProfileStore
+import com.vueo.app.core.storage.VueoProfile
 import com.vueo.app.core.storage.LibraryPlaybackEntry
 import com.vueo.app.core.storage.PreferredQuality
 import com.vueo.app.core.storage.SettingsStore
@@ -145,6 +147,7 @@ private enum class AppTab {
 
 private enum class SettingsPage {
     ROOT,
+    PROFILES,
     CONTENT_MANAGER,
     ADDONS,
     PLUGINS,
@@ -183,6 +186,11 @@ fun VueoApp() {
             context.applicationContext
         )
     }
+    val profileStore = remember {
+        ProfileStore(
+            context.applicationContext
+        )
+    }
     val settingsStore = remember {
         SettingsStore(
             context.applicationContext
@@ -211,6 +219,15 @@ fun VueoApp() {
     var libraryVersion by remember {
         mutableIntStateOf(0)
     }
+    var profileVersion by remember {
+        mutableIntStateOf(0)
+    }
+    var showProfilePicker by remember {
+        mutableStateOf(
+            profileStore
+                .shouldShowPickerOnStartup()
+        )
+    }
     var selectedLibraryEntry by remember {
         mutableStateOf<
             LibraryPlaybackEntry?
@@ -221,6 +238,12 @@ fun VueoApp() {
         VueoDataMigration.migrateIfNeeded(
             context.applicationContext
         )
+
+        profileStore.ensureDefaultProfile()
+        showProfilePicker =
+            profileStore
+                .shouldShowPickerOnStartup()
+        profileVersion++
 
         CatalogDiscoveryCache
             .restoreHome(
@@ -261,6 +284,38 @@ fun VueoApp() {
 
         booting = false
         contentVersion++
+    }
+
+    if (
+        !booting &&
+        showProfilePicker
+    ) {
+        WhosWatchingScreen(
+            profileStore =
+                profileStore,
+            profileVersion =
+                profileVersion,
+            onProfileSelected = {
+                selectedMedia = null
+                selectedLibraryEntry =
+                    null
+                mediaBackStack =
+                    emptyList()
+                selectedTab =
+                    AppTab.HOME
+                settingsPage =
+                    SettingsPage.ROOT
+                libraryVersion++
+                profileVersion++
+                showProfilePicker =
+                    false
+            },
+            onProfilesChanged = {
+                profileVersion++
+                libraryVersion++
+            },
+        )
+        return
     }
 
     if (selectedMedia != null) {
@@ -363,6 +418,12 @@ fun VueoApp() {
                     engine = engine,
                     contentVersion = contentVersion,
                     booting = booting,
+                    activeProfile =
+                        profileStore.activeProfile(),
+                    onProfileClick = {
+                        showProfilePicker =
+                            true
+                    },
                     onOpenContentManager = {
                         selectedTab =
                             AppTab.SETTINGS
@@ -431,6 +492,11 @@ fun VueoApp() {
                         VueoSettingsHub(
                             engine = engine,
                             settingsStore = settingsStore,
+                            profileStore = profileStore,
+                            profileVersion = profileVersion,
+                            onProfiles = {
+                                settingsPage = SettingsPage.PROFILES
+                            },
                             onContentManager = {
                                 settingsPage = SettingsPage.CONTENT_MANAGER
                             },
@@ -457,6 +523,29 @@ fun VueoApp() {
                             },
                             onAbout = {
                                 settingsPage = SettingsPage.ABOUT
+                            },
+                        )
+
+                    SettingsPage.PROFILES ->
+                        ProfileSettingsScreen(
+                            profileStore =
+                                profileStore,
+                            profileVersion =
+                                profileVersion,
+                            onProfilesChanged = {
+                                profileVersion++
+                            },
+                            onActiveProfileChanged = {
+                                selectedLibraryEntry =
+                                    null
+                                mediaBackStack =
+                                    emptyList()
+                                libraryVersion++
+                                profileVersion++
+                            },
+                            onBack = {
+                                settingsPage =
+                                    SettingsPage.ROOT
                             },
                         )
 
@@ -593,9 +682,11 @@ fun VueoApp() {
                                     pluginStore.repositories()
                                 )
 
+                                profileStore.ensureDefaultProfile()
                                 selectedLibraryEntry = null
                                 contentVersion++
                                 libraryVersion++
+                                profileVersion++
                             },
                             onBack = {
                                 settingsPage = SettingsPage.ROOT
@@ -681,6 +772,8 @@ private fun HomeScreen(
     engine: UnifiedMediaEngine,
     contentVersion: Int,
     booting: Boolean,
+    activeProfile: VueoProfile,
+    onProfileClick: () -> Unit,
     onOpenContentManager: () -> Unit,
     onSearch: () -> Unit,
     onMediaClick: (MediaItem) -> Unit,
@@ -785,7 +878,11 @@ private fun HomeScreen(
     ) {
         item {
             VueoHeader(
-                onSearch = onSearch
+                profile =
+                    activeProfile,
+                onProfileClick =
+                    onProfileClick,
+                onSearch = onSearch,
             )
         }
 
@@ -893,6 +990,8 @@ private fun HomeScreen(
 
 @Composable
 private fun VueoHeader(
+    profile: VueoProfile,
+    onProfileClick: () -> Unit,
     onSearch: () -> Unit,
 ) {
     Row(
@@ -961,6 +1060,40 @@ private fun VueoHeader(
                     color =
                         VueoPalette.Muted,
                     fontSize = 10.sp,
+                )
+            }
+        }
+
+        Surface(
+            modifier =
+                Modifier
+                    .padding(
+                        end = 8.dp
+                    )
+                    .clickable(
+                        onClick =
+                            onProfileClick
+                    ),
+            shape =
+                RoundedCornerShape(
+                    50
+                ),
+            color =
+                VueoPalette
+                    .SurfaceElevated,
+        ) {
+            Box(
+                modifier =
+                    Modifier.size(
+                        48.dp
+                    ),
+                contentAlignment =
+                    Alignment.Center,
+            ) {
+                Text(
+                    text =
+                        profile.avatar,
+                    fontSize = 20.sp,
                 )
             }
         }
@@ -6267,7 +6400,7 @@ private fun PlayerScreen(
         val httpFactory =
             DefaultHttpDataSource.Factory()
                 .setUserAgent(
-                    "VUEO/0.6.0"
+                    "VUEO/${BuildConfig.VERSION_NAME}"
                 )
                 .setAllowCrossProtocolRedirects(
                     true

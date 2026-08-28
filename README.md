@@ -1,62 +1,65 @@
-# VUEO v0.9.3
+# VUEO v0.9.4
 
-VUEO is an Android media frontend with open content sources, progressive source discovery, optional enrichment services, local Library data and Media3 playback.
+VUEO is an Android media frontend with open content sources, progressive source discovery, optional enrichment services, local profiles, Library data and Media3 playback.
 
-## v0.9.3 Distribution & Data
+## v0.9.4 Profiles & Final Polish
 
-This milestone makes VUEO safer to keep, move and update as a sideloaded APK.
+This milestone adds local "Who's Watching?" profiles without introducing an account server, email login or cloud dependency.
 
-### Backup & Restore
+### Local Profiles
 
-Settings > Data & Storage now supports a portable JSON backup using Android's system document picker.
+VUEO creates a default local profile automatically. Users can add, edit, switch and delete additional profiles from Settings > Profiles.
 
-Backups include:
+When more than one profile exists, VUEO can show a "Who's Watching?" picker on startup. Single-profile users can keep this disabled and launch directly into Home.
 
-- installed Stremio addon manifest URLs
-- plugin repositories and provider enable/disable preferences
-- playback, subtitle and source preferences
-- TMDB and MDBList enhancement preferences
+Per-profile data:
+
 - My List
 - Continue Watching
 - Watch History
 - playback resume progress
+- resume playback preference
+- preferred playback quality
+- subtitle language and subtitle behavior
 
-Temporary catalog/search cache, source cache, provider health diagnostics and downloaded provider scripts are not copied. They are rebuilt after restore.
+Shared app-wide data:
 
-API keys are excluded by default. Users can explicitly enable Include API Keys before creating a backup.
+- Content Manager
+- Stremio addons
+- plugin repositories and providers
+- Provider Health
+- TMDB configuration
+- MDBList configuration
+- source technical-detail preference
+- update configuration
 
-Restore validates a versioned VUEO backup schema, replaces the backed-up preference groups, clears stale runtime caches, runs data migration, reloads Stremio addons and syncs any missing provider scripts.
+Kids Profile is a profile label and architecture hook only in v0.9.4. It does not yet filter or block content.
 
-### Reset VUEO Data
+### Backup & Restore
 
-Data & Storage can reset VUEO to a fresh local state without uninstalling the APK. Content defaults are seeded again after reset.
+VUEO backups now include local profiles and every profile's isolated Library/playback data. Existing v0.9.3 backup files remain accepted.
 
-### Updates
+API keys remain excluded by default unless Include API Keys is explicitly enabled.
 
-Settings > Updates now has a functional release checker.
+### Data & Storage
 
-- manual Check for Updates
-- optional background checks, throttled to at most once every six hours
-- cached latest-release state for offline Settings display
-- release changelog display
-- HTTPS APK delivery link support
-- HTTPS Telegram release/channel link support
-- no forced redirect when a release feed has no trusted delivery URL
+Continue Watching and Watch History clear actions affect only the active profile. A full Reset VUEO Data still resets all profiles and application configuration.
 
-The default release feed is `update.json` from the VUEO GitHub repository. Delivery is intentionally feed-driven so VUEO is not locked to Telegram or GitHub Releases.
+### Final Polish
 
-### Data Migration
-
-v0.9.3 adds a versioned local-data migration foundation. Migration runs before normal boot and after backup restore.
+- player user-agent now follows the current VUEO app version
+- profile switching invalidates Library state immediately
+- Content Manager and enhancement configuration remain global when switching profiles
+- the v0.9.3 Settings section-label compile hotfix is carried forward
 
 ## Optional Enhancements
 
-TMDB and MDBList remain optional. VUEO core discovery, sources, player and Library continue to work without either service.
+TMDB and MDBList remain optional. VUEO core discovery, sources, player, Library and profiles continue to work without either service.
 
 ## Version
 
-- versionName: 0.9.3
-- versionCode: 20
+- versionName: 0.9.4
+- versionCode: 21
 - compileSdk: 36
 - targetSdk: 36
 - minSdk: 23

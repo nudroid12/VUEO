@@ -2,21 +2,46 @@ package com.vueo.app.core.storage
 
 import android.content.Context
 
-class PlaybackStore(context: Context) {
-    private val prefs = context.getSharedPreferences(
-        PREFS_NAME,
-        Context.MODE_PRIVATE,
-    )
+class PlaybackStore(
+    context: Context,
+) {
+    private val appContext =
+        context.applicationContext
+
+    private val prefs =
+        appContext.getSharedPreferences(
+            PREFS_NAME,
+            Context.MODE_PRIVATE,
+        )
+
+    private val profileStore =
+        ProfileStore(appContext)
+
+    private fun scopedMediaKey(
+        mediaKey: String,
+    ): String =
+        ProfileStore.scopedPreferenceKey(
+            profileStore.activeProfileId(),
+            mediaKey,
+        )
 
     fun positionMs(mediaKey: String): Long =
         prefs.getLong(
-            positionKey(mediaKey),
+            positionKey(
+                scopedMediaKey(
+                    mediaKey
+                )
+            ),
             0L,
         )
 
     fun durationMs(mediaKey: String): Long =
         prefs.getLong(
-            durationKey(mediaKey),
+            durationKey(
+                scopedMediaKey(
+                    mediaKey
+                )
+            ),
             0L,
         )
 
@@ -24,8 +49,20 @@ class PlaybackStore(context: Context) {
         mediaKey: String,
     ) {
         prefs.edit()
-            .remove(positionKey(mediaKey))
-            .remove(durationKey(mediaKey))
+            .remove(
+                positionKey(
+                    scopedMediaKey(
+                        mediaKey
+                    )
+                )
+            )
+            .remove(
+                durationKey(
+                    scopedMediaKey(
+                        mediaKey
+                    )
+                )
+            )
             .apply()
     }
 
@@ -50,11 +87,19 @@ class PlaybackStore(context: Context) {
 
         prefs.edit()
             .putLong(
-                positionKey(mediaKey),
+                positionKey(
+                scopedMediaKey(
+                    mediaKey
+                )
+            ),
                 positionMs,
             )
             .putLong(
-                durationKey(mediaKey),
+                durationKey(
+                scopedMediaKey(
+                    mediaKey
+                )
+            ),
                 durationMs.coerceAtLeast(0L),
             )
             .apply()

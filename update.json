@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "versionCode": 20,
-  "versionName": "0.9.3",
-  "title": "VUEO 0.9.3",
+  "versionCode": 21,
+  "versionName": "0.9.4",
+  "title": "VUEO 0.9.4",
   "publishedAt": "2026-08-28",
   "changelog": [
-    "Backup and restore VUEO configuration and Library data",
-    "Optional API-key inclusion in backup files",
-    "Functional update checker with cached background checks",
-    "Release feed supports direct APK and Telegram delivery links",
-    "Reset VUEO data without uninstalling the app",
-    "Versioned local-data migration foundation"
+    "Local profiles with optional Who's Watching startup picker",
+    "Per-profile My List, Continue Watching, History and playback progress",
+    "Per-profile playback quality and subtitle preferences",
+    "Profiles included in backup and restore",
+    "Profile switching without account, email or cloud sign-in",
+    "Final player and Settings polish before v1.0"
   ],
   "downloadUrl": "",
   "telegramUrl": ""
