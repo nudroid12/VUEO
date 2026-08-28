@@ -140,3 +140,28 @@ PluginHealthStore
       +-- per-provider status and latency
       +-- failure reason
 ```
+
+
+## v0.3.3 provider script transport
+
+```text
+Plugin manifest / provider filename
+            |
+            v
+Raw GitHub URL detected
+            |
+     +------+------+
+     |             |
+ jsDelivr CDN   raw GitHub
+     |             |
+     +------+------+
+            |
+      Provider script
+            |
+      Disk script cache
+            |
+      JS runtime / health
+```
+
+The provider version is part of the cache key, so a manifest provider-version update
+naturally causes a fresh script download.

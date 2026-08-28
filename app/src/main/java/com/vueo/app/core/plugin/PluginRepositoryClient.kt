@@ -12,7 +12,7 @@ object PluginRepositoryClient {
             "VUEO requires an HTTPS plugin repository URL."
         }
 
-        val json = JSONObject(SimpleHttp.get(manifestUrl))
+        val json = JSONObject(SimpleHttp.getResilient(manifestUrl))
         val providersArray = json.optJSONArray("scrapers")
             ?: json.optJSONArray("providers")
             ?: JSONArray()

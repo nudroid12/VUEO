@@ -1,4 +1,4 @@
-# VUEO v0.3.2
+# VUEO v0.3.3
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -189,3 +189,16 @@ Providers requiring unsupported Node modules or special runtime globals can fail
 - Provider concurrency increased to 5 with a 10 second provider timeout
 
 `No Results` is deliberately separate from `Failed`: a provider can execute correctly and still have no source for a particular title.
+
+
+## v0.3.3 Provider Script Delivery
+
+This patch addresses provider-wide failures caused before JavaScript execution when
+`raw.githubusercontent.com` cannot be resolved on a mobile network.
+
+- GitHub raw manifests and provider scripts get a jsDelivr GitHub CDN candidate.
+- The CDN is tried first, with raw GitHub retained as fallback.
+- Provider JavaScript is cached in Android `cacheDir` by script URL + provider version.
+- Repeated source discovery reuses cached provider scripts instead of downloading dozens of files again.
+- Repository refresh uses the same resilient transport.
+- Provider Health continues to report the final transport/runtime error when all candidates fail.

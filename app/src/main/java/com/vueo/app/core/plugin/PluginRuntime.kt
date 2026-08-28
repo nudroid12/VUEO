@@ -53,6 +53,7 @@ class PluginSourceEngine(
 ) {
     private val concurrency = Semaphore(5)
     private val healthStore = PluginHealthStore(context.applicationContext)
+    private val scriptCache = ProviderScriptCache(context.applicationContext)
 
     suspend fun discover(
         tmdbId: String,
@@ -225,7 +226,16 @@ class PluginSourceEngine(
             "Only HTTPS provider scripts are allowed."
         }
 
-        val script = SimpleHttp.get(scriptUrl)
+        val script = scriptCache.get(
+            scriptUrl = scriptUrl,
+            providerVersion = provider.version,
+        ) ?: SimpleHttp.getResilient(scriptUrl).also { downloaded ->
+            scriptCache.put(
+                scriptUrl = scriptUrl,
+                providerVersion = provider.version,
+                script = downloaded,
+            )
+        }
 
         return executeInWebView(
             repository = repository,
