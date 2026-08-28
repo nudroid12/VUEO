@@ -1,6 +1,8 @@
 package com.vueo.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,24 +48,65 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vueo.app.R
 import com.vueo.app.core.storage.ProfileStore
 import com.vueo.app.core.storage.VueoProfile
 
+private data class StockProfileAvatar(
+    val id: String,
+    val drawableRes: Int,
+)
+
 private val PROFILE_AVATARS =
     listOf(
-        "🙂",
-        "😎",
-        "🍿",
-        "🚀",
-        "🐼",
-        "🦊",
-        "🧒",
-        "🎬",
+        StockProfileAvatar(
+            id = "avatar_man_1",
+            drawableRes = R.drawable.avatar_man_1,
+        ),
+        StockProfileAvatar(
+            id = "avatar_man_2",
+            drawableRes = R.drawable.avatar_man_2,
+        ),
+        StockProfileAvatar(
+            id = "avatar_woman_1",
+            drawableRes = R.drawable.avatar_woman_1,
+        ),
+        StockProfileAvatar(
+            id = "avatar_woman_2",
+            drawableRes = R.drawable.avatar_woman_2,
+        ),
+        StockProfileAvatar(
+            id = "avatar_boy_1",
+            drawableRes = R.drawable.avatar_boy_1,
+        ),
+        StockProfileAvatar(
+            id = "avatar_boy_2",
+            drawableRes = R.drawable.avatar_boy_2,
+        ),
+        StockProfileAvatar(
+            id = "avatar_girl_1",
+            drawableRes = R.drawable.avatar_girl_1,
+        ),
+        StockProfileAvatar(
+            id = "avatar_girl_2",
+            drawableRes = R.drawable.avatar_girl_2,
+        ),
     )
+
+private fun stockAvatarDrawable(
+    avatarId: String,
+): Int? =
+    PROFILE_AVATARS
+        .firstOrNull {
+            it.id == avatarId
+        }
+        ?.drawableRes
 
 @Composable
 internal fun WhosWatchingScreen(
@@ -686,7 +729,7 @@ private fun ProfileEditorDialog(
     ) {
         mutableStateOf(
             profile?.avatar
-                ?: PROFILE_AVATARS.first()
+                ?: PROFILE_AVATARS.first().id
         )
     }
 
@@ -741,29 +784,60 @@ private fun ProfileEditorDialog(
                 LazyRow(
                     horizontalArrangement =
                         Arrangement.spacedBy(
-                            8.dp
+                            10.dp
                         ),
                 ) {
                     items(
-                        PROFILE_AVATARS
+                        items = PROFILE_AVATARS,
+                        key = {
+                            it.id
+                        },
                     ) {
                         choice ->
-                        FilterChip(
-                            selected =
-                                avatar ==
-                                    choice,
-                            onClick = {
-                                avatar =
-                                    choice
-                            },
-                            label = {
-                                Text(
-                                    choice,
-                                    fontSize =
-                                        20.sp,
-                                )
-                            },
-                        )
+                        val selected =
+                            avatar ==
+                                choice.id
+
+                        Surface(
+                            modifier =
+                                Modifier
+                                    .size(64.dp)
+                                    .clickable {
+                                        avatar =
+                                            choice.id
+                                    },
+                            shape = CircleShape,
+                            color =
+                                VueoPalette.SurfaceStrong,
+                            border =
+                                BorderStroke(
+                                    width =
+                                        if (selected) {
+                                            3.dp
+                                        } else {
+                                            1.dp
+                                        },
+                                    color =
+                                        if (selected) {
+                                            VueoPalette.Accent
+                                        } else {
+                                            VueoPalette.Stroke
+                                        },
+                                ),
+                        ) {
+                            Image(
+                                painter =
+                                    painterResource(
+                                        choice.drawableRes
+                                    ),
+                                contentDescription =
+                                    "Choose profile avatar",
+                                contentScale =
+                                    ContentScale.Crop,
+                                modifier =
+                                    Modifier.fillMaxSize(),
+                            )
+                        }
                     }
                 }
 
@@ -1095,6 +1169,11 @@ private fun ProfileAvatar(
     profile: VueoProfile,
     size: Int,
 ) {
+    val stockDrawable =
+        stockAvatarDrawable(
+            profile.avatar
+        )
+
     Box(
         modifier =
             Modifier
@@ -1110,14 +1189,30 @@ private fun ProfileAvatar(
         contentAlignment =
             Alignment.Center,
     ) {
-        Text(
-            text =
-                profile.avatar
-                    .ifBlank {
-                        "🙂"
-                    },
-            fontSize =
-                (size / 2).sp,
-        )
+        if (stockDrawable != null) {
+            Image(
+                painter =
+                    painterResource(
+                        stockDrawable
+                    ),
+                contentDescription =
+                    "${profile.name} profile avatar",
+                contentScale =
+                    ContentScale.Crop,
+                modifier =
+                    Modifier.fillMaxSize(),
+            )
+        } else {
+            // Keeps old emoji avatars working after upgrade.
+            Text(
+                text =
+                    profile.avatar
+                        .ifBlank {
+                            "🙂"
+                        },
+                fontSize =
+                    (size / 2).sp,
+            )
+        }
     }
 }
