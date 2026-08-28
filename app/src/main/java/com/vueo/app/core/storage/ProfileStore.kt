@@ -486,7 +486,7 @@ class ProfileStore(
             "You"
 
         private const val DEFAULT_AVATAR =
-            "🙂"
+            "avatar_man_1"
 
         private const val KEY_PROFILES =
             "profiles"
