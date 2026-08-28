@@ -95,7 +95,7 @@ class HtmlCompatBridge {
         val result = linkedSetOf<Element>()
 
         roots.forEach { root ->
-            result += root.select(selector)
+            result.addAll(root.select(selector))
         }
 
         return idsResponse(result)
@@ -105,7 +105,7 @@ class HtmlCompatBridge {
         val selector = request.getString("selector")
         val result = elements(request)
             .filter { element ->
-                element.is(selector)
+                element.`is`(selector)
             }
 
         return idsResponse(result)
@@ -116,7 +116,7 @@ class HtmlCompatBridge {
         val result = linkedSetOf<Element>()
 
         elements(request).forEach { element ->
-            result += element.select(selector)
+            result.addAll(element.select(selector))
         }
 
         return idsResponse(result)
@@ -172,9 +172,9 @@ class HtmlCompatBridge {
             element.parents().forEach { parent ->
                 if (
                     selector.isBlank() ||
-                    parent.is(selector)
+                    parent.`is`(selector)
                 ) {
-                    result += parent
+                    result.add(parent)
                 }
             }
         }
@@ -190,9 +190,9 @@ class HtmlCompatBridge {
             element.children().forEach { child ->
                 if (
                     selector.isBlank() ||
-                    child.is(selector)
+                    child.`is`(selector)
                 ) {
-                    result += child
+                    result.add(child)
                 }
             }
         }
@@ -238,9 +238,9 @@ class HtmlCompatBridge {
             element.siblingElements().forEach { sibling ->
                 if (
                     selector.isBlank() ||
-                    sibling.is(selector)
+                    sibling.`is`(selector)
                 ) {
-                    result += sibling
+                    result.add(sibling)
                 }
             }
         }
@@ -256,7 +256,7 @@ class HtmlCompatBridge {
                 "bool",
                 elements(request)
                     .firstOrNull()
-                    ?.is(selector)
+                    ?.`is`(selector)
                     ?: false,
             )
     }
