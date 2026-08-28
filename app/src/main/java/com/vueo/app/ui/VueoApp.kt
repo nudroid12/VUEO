@@ -5371,6 +5371,65 @@ private fun MediaDetailsScreen(
         )
     }
 
+    var detailPlaybackEntries by remember(
+        initialItem.id,
+        initialItem.type,
+        initialLibraryEntry,
+    ) {
+        mutableStateOf(
+            (
+                libraryStore
+                    .continueWatching() +
+                    libraryStore
+                        .history() +
+                    listOfNotNull(
+                        initialLibraryEntry
+                    )
+            )
+                .distinctBy { entry ->
+                    listOf(
+                        entry.media.type,
+                        entry.media.id,
+                        entry.season
+                            ?.toString()
+                            .orEmpty(),
+                        entry.episode
+                            ?.toString()
+                            .orEmpty(),
+                    ).joinToString(
+                        ":"
+                    )
+                }
+        )
+    }
+
+    fun refreshDetailPlaybackEntries() {
+        detailPlaybackEntries =
+            (
+                libraryStore
+                    .continueWatching() +
+                    libraryStore
+                        .history() +
+                    listOfNotNull(
+                        initialLibraryEntry
+                    )
+            )
+                .distinctBy { entry ->
+                    listOf(
+                        entry.media.type,
+                        entry.media.id,
+                        entry.season
+                            ?.toString()
+                            .orEmpty(),
+                        entry.episode
+                            ?.toString()
+                            .orEmpty(),
+                    ).joinToString(
+                        ":"
+                    )
+                }
+    }
+
     var selectedSeason by remember { mutableStateOf<Int?>(null) }
     var selectedEpisode by remember { mutableStateOf<EpisodeItem?>(null) }
 
@@ -5484,12 +5543,25 @@ private fun MediaDetailsScreen(
             item.type == "series" &&
             item.episodes.isNotEmpty()
         ) {
-            val requestedSeason =
+            val resumeCandidate =
                 initialLibraryEntry
+                    ?: libraryStore
+                        .continueWatching()
+                        .firstOrNull { entry ->
+                            entry.media.id ==
+                                item.id &&
+                                entry.media.type ==
+                                    item.type &&
+                                entry.season != null &&
+                                entry.episode != null
+                        }
+
+            val requestedSeason =
+                resumeCandidate
                     ?.season
 
             val requestedEpisode =
-                initialLibraryEntry
+                resumeCandidate
                     ?.episode
 
             val matched =
@@ -5538,6 +5610,8 @@ private fun MediaDetailsScreen(
                 .isWatchlisted(
                     item
                 )
+
+        refreshDetailPlaybackEntries()
 
         val resolvedItem =
             item
@@ -5660,7 +5734,12 @@ private fun MediaDetailsScreen(
 
     fun startSourceDiscovery(
         targetEpisode: EpisodeItem?,
+        startPositionMs: Long = 0L,
     ) {
+    selectedPlaybackStartPositionMs =
+        startPositionMs
+            .coerceAtLeast(0L)
+
     val targetVideoId =
         selectedVideoId(
             item,
@@ -6089,8 +6168,10 @@ private fun MediaDetailsScreen(
                 sourcePickerSubtitles,
             initialPositionMs =
                 selectedPlaybackStartPositionMs,
-            onLibraryChanged =
-                onLibraryChanged,
+            onLibraryChanged = {
+                refreshDetailPlaybackEntries()
+                onLibraryChanged()
+            },
             onSwitchSource = {
                 nextSource,
                 positionMs ->
@@ -6152,7 +6233,8 @@ private fun MediaDetailsScreen(
 
                 if (videoId != null && source.isDirectPlayable) {
                     selectedPlaybackStartPositionMs =
-                        0L
+                        selectedPlaybackStartPositionMs
+                            .coerceAtLeast(0L)
                     selectedPlaybackVideoId = videoId
                     selectedPlaybackSource = source
                 }
@@ -6161,15 +6243,63 @@ private fun MediaDetailsScreen(
         return
     }
 
+    val activePlaybackEntry =
+        detailsPlaybackEntry(
+            media = item,
+            episode = selectedEpisode,
+            entries =
+                detailPlaybackEntries,
+        )
+
+    val canResume =
+        activePlaybackEntry
+            ?.let { entry ->
+                entry.positionMs > 15_000L &&
+                    (
+                        entry.durationMs <= 0L ||
+                            entry.positionMs <
+                                (
+                                    entry.durationMs *
+                                        .95f
+                                ).toLong()
+                    )
+            }
+            ?: false
+
+    val primaryActionLabel =
+        when {
+            loadingStreams ->
+                "Finding Sources…"
+
+            item.type == "series" &&
+                selectedEpisode != null &&
+                canResume ->
+                "Resume S${selectedEpisode!!.season} E${selectedEpisode!!.episode}"
+
+            item.type == "series" &&
+                selectedEpisode != null ->
+                "Play S${selectedEpisode!!.season} E${selectedEpisode!!.episode}"
+
+            item.type == "series" ->
+                "Select an Episode"
+
+            canResume ->
+                "Resume"
+
+            else ->
+                "Watch"
+        }
+
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                VueoPalette.Background
-            ),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(
+                    VueoPalette.Background
+                ),
         contentPadding =
             PaddingValues(
-                bottom = 32.dp
+                bottom = 36.dp
             ),
         verticalArrangement =
             Arrangement.spacedBy(
@@ -6178,9 +6308,10 @@ private fun MediaDetailsScreen(
     ) {
         item {
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(330.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(326.dp),
             ) {
                 NetworkImage(
                     url =
@@ -6189,7 +6320,8 @@ private fun MediaDetailsScreen(
                     contentDescription =
                         item.name,
                     modifier =
-                        Modifier.fillMaxSize(),
+                        Modifier
+                            .fillMaxSize(),
                     contentScale =
                         ContentScale.Crop,
                     fallbackText =
@@ -6197,190 +6329,378 @@ private fun MediaDetailsScreen(
                 )
 
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            brush =
-                                Brush.verticalGradient(
-                                    colors =
-                                        listOf(
-                                            Color.Black
-                                                .copy(
-                                                    alpha = .12f
-                                                ),
-                                            Color.Black
-                                                .copy(
-                                                    alpha = .30f
-                                                ),
-                                            VueoPalette
-                                                .Background
-                                                .copy(
-                                                    alpha = .98f
-                                                ),
-                                        ),
-                                )
-                        ),
+                    modifier =
+                        Modifier
+                            .matchParentSize()
+                            .background(
+                                brush =
+                                    Brush.verticalGradient(
+                                        colors =
+                                            listOf(
+                                                Color.Black
+                                                    .copy(
+                                                        alpha = .18f
+                                                    ),
+                                                Color.Black
+                                                    .copy(
+                                                        alpha = .34f
+                                                    ),
+                                                VueoPalette
+                                                    .Background
+                                                    .copy(
+                                                        alpha = .96f
+                                                    ),
+                                            )
+                                    )
+                            ),
                 )
 
-                Surface(
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .align(
-                            Alignment.TopStart
-                        ),
-                    shape =
-                        RoundedCornerShape(
-                            50
-                        ),
-                    color =
-                        Color.Black.copy(
-                            alpha = .52f
-                        ),
+                Box(
+                    modifier =
+                        Modifier
+                            .align(
+                                Alignment.TopStart
+                            )
+                            .statusBarsPadding()
+                            .padding(
+                                start = 16.dp,
+                                top = 8.dp,
+                            ),
                 ) {
-                    IconButton(
-                        onClick = onBack,
+                    Surface(
+                        shape = CircleShape,
+                        color =
+                            Color.Black.copy(
+                                alpha = .50f
+                            ),
                     ) {
-                        Icon(
-                            Icons.Default
-                                .ArrowBack,
-                            contentDescription =
-                                "Back",
-                            tint = Color.White,
-                        )
+                        IconButton(
+                            onClick = onBack,
+                        ) {
+                            Icon(
+                                Icons.Default
+                                    .ArrowBack,
+                                contentDescription =
+                                    "Back",
+                                tint =
+                                    Color.White,
+                            )
+                        }
                     }
                 }
 
-                Column(
-                    modifier = Modifier
-                        .align(
-                            Alignment.BottomStart
-                        )
-                        .padding(
-                            horizontal = 20.dp,
-                            vertical = 18.dp,
-                        ),
-                    verticalArrangement =
+                Row(
+                    modifier =
+                        Modifier
+                            .align(
+                                Alignment.BottomStart
+                            )
+                            .fillMaxWidth()
+                            .padding(
+                                horizontal = 18.dp,
+                                vertical = 12.dp,
+                            ),
+                    verticalAlignment =
+                        Alignment.Bottom,
+                    horizontalArrangement =
                         Arrangement.spacedBy(
-                            7.dp
+                            14.dp
                         ),
                 ) {
                     Surface(
+                        modifier =
+                            Modifier
+                                .width(92.dp)
+                                .aspectRatio(
+                                    2f / 3f
+                                ),
                         shape =
                             RoundedCornerShape(
-                                50
+                                14.dp
                             ),
                         color =
-                            VueoPalette.Accent
-                                .copy(
-                                    alpha = .15f
-                                ),
+                            VueoPalette.Surface,
                     ) {
-                        Text(
-                            item.type
-                                .replaceFirstChar {
-                                    it.uppercase()
-                                },
+                        NetworkImage(
+                            url = item.poster,
+                            contentDescription =
+                                item.name,
                             modifier =
-                                Modifier.padding(
-                                    horizontal =
-                                        10.dp,
-                                    vertical =
-                                        5.dp,
-                                ),
-                            color =
-                                VueoPalette.Accent,
-                            fontSize = 10.sp,
-                            fontWeight =
-                                FontWeight.Black,
+                                Modifier
+                                    .fillMaxSize(),
+                            contentScale =
+                                ContentScale.Crop,
+                            fallbackText =
+                                item.name,
                         )
                     }
 
-                    Text(
-                        item.name,
-                        color = Color.White,
-                        fontSize = 34.sp,
-                        fontWeight =
-                            FontWeight.Black,
-                        maxLines = 2,
-                        overflow =
-                            TextOverflow.Ellipsis,
-                    )
+                    Column(
+                        modifier =
+                            Modifier.weight(1f),
+                        verticalArrangement =
+                            Arrangement.spacedBy(
+                                6.dp
+                            ),
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color =
+                                VueoPalette.Accent
+                                    .copy(
+                                        alpha = .15f
+                                    ),
+                        ) {
+                            Text(
+                                text =
+                                    if (
+                                        item.type ==
+                                            "series"
+                                    ) {
+                                        "Series"
+                                    } else {
+                                        "Movie"
+                                    },
+                                modifier =
+                                    Modifier.padding(
+                                        horizontal =
+                                            9.dp,
+                                        vertical =
+                                            4.dp,
+                                    ),
+                                color =
+                                    VueoPalette.Accent,
+                                fontSize = 9.sp,
+                                fontWeight =
+                                    FontWeight.Black,
+                            )
+                        }
 
-                    Text(
-                        listOfNotNull(
-                            item.releaseInfo,
-                            item.genres
-                                .take(3)
-                                .takeIf {
-                                    it.isNotEmpty()
-                                }
-                                ?.joinToString(
+                        Text(
+                            text = item.name,
+                            color = Color.White,
+                            fontSize = 27.sp,
+                            lineHeight = 29.sp,
+                            fontWeight =
+                                FontWeight.Black,
+                            maxLines = 2,
+                            overflow =
+                                TextOverflow.Ellipsis,
+                        )
+
+                        Text(
+                            text =
+                                listOfNotNull(
+                                    item.releaseInfo,
+                                    item.genres
+                                        .take(2)
+                                        .takeIf {
+                                            it.isNotEmpty()
+                                        }
+                                        ?.joinToString(
+                                            " • "
+                                        ),
+                                ).joinToString(
                                     " • "
                                 ),
-                        ).joinToString(
-                            "  •  "
-                        ),
-                        color =
-                            Color.White.copy(
-                                alpha = .68f
-                            ),
-                        fontSize = 12.sp,
-                        maxLines = 2,
-                        overflow =
-                            TextOverflow.Ellipsis,
-                    )
+                            color =
+                                Color.White.copy(
+                                    alpha = .66f
+                                ),
+                            fontSize = 11.sp,
+                            maxLines = 2,
+                            overflow =
+                                TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
 
         if (loadingMeta) {
             item {
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
-                )
+                DetailsLoadingSkeleton()
             }
         }
 
-        if (
-            item.genres.isNotEmpty()
-        ) {
-            item {
-                LazyRow(
-                    contentPadding =
-                        PaddingValues(
-                            horizontal = 20.dp
-                        ),
+        item {
+            Column(
+                modifier =
+                    Modifier.padding(
+                        horizontal = 18.dp
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        10.dp
+                    ),
+            ) {
+                val videoId =
+                    selectedVideoId(
+                        item,
+                        selectedEpisode,
+                    )
+
+                val seriesNeedsEpisode =
+                    item.type == "series" &&
+                        item.episodes
+                            .isNotEmpty()
+
+                Row(
                     horizontalArrangement =
-                        Arrangement.spacedBy(8.dp),
+                        Arrangement.spacedBy(
+                            10.dp
+                        ),
+                    verticalAlignment =
+                        Alignment.CenterVertically,
                 ) {
-                    items(
-                        item.genres.take(8)
-                    ) { genre ->
-                        Surface(
-                            shape =
-                                RoundedCornerShape(
-                                    50
+                    Button(
+                        modifier =
+                            Modifier
+                                .weight(1f)
+                                .height(48.dp),
+                        enabled =
+                            !loadingStreams &&
+                                videoId != null &&
+                                (
+                                    !seriesNeedsEpisode ||
+                                        selectedEpisode != null
                                 ),
-                            color =
-                                VueoPalette
-                                    .SurfaceStrong,
-                        ) {
-                            Text(
-                                genre,
-                                modifier =
-                                    Modifier.padding(
-                                        horizontal =
-                                            11.dp,
-                                        vertical =
-                                            6.dp,
-                                    ),
-                                fontSize = 11.sp,
+                        onClick = {
+                            startSourceDiscovery(
+                                targetEpisode =
+                                    selectedEpisode,
+                                startPositionMs =
+                                    if (canResume) {
+                                        activePlaybackEntry
+                                            ?.positionMs
+                                            ?: 0L
+                                    } else {
+                                        0L
+                                    },
                             )
-                        }
+                        },
+                    ) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription =
+                                null,
+                        )
+                        Spacer(
+                            Modifier.width(7.dp)
+                        )
+                        Text(
+                            text =
+                                primaryActionLabel,
+                            maxLines = 1,
+                            overflow =
+                                TextOverflow.Ellipsis,
+                        )
+                    }
+
+                    OutlinedButton(
+                        modifier =
+                            Modifier.height(
+                                48.dp
+                            ),
+                        onClick = {
+                            inWatchlist =
+                                libraryStore
+                                    .toggleWatchlist(
+                                        item
+                                    )
+
+                            onLibraryChanged()
+                        },
+                    ) {
+                        Icon(
+                            if (inWatchlist) {
+                                Icons.Default
+                                    .VideoLibrary
+                            } else {
+                                Icons.Default.Add
+                            },
+                            contentDescription =
+                                null,
+                        )
+
+                        Spacer(
+                            Modifier.width(6.dp)
+                        )
+
+                        Text(
+                            if (inWatchlist) {
+                                "In My List"
+                            } else {
+                                "My List"
+                            }
+                        )
                     }
                 }
+
+                if (canResume) {
+                    activePlaybackEntry
+                        ?.let { entry ->
+                            Row(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth(),
+                                verticalAlignment =
+                                    Alignment.CenterVertically,
+                                horizontalArrangement =
+                                    Arrangement.spacedBy(
+                                        9.dp
+                                    ),
+                            ) {
+                                LinearProgressIndicator(
+                                    progress = {
+                                        entry
+                                            .progressFraction
+                                            .coerceIn(
+                                                0f,
+                                                1f
+                                            )
+                                    },
+                                    modifier =
+                                        Modifier
+                                            .weight(1f)
+                                            .height(3.dp)
+                                            .clip(
+                                                CircleShape
+                                            ),
+                                    color =
+                                        VueoPalette.Accent,
+                                    trackColor =
+                                        Color.White.copy(
+                                            alpha = .14f
+                                        ),
+                                )
+
+                                homeRemainingTimeLabel(
+                                    entry
+                                )
+                                    ?.let {
+                                        remaining ->
+                                        Text(
+                                            text =
+                                                remaining,
+                                            color =
+                                                VueoPalette.Muted,
+                                            fontSize = 10.sp,
+                                        )
+                                    }
+                            }
+                        }
+                }
+
+                sourceStatus
+                    ?.let {
+                        Text(
+                            text = it,
+                            color =
+                                VueoPalette.Muted,
+                            fontSize = 11.sp,
+                        )
+                    }
             }
         }
 
@@ -6392,31 +6712,17 @@ private fun MediaDetailsScreen(
             }
         }
 
-        item.description?.let {
-            description ->
-
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            horizontal = 20.dp
-                        ),
-                    shape =
-                        RoundedCornerShape(
-                            20.dp
-                        ),
-                    colors =
-                        CardDefaults.cardColors(
-                            containerColor =
-                                VueoPalette
-                                    .Surface
-                        ),
-                ) {
+        item.description
+            ?.takeIf {
+                it.isNotBlank()
+            }
+            ?.let { description ->
+                item {
                     Column(
                         modifier =
                             Modifier.padding(
-                                17.dp
+                                horizontal =
+                                    18.dp
                             ),
                         verticalArrangement =
                             Arrangement.spacedBy(
@@ -6424,39 +6730,43 @@ private fun MediaDetailsScreen(
                             ),
                     ) {
                         Text(
-                            "OVERVIEW",
-                            color =
-                                VueoPalette.Accent,
-                            fontSize = 10.sp,
+                            text = "Overview",
+                            color = Color.White,
+                            fontSize = 19.sp,
                             fontWeight =
                                 FontWeight.Black,
-                            letterSpacing =
-                                1.2.sp,
                         )
 
                         Text(
-                            description,
+                            text = description,
                             color =
-                                Color.White
-                                    .copy(
-                                        alpha = .72f
-                                    ),
+                                Color.White.copy(
+                                    alpha = .68f
+                                ),
                             fontSize = 13.sp,
+                            lineHeight = 19.sp,
                         )
                     }
                 }
             }
-        }
 
-        if (item.type == "series" && item.episodes.isNotEmpty()) {
+        if (
+            item.type == "series" &&
+            item.episodes.isNotEmpty()
+        ) {
             item {
                 SeasonSelector(
                     episodes = item.episodes,
-                    selectedSeason = selectedSeason,
+                    selectedSeason =
+                        selectedSeason,
                     onSelectSeason = { season ->
                         selectedSeason = season
-                        selectedEpisode = item.episodes
-                            .firstOrNull { it.season == season }
+                        selectedEpisode =
+                            item.episodes
+                                .firstOrNull {
+                                    it.season ==
+                                        season
+                                }
                         sourceStatus = null
                     },
                 )
@@ -6464,153 +6774,137 @@ private fun MediaDetailsScreen(
 
             item {
                 EpisodeSelector(
-                    episodes = item.episodes.filter {
-                        it.season == selectedSeason
-                    },
-                    selectedEpisode = selectedEpisode,
-                    onSelectEpisode = {
-                        selectedEpisode = it
+                    media = item,
+                    episodes =
+                        item.episodes
+                            .filter {
+                                it.season ==
+                                    selectedSeason
+                            },
+                    selectedEpisode =
+                        selectedEpisode,
+                    playbackEntries =
+                        detailPlaybackEntries,
+                    onEpisodeClick = { episode ->
+                        selectedSeason =
+                            episode.season
+                        selectedEpisode =
+                            episode
                         sourceStatus = null
+
+                        val episodeEntry =
+                            detailsPlaybackEntry(
+                                media = item,
+                                episode = episode,
+                                entries =
+                                    detailPlaybackEntries,
+                            )
+
+                        startSourceDiscovery(
+                            targetEpisode =
+                                episode,
+                            startPositionMs =
+                                episodeEntry
+                                    ?.takeIf { entry ->
+                                        entry.positionMs >
+                                            15_000L &&
+                                            (
+                                                entry.durationMs <=
+                                                    0L ||
+                                                    entry.positionMs <
+                                                        (
+                                                            entry.durationMs *
+                                                                .95f
+                                                        ).toLong()
+                                            )
+                                    }
+                                    ?.positionMs
+                                    ?: 0L,
+                        )
                     },
                 )
             }
         }
 
-        item {
-            Column(
-                modifier = Modifier.padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                val videoId = selectedVideoId(item, selectedEpisode)
-                val seriesNeedsEpisode =
-                    item.type == "series" && item.episodes.isNotEmpty()
-
-                Button(
-                    enabled = !loadingStreams &&
-                        videoId != null &&
-                        (!seriesNeedsEpisode || selectedEpisode != null),
-onClick = {
-    startSourceDiscovery(
-        selectedEpisode
-    )
-
-},
-                ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (loadingStreams) {
-                            "Finding Sources…"
-                        } else {
-                            "Watch"
-                        }
-                    )
-                }
-
-                OutlinedButton(
+        if (
+            item.type == "series" &&
+            item.episodes.isEmpty() &&
+            !loadingMeta
+        ) {
+            item {
+                Surface(
                     modifier =
-                        Modifier.fillMaxWidth(),
-                    onClick = {
-                        inWatchlist =
-                            libraryStore
-                                .toggleWatchlist(
-                                    item
-                                )
-
-                        onLibraryChanged()
-                    },
-                ) {
-                    Icon(
-                        if (inWatchlist) {
-                            Icons.Default.VideoLibrary
-                        } else {
-                            Icons.Default.Add
-                        },
-                        contentDescription =
-                            null,
-                    )
-
-                    Spacer(
-                        Modifier.width(8.dp)
-                    )
-
-                    Text(
-                        if (inWatchlist) {
-                            "In My List"
-                        } else {
-                            "Add to My List"
-                        }
-                    )
-                }
-
-                Text(
-                    "VUEO will find and rank the best available sources.",
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                horizontal =
+                                    18.dp
+                            ),
+                    shape =
+                        RoundedCornerShape(
+                            16.dp
+                        ),
                     color =
-                        MaterialTheme
-                            .colorScheme
-                            .onSurface
-                            .copy(alpha = .5f),
-                    fontSize = 11.sp,
-                )
-
-                sourceStatus?.let {
+                        VueoPalette
+                            .SurfaceStrong,
+                ) {
                     Text(
-                        it,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f),
-                    )
-                }
-
-                if (item.type == "series" && item.episodes.isEmpty() && !loadingMeta) {
-                    Text(
-                        "This metadata provider did not return episode video IDs, so VUEO cannot request episode streams yet.",
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f),
+                        text =
+                            "Episodes are not available for this title yet.",
+                        modifier =
+                            Modifier.padding(
+                                14.dp
+                            ),
+                        color =
+                            VueoPalette.Muted,
                         fontSize = 12.sp,
                     )
                 }
             }
         }
 
-        if (
-            relatedItems.isNotEmpty()
-        ) {
+        if (relatedItems.isNotEmpty()) {
             item {
                 Column(
                     verticalArrangement =
-                        Arrangement.spacedBy(10.dp),
+                        Arrangement.spacedBy(
+                            10.dp
+                        ),
                 ) {
-                    Text(
-                        "More Like This",
-                        color = Color.White,
+                    Column(
                         modifier =
                             Modifier.padding(
-                                horizontal = 20.dp
+                                horizontal =
+                                    18.dp
                             ),
-                        fontSize = 20.sp,
-                        fontWeight =
-                            FontWeight.Black,
-                    )
+                        verticalArrangement =
+                            Arrangement.spacedBy(
+                                2.dp
+                            ),
+                    ) {
+                        Text(
+                            text =
+                                "More Like This",
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight =
+                                FontWeight.Black,
+                        )
 
-                    Text(
-                        if (relatedUsesTmdb) {
-                            "TMDB enhanced • VUEO fallback ready"
-                        } else {
-                            "From your VUEO catalog"
-                        },
-                        color =
-                            Color.White.copy(
-                                alpha = .48f
-                            ),
-                        modifier =
-                            Modifier.padding(
-                                horizontal = 20.dp
-                            ),
-                        fontSize = 11.sp,
-                    )
+                        Text(
+                            text =
+                                "Recommended for you",
+                            color =
+                                VueoPalette.Muted,
+                            fontSize = 10.sp,
+                        )
+                    }
 
                     LazyRow(
                         contentPadding =
                             PaddingValues(
-                                horizontal = 20.dp
+                                horizontal =
+                                    18.dp
                             ),
                         horizontalArrangement =
                             Arrangement.spacedBy(
@@ -6624,8 +6918,7 @@ onClick = {
                             },
                         ) { related ->
                             MediaPoster(
-                                item =
-                                    related,
+                                item = related,
                                 onClick = {
                                     onMediaClick(
                                         related
@@ -6641,52 +6934,80 @@ onClick = {
 }
 
 @Composable
+private fun DetailsLoadingSkeleton() {
+    Column(
+        modifier =
+            Modifier.padding(
+                horizontal = 18.dp
+            ),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                8.dp
+            ),
+    ) {
+        Surface(
+            modifier =
+                Modifier
+                    .fillMaxWidth(.42f)
+                    .height(12.dp),
+            shape = CircleShape,
+            color =
+                VueoPalette.SurfaceStrong,
+        ) {}
+
+        Surface(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(10.dp),
+            shape = CircleShape,
+            color =
+                VueoPalette.Surface,
+        ) {}
+
+        Surface(
+            modifier =
+                Modifier
+                    .fillMaxWidth(.78f)
+                    .height(10.dp),
+            shape = CircleShape,
+            color =
+                VueoPalette.Surface,
+        ) {}
+    }
+}
+
+@Composable
 private fun MediaRatingsStrip(
     ratings: List<MediaRating>,
 ) {
     Column(
         verticalArrangement =
-            Arrangement.spacedBy(8.dp),
+            Arrangement.spacedBy(
+                8.dp
+            ),
     ) {
-        Row(
+        Text(
+            text = "Ratings",
+            color = Color.White,
             modifier =
                 Modifier.padding(
-                    horizontal = 20.dp
+                    horizontal = 18.dp
                 ),
-            verticalAlignment =
-                Alignment.CenterVertically,
-        ) {
-            Text(
-                "RATINGS",
-                color =
-                    VueoPalette.Accent,
-                fontSize = 10.sp,
-                fontWeight =
-                    FontWeight.Black,
-                letterSpacing = 1.2.sp,
-            )
-
-            Spacer(
-                Modifier.width(8.dp)
-            )
-
-            Text(
-                "via MDBList",
-                color =
-                    Color.White.copy(
-                        alpha = .45f
-                    ),
-                fontSize = 10.sp,
-            )
-        }
+            fontSize = 19.sp,
+            fontWeight =
+                FontWeight.Black,
+        )
 
         LazyRow(
             contentPadding =
                 PaddingValues(
-                    horizontal = 20.dp
+                    horizontal = 18.dp
                 ),
             horizontalArrangement =
-                Arrangement.spacedBy(8.dp),
+                Arrangement.spacedBy(
+                    8.dp
+                ),
         ) {
             items(
                 ratings,
@@ -6697,7 +7018,7 @@ private fun MediaRatingsStrip(
                 Surface(
                     shape =
                         RoundedCornerShape(
-                            14.dp
+                            13.dp
                         ),
                     color =
                         VueoPalette
@@ -6706,30 +7027,34 @@ private fun MediaRatingsStrip(
                     Row(
                         modifier =
                             Modifier.padding(
-                                horizontal = 12.dp,
-                                vertical = 9.dp,
+                                horizontal =
+                                    11.dp,
+                                vertical =
+                                    8.dp,
                             ),
                         verticalAlignment =
                             Alignment.CenterVertically,
                         horizontalArrangement =
-                            Arrangement.spacedBy(7.dp),
+                            Arrangement.spacedBy(
+                                6.dp
+                            ),
                     ) {
                         Text(
-                            rating.compactLabel,
+                            text =
+                                rating.compactLabel,
                             color =
-                                Color.White.copy(
-                                    alpha = .62f
-                                ),
-                            fontSize = 10.sp,
+                                VueoPalette.Muted,
+                            fontSize = 9.sp,
                             fontWeight =
                                 FontWeight.Bold,
                         )
 
                         Text(
-                            rating.displayValue(),
+                            text =
+                                rating.displayValue(),
                             color =
                                 Color.White,
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             fontWeight =
                                 FontWeight.Black,
                         )
@@ -6740,41 +7065,87 @@ private fun MediaRatingsStrip(
     }
 }
 
+private fun detailsPlaybackEntry(
+    media: MediaItem,
+    episode: EpisodeItem?,
+    entries: List<LibraryPlaybackEntry>,
+): LibraryPlaybackEntry? =
+    entries.firstOrNull { entry ->
+        entry.media.id == media.id &&
+            entry.media.type ==
+                media.type &&
+            if (
+                media.type == "series"
+            ) {
+                episode != null &&
+                    entry.season ==
+                        episode.season &&
+                    entry.episode ==
+                        episode.episode
+            } else {
+                true
+            }
+    }
+
 @Composable
 private fun SeasonSelector(
     episodes: List<EpisodeItem>,
     selectedSeason: Int?,
     onSelectSeason: (Int) -> Unit,
 ) {
-    val seasons = episodes
-        .map { it.season }
-        .distinct()
-        .sorted()
+    val seasons =
+        episodes
+            .map {
+                it.season
+            }
+            .distinct()
+            .sorted()
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                8.dp
+            ),
     ) {
         Text(
-            "Seasons",
-            modifier = Modifier.padding(horizontal = 20.dp),
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Black,
+            text = "Season",
+            modifier =
+                Modifier.padding(
+                    horizontal = 18.dp
+                ),
+            color = Color.White,
+            fontSize = 19.sp,
+            fontWeight =
+                FontWeight.Black,
         )
 
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding =
+                PaddingValues(
+                    horizontal = 18.dp
+                ),
+            horizontalArrangement =
+                Arrangement.spacedBy(
+                    8.dp
+                ),
         ) {
             items(seasons) { season ->
-                if (season == selectedSeason) {
-                    Button(onClick = { onSelectSeason(season) }) {
-                        Text("Season $season")
-                    }
-                } else {
-                    OutlinedButton(onClick = { onSelectSeason(season) }) {
-                        Text("Season $season")
-                    }
-                }
+                FilterChip(
+                    selected =
+                        season ==
+                            selectedSeason,
+                    onClick = {
+                        onSelectSeason(
+                            season
+                        )
+                    },
+                    label = {
+                        Text(
+                            text =
+                                "Season $season"
+                        )
+                    },
+                )
             }
         }
     }
@@ -6782,75 +7153,283 @@ private fun SeasonSelector(
 
 @Composable
 private fun EpisodeSelector(
+    media: MediaItem,
     episodes: List<EpisodeItem>,
     selectedEpisode: EpisodeItem?,
-    onSelectEpisode: (EpisodeItem) -> Unit,
+    playbackEntries:
+        List<LibraryPlaybackEntry>,
+    onEpisodeClick:
+        (EpisodeItem) -> Unit,
 ) {
     Column(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                8.dp
+            ),
     ) {
-        Text(
-            "Episodes",
-            modifier = Modifier.padding(horizontal = 20.dp),
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Black,
-        )
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = 18.dp
+                    ),
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Episodes",
+                color = Color.White,
+                fontSize = 19.sp,
+                fontWeight =
+                    FontWeight.Black,
+            )
+
+            Spacer(
+                Modifier.weight(1f)
+            )
+
+            Text(
+                text =
+                    "${episodes.size} episodes",
+                color =
+                    VueoPalette.Muted,
+                fontSize = 10.sp,
+            )
+        }
 
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding =
+                PaddingValues(
+                    horizontal = 18.dp
+                ),
+            horizontalArrangement =
+                Arrangement.spacedBy(
+                    11.dp
+                ),
         ) {
             items(
                 episodes,
-                key = { it.id },
+                key = {
+                    it.id
+                },
             ) { episode ->
-                val selected = episode.id == selectedEpisode?.id
+                val selected =
+                    episode.id ==
+                        selectedEpisode?.id
 
-                ElevatedCard(
-                    modifier = Modifier
-                        .width(220.dp)
-                        .clickable { onSelectEpisode(episode) },
+                val playbackEntry =
+                    detailsPlaybackEntry(
+                        media = media,
+                        episode = episode,
+                        entries =
+                            playbackEntries,
+                    )
+
+                Card(
+                    modifier =
+                        Modifier
+                            .width(236.dp)
+                            .clickable {
+                                onEpisodeClick(
+                                    episode
+                                )
+                            },
+                    shape =
+                        RoundedCornerShape(
+                            16.dp
+                        ),
+                    colors =
+                        CardDefaults.cardColors(
+                            containerColor =
+                                if (selected) {
+                                    VueoPalette.Accent
+                                        .copy(
+                                            alpha = .10f
+                                        )
+                                } else {
+                                    VueoPalette.Surface
+                                }
+                        ),
                 ) {
                     Column {
-                        NetworkImage(
-                            url = episode.thumbnail,
-                            contentDescription = episode.title,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(118.dp),
-                            fallbackText = episode.title,
-                        )
-
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        Box(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(126.dp),
                         ) {
-                            Text(
-                                "E${episode.episode} • ${episode.title}",
-                                fontWeight = if (selected) {
-                                    FontWeight.Black
-                                } else {
-                                    FontWeight.Bold
-                                },
-                                color = if (selected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface
-                                },
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
+                            NetworkImage(
+                                url =
+                                    episode.thumbnail,
+                                contentDescription =
+                                    episode.title,
+                                modifier =
+                                    Modifier
+                                        .fillMaxSize(),
+                                contentScale =
+                                    ContentScale.Crop,
+                                fallbackText =
+                                    episode.title,
                             )
 
-                            episode.overview?.let {
-                                Text(
-                                    it,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(
-                                        alpha = .58f
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .matchParentSize()
+                                        .background(
+                                            Brush.verticalGradient(
+                                                listOf(
+                                                    Color.Transparent,
+                                                    Color.Black.copy(
+                                                        alpha = .62f
+                                                    ),
+                                                )
+                                            )
+                                        ),
+                            )
+
+                            Surface(
+                                modifier =
+                                    Modifier
+                                        .align(
+                                            Alignment.BottomStart
+                                        )
+                                        .padding(
+                                            9.dp
+                                        ),
+                                shape =
+                                    RoundedCornerShape(
+                                        8.dp
                                     ),
-                                    fontSize = 11.sp,
+                                color =
+                                    Color.Black.copy(
+                                        alpha = .62f
+                                    ),
+                            ) {
+                                Text(
+                                    text =
+                                        "S${episode.season} E${episode.episode}",
+                                    modifier =
+                                        Modifier.padding(
+                                            horizontal =
+                                                7.dp,
+                                            vertical =
+                                                4.dp,
+                                        ),
+                                    color =
+                                        Color.White,
+                                    fontSize = 9.sp,
+                                    fontWeight =
+                                        FontWeight.Bold,
                                 )
+                            }
+                        }
+
+                        Column(
+                            modifier =
+                                Modifier.padding(
+                                    10.dp
+                                ),
+                            verticalArrangement =
+                                Arrangement.spacedBy(
+                                    4.dp
+                                ),
+                        ) {
+                            Text(
+                                text =
+                                    episode.title,
+                                color =
+                                    if (selected) {
+                                        VueoPalette.Accent
+                                    } else {
+                                        Color.White
+                                    },
+                                fontWeight =
+                                    FontWeight.Bold,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow =
+                                    TextOverflow.Ellipsis,
+                            )
+
+                            if (
+                                playbackEntry != null &&
+                                playbackEntry
+                                    .positionMs >
+                                    15_000L &&
+                                (
+                                    playbackEntry
+                                        .durationMs <=
+                                        0L ||
+                                        playbackEntry
+                                            .positionMs <
+                                            (
+                                                playbackEntry
+                                                    .durationMs *
+                                                    .95f
+                                            ).toLong()
+                                )
+                            ) {
+                                Row(
+                                    verticalAlignment =
+                                        Alignment.CenterVertically,
+                                    horizontalArrangement =
+                                        Arrangement.spacedBy(
+                                            7.dp
+                                        ),
+                                ) {
+                                    LinearProgressIndicator(
+                                        progress = {
+                                            playbackEntry
+                                                .progressFraction
+                                                .coerceIn(
+                                                    0f,
+                                                    1f
+                                                )
+                                        },
+                                        modifier =
+                                            Modifier
+                                                .weight(1f)
+                                                .height(3.dp)
+                                                .clip(
+                                                    CircleShape
+                                                ),
+                                        color =
+                                            VueoPalette.Accent,
+                                        trackColor =
+                                            Color.White.copy(
+                                                alpha = .14f
+                                            ),
+                                    )
+
+                                    Text(
+                                        text = "Resume",
+                                        color =
+                                            VueoPalette.Accent,
+                                        fontSize = 9.sp,
+                                        fontWeight =
+                                            FontWeight.Bold,
+                                    )
+                                }
+                            } else {
+                                episode.overview
+                                    ?.takeIf {
+                                        it.isNotBlank()
+                                    }
+                                    ?.let {
+                                        overview ->
+                                        Text(
+                                            text =
+                                                overview,
+                                            color =
+                                                VueoPalette.Muted,
+                                            fontSize = 10.sp,
+                                            maxLines = 1,
+                                            overflow =
+                                                TextOverflow.Ellipsis,
+                                        )
+                                    }
                             }
                         }
                     }
