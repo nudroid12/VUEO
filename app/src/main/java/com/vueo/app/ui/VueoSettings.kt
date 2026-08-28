@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -64,6 +66,7 @@ import com.vueo.app.core.extensions.UnifiedMediaEngine
 import com.vueo.app.core.enrichment.MdblistClient
 import com.vueo.app.core.enrichment.TmdbEnhancementClient
 import com.vueo.app.core.plugin.PluginStore
+import com.vueo.app.core.storage.AppAccent
 import com.vueo.app.core.storage.LibraryStore
 import com.vueo.app.core.storage.ProfileStore
 import com.vueo.app.core.storage.PreferredQuality
@@ -212,7 +215,7 @@ internal fun VueoSettingsHub(
             VueoSettingsNavigationCard(
                 title = "Appearance",
                 subtitle = "VUEO visual identity and interface preferences.",
-                status = "VUEO Dark • Lime accent",
+                status = "VUEO Dark • ${settingsStore.appAccent().label} accent",
                 icon = Icons.Default.Settings,
                 onClick = onAppearance,
             )
@@ -459,7 +462,7 @@ internal fun TmdbEnhancementSettingsScreen(
                     if (saved) {
                         Text(
                             "TMDB configuration saved locally.",
-                            color = VueoPalette.Neon,
+                            color = VueoPalette.Accent,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                         )
@@ -675,7 +678,7 @@ internal fun MdblistEnhancementSettingsScreen(
                     if (saved) {
                         Text(
                             "MDBList configuration saved locally.",
-                            color = VueoPalette.Neon,
+                            color = VueoPalette.Accent,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                         )
@@ -1089,33 +1092,191 @@ internal fun SourceSettingsScreen(
 
 @Composable
 internal fun AppearanceSettingsScreen(
+    settingsStore: SettingsStore,
     onBack: () -> Unit,
 ) {
+    var accent by remember {
+        mutableStateOf(
+            settingsStore.appAccent()
+        )
+    }
+
     VueoSettingsPage(
         title = "Appearance",
-        subtitle = "VUEO visual identity.",
+        subtitle = "Keep the interface calm, then choose the accent that fits you.",
         onBack = onBack,
     ) {
         item {
             VueoStatusCard(
                 title = "Theme",
                 value = "VUEO Dark",
-                text = "The current interface uses the VUEO dark visual system for consistent media viewing.",
+                text = "Dark charcoal surfaces stay fixed for comfortable movie browsing and playback.",
             )
         }
 
         item {
+            VueoSectionLabel(
+                "ACCENT COLOR"
+            )
+        }
+
+        item {
+            Column(
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        10.dp
+                    ),
+            ) {
+                Text(
+                    text = "White is the default. Lime Green remains VUEO's signature brand option, not a forced UI color.",
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 12.sp,
+                )
+
+                LazyRow(
+                    horizontalArrangement =
+                        Arrangement.spacedBy(
+                            10.dp
+                        ),
+                    contentPadding =
+                        PaddingValues(
+                            vertical = 2.dp
+                        ),
+                ) {
+                    items(
+                        count =
+                            AppAccent.entries.size,
+                        key = { index ->
+                            AppAccent.entries[
+                                index
+                            ].name
+                        },
+                    ) { index ->
+                        val option =
+                            AppAccent.entries[
+                                index
+                            ]
+
+                        VueoAccentOption(
+                            accent = option,
+                            selected =
+                                accent == option,
+                            onClick = {
+                                accent = option
+                                settingsStore
+                                    .setAppAccent(
+                                        option
+                                    )
+                                VueoPalette
+                                    .applyAccent(
+                                        option
+                                    )
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
             VueoStatusCard(
-                title = "Accent",
-                value = "Lime",
-                text = "Lime is used selectively for focus, state, and important actions rather than across the whole interface.",
+                title = "Selected Accent",
+                value = accent.label,
+                text = "Accent changes apply immediately to navigation, buttons, focus states, progress, toggles, and interactive highlights.",
             )
         }
 
         item {
             VueoInfoCard(
-                title = "More appearance controls later",
-                text = "Theme variants, density, and animation preferences can be added after the core Settings and discovery architecture are stable.",
+                title = "Brand stays consistent",
+                text = "The VUEO logo remains Lime Green even when the interface accent is White, Ocean, Violet, Amber, or Coral.",
+            )
+        }
+    }
+}
+
+@Composable
+private fun VueoAccentOption(
+    accent: AppAccent,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val swatch =
+        accent.composeColor()
+
+    Card(
+        modifier = Modifier
+            .width(92.dp)
+            .clickable(
+                onClick = onClick
+            ),
+        shape =
+            RoundedCornerShape(
+                16.dp
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    if (selected) {
+                        swatch.copy(
+                            alpha = .12f
+                        )
+                    } else {
+                        VueoPalette.Surface
+                    },
+            ),
+    ) {
+        Column(
+            modifier =
+                Modifier.padding(
+                    14.dp
+                ),
+            horizontalAlignment =
+                Alignment.CenterHorizontally,
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    9.dp
+                ),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(
+                        RoundedCornerShape(
+                            50
+                        )
+                    )
+                    .background(swatch),
+            )
+
+            Text(
+                text = accent.label,
+                color =
+                    if (selected) {
+                        VueoPalette.Accent
+                    } else {
+                        Color.White
+                    },
+                fontSize = 12.sp,
+                fontWeight =
+                    if (selected) {
+                        FontWeight.Bold
+                    } else {
+                        FontWeight.Medium
+                    },
+            )
+
+            Text(
+                text =
+                    if (selected) {
+                        "Selected"
+                    } else {
+                        "Tap to use"
+                    },
+                color =
+                    VueoPalette.Muted,
+                fontSize = 9.sp,
             )
         }
     }
@@ -1920,7 +2081,7 @@ private fun VueoSettingsTitle(
     ) {
         Text(
             "VUEO",
-            color = VueoPalette.Neon,
+            color = VueoPalette.BrandLime,
             fontSize = 10.sp,
             fontWeight = FontWeight.Black,
             letterSpacing = 1.4.sp,
@@ -1972,7 +2133,7 @@ private fun VueoSettingsNavigationCard(
                 Icon(
                     icon,
                     contentDescription = null,
-                    tint = VueoPalette.Neon,
+                    tint = VueoPalette.Accent,
                 )
             }
 
@@ -1997,7 +2158,7 @@ private fun VueoSettingsNavigationCard(
 
                 Text(
                     status,
-                    color = VueoPalette.Neon,
+                    color = VueoPalette.Accent,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -2099,7 +2260,7 @@ private fun VueoSettingsValueCard(
 
             Surface(
                 shape = RoundedCornerShape(50),
-                color = VueoPalette.Neon.copy(alpha = .10f),
+                color = VueoPalette.Accent.copy(alpha = .10f),
             ) {
                 Text(
                     value,
@@ -2107,7 +2268,7 @@ private fun VueoSettingsValueCard(
                         horizontal = 10.dp,
                         vertical = 6.dp,
                     ),
-                    color = VueoPalette.Neon,
+                    color = VueoPalette.Accent,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -2156,7 +2317,7 @@ private fun VueoSettingsActionCard(
             TextButton(onClick = onClick) {
                 Text(
                     action,
-                    color = VueoPalette.Neon,
+                    color = VueoPalette.Accent,
                     fontWeight = FontWeight.Bold,
                 )
             }
@@ -2225,7 +2386,7 @@ private fun VueoStatusCard(
 
                 Text(
                     value,
-                    color = VueoPalette.Neon,
+                    color = VueoPalette.Accent,
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,
                 )

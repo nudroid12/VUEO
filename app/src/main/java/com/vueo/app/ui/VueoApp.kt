@@ -196,6 +196,12 @@ fun VueoApp() {
             context.applicationContext
         )
     }
+
+    LaunchedEffect(settingsStore) {
+        VueoPalette.applyAccent(
+            settingsStore.appAccent()
+        )
+    }
     val providerCodeSync = remember {
         ProviderCodeSyncManager(
             context.applicationContext
@@ -639,6 +645,8 @@ fun VueoApp() {
 
                     SettingsPage.APPEARANCE ->
                         AppearanceSettingsScreen(
+                            settingsStore =
+                                settingsStore,
                             onBack = {
                                 settingsPage = SettingsPage.ROOT
                             },
@@ -683,6 +691,9 @@ fun VueoApp() {
                                 )
 
                                 profileStore.ensureDefaultProfile()
+                                VueoPalette.applyAccent(
+                                    settingsStore.appAccent()
+                                )
                                 selectedLibraryEntry = null
                                 contentVersion++
                                 libraryVersion++
@@ -751,11 +762,11 @@ private fun RowScope.BottomTab(
             NavigationBarItemDefaults
                 .colors(
                     selectedIconColor =
-                        VueoPalette.Neon,
+                        VueoPalette.Accent,
                     selectedTextColor =
                         Color.White,
                     indicatorColor =
-                        VueoPalette.Neon
+                        VueoPalette.Accent
                             .copy(
                                 alpha = .12f
                             ),
@@ -1019,19 +1030,17 @@ private fun VueoHeader(
                         )
                     )
                     .background(
-                        VueoPalette.Neon
+                        VueoPalette
+                            .SurfaceElevated
                     ),
                 contentAlignment =
                     Alignment.Center,
             ) {
-                Icon(
-                    Icons.Default
-                        .PlayArrow,
-                    contentDescription =
-                        null,
-                    tint =
-                        VueoPalette
-                            .Background,
+                VueoBrandMark(
+                    modifier =
+                        Modifier.size(
+                            27.dp
+                        ),
                 )
             }
 
@@ -1048,7 +1057,7 @@ private fun VueoHeader(
                 Text(
                     "VUEO",
                     color =
-                        VueoPalette.Neon,
+                        VueoPalette.BrandLime,
                     fontWeight =
                         FontWeight.Black,
                     fontSize = 23.sp,
@@ -1194,7 +1203,7 @@ private fun EmptyHomeCard(
             Text(
                 "CONTENT",
                 color =
-                    VueoPalette.Neon,
+                    VueoPalette.Accent,
                 fontWeight =
                     FontWeight.Black,
                 fontSize = 11.sp,
@@ -1326,7 +1335,7 @@ private fun HeroMediaCard(
                         vertical = 6.dp,
                     ),
                 color =
-                    VueoPalette.Neon,
+                    VueoPalette.Accent,
                 fontSize = 10.sp,
                 fontWeight =
                     FontWeight.Black,
@@ -1493,7 +1502,7 @@ private fun CatalogSection(
                             vertical = 5.dp,
                         ),
                     color =
-                        VueoPalette.Neon,
+                        VueoPalette.Accent,
                     fontSize = 10.sp,
                     fontWeight =
                         FontWeight.Bold,
@@ -1739,7 +1748,7 @@ private fun SearchScreen(
                 Text(
                     "DISCOVER",
                     color =
-                        VueoPalette.Neon,
+                        VueoPalette.Accent,
                     fontSize = 11.sp,
                     fontWeight =
                         FontWeight.Black,
@@ -1904,7 +1913,7 @@ private fun SearchResultCard(
                         item.releaseInfo,
                     ).joinToString(" • "),
                     color =
-                        VueoPalette.Neon,
+                        VueoPalette.Accent,
                     fontSize = 11.sp,
                     fontWeight =
                         FontWeight.Bold,
@@ -2030,7 +2039,7 @@ private fun LibraryScreen(
                 Text(
                     "YOUR SPACE",
                     color =
-                        VueoPalette.Neon,
+                        VueoPalette.Accent,
                     fontSize = 11.sp,
                     fontWeight =
                         FontWeight.Black,
@@ -2340,7 +2349,7 @@ private fun LibrarySectionHeader(
                 Text(
                     actionLabel,
                     color =
-                        VueoPalette.Neon,
+                        VueoPalette.Accent,
                     fontWeight =
                         FontWeight.Bold,
                 )
@@ -2819,7 +2828,7 @@ private fun ContentManagerScreen(
                     Text(
                         "CONTROL CENTER",
                         color =
-                            VueoPalette.Neon,
+                            VueoPalette.Accent,
                         fontSize = 11.sp,
                         fontWeight =
                             FontWeight.Black,
@@ -2955,7 +2964,7 @@ private fun ContentMetric(
         Text(
             value,
             color =
-                VueoPalette.Neon,
+                VueoPalette.Accent,
             fontSize = 22.sp,
             fontWeight =
                 FontWeight.Black,
@@ -3023,7 +3032,7 @@ private fun ContentManagerCard(
                     contentDescription =
                         null,
                     tint =
-                        VueoPalette.Neon,
+                        VueoPalette.Accent,
                 )
             }
 
@@ -3057,7 +3066,7 @@ private fun ContentManagerCard(
                 Text(
                     status,
                     color =
-                        VueoPalette.Neon,
+                        VueoPalette.Accent,
                     fontSize = 10.sp,
                     fontWeight =
                         FontWeight.Bold,
@@ -4835,7 +4844,7 @@ private fun MediaDetailsScreen(
                                 50
                             ),
                         color =
-                            VueoPalette.Neon
+                            VueoPalette.Accent
                                 .copy(
                                     alpha = .15f
                                 ),
@@ -4853,7 +4862,7 @@ private fun MediaDetailsScreen(
                                         5.dp,
                                 ),
                             color =
-                                VueoPalette.Neon,
+                                VueoPalette.Accent,
                             fontSize = 10.sp,
                             fontWeight =
                                 FontWeight.Black,
@@ -4991,7 +5000,7 @@ private fun MediaDetailsScreen(
                         Text(
                             "OVERVIEW",
                             color =
-                                VueoPalette.Neon,
+                                VueoPalette.Accent,
                             fontSize = 10.sp,
                             fontWeight =
                                 FontWeight.Black,
@@ -5575,7 +5584,7 @@ private fun MediaRatingsStrip(
             Text(
                 "RATINGS",
                 color =
-                    VueoPalette.Neon,
+                    VueoPalette.Accent,
                 fontSize = 10.sp,
                 fontWeight =
                     FontWeight.Black,
@@ -5981,7 +5990,7 @@ private fun SourcePickerScreen(
                     ) {
                         Text(
                             "VUEO RECOMMENDS",
-                            color = VueoPalette.Neon,
+                            color = VueoPalette.Accent,
                             fontWeight = FontWeight.Black,
                             fontSize = 12.sp,
                             letterSpacing = 1.2.sp,
@@ -6197,7 +6206,7 @@ private fun StreamSourceCard(
                             50
                         ),
                     color =
-                        VueoPalette.Neon
+                        VueoPalette.Accent
                             .copy(
                                 alpha = .12f
                             ),
@@ -6213,7 +6222,7 @@ private fun StreamSourceCard(
                                     5.dp,
                             ),
                         color =
-                            VueoPalette.Neon,
+                            VueoPalette.Accent,
                         fontWeight =
                             FontWeight.Black,
                         fontSize = 11.sp,

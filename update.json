@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "versionCode": 21,
-  "versionName": "0.9.4",
+  "versionCode": 22,
+  "versionName": "0.9.5",
   "title": "VUEO 0.9.4",
   "publishedAt": "2026-08-28",
   "changelog": [
-    "Local profiles with optional Who's Watching startup picker",
-    "Per-profile My List, Continue Watching, History and playback progress",
-    "Per-profile playback quality and subtitle preferences",
-    "Profiles included in backup and restore",
-    "Profile switching without account, email or cloud sign-in",
-    "Final player and Settings polish before v1.0"
+    "White is now the default interface accent.",
+    "Appearance adds Lime Green, Ocean, Violet, Amber and Coral accent choices.",
+    "Accent changes apply instantly across Material3 and VUEO interactive states.",
+    "VUEO Lime Green remains the fixed brand color for the logo and wordmark.",
+    "Refined VUEO launcher mark and in-app brand mark.",
+    "Carries forward local Profiles and Who's Watching from v0.9.4."
   ],
   "downloadUrl": "",
   "telegramUrl": ""

@@ -1,13 +1,23 @@
-# VUEO Architecture v0.9.4
+# VUEO Architecture v0.9.5
 
 ```text
 VUEO
 |
-+-- Profile Layer
-|   +-- ProfileStore
++-- Brand Layer
+|   +-- Fixed Lime Green VUEO mark
+|   +-- V + play launcher identity
+|
++-- Appearance Layer
+|   +-- VUEO Dark surfaces
+|   +-- White default accent
+|   +-- Lime Green / Ocean / Violet / Amber / Coral
+|   +-- Dynamic Material3 primary color
+|
++-- Profiles
 |   +-- Who's Watching
-|   +-- Active Profile
-|   +-- Per-profile Library / Playback / Subtitle preferences
+|   +-- My List / Continue Watching / History
+|   +-- Playback progress
+|   +-- Per-profile playback + subtitle preferences
 |
 +-- Core Experience
 |   +-- Home / Search / Details
@@ -26,114 +36,18 @@ VUEO
 |   +-- MDBList
 |
 +-- Data Layer
-|   +-- SettingsStore
-|   +-- LibraryStore
-|   +-- PlaybackStore
-|   +-- VueoBackupManager
-|   +-- VueoDataMigration
-|   +-- Catalog / Source Cache
-|
-+-- Distribution Layer
-    +-- VueoUpdateManager
-    +-- VueoUpdateStore
-    +-- HTTPS release manifest
-        +-- APK download URL, optional
-        +-- Telegram URL, optional
+    +-- SettingsStore
+    +-- ProfileStore
+    +-- LibraryStore
+    +-- PlaybackStore
+    +-- Backup / Restore
+    +-- Migration
 ```
 
-## Profile Boundary
+## Accent ownership
 
-```text
-GLOBAL
-  Content Manager
-  Addons / repositories / providers
-  Provider Health
-  TMDB
-  MDBList
-  Source technical-detail preference
-  Updates
+The selected interface accent is a global app preference in `vueo_settings`. It changes interactive UI color only. The VUEO brand mark remains Lime Green and does not follow the selected accent.
 
-ACTIVE PROFILE
-  My List
-  Continue Watching
-  Watch History
-  Playback progress
-  Resume preference
-  Preferred quality
-  Subtitle preferences
-```
+## Profile ownership
 
-The default profile keeps the legacy unscoped Library and Playback keys, preserving existing user data when v0.9.4 is installed. Additional profiles use namespaced preference keys.
-
-## Startup Flow
-
-```text
-Launch VUEO
-    |
-Run data migration
-    |
-Ensure default profile exists
-    |
-More than one profile + startup picker enabled?
-    |
-    +-- no  -> Home
-    |
-    +-- yes -> Who's Watching?
-                  |
-              Select profile
-                  |
-                Home
-```
-
-No account server or sign-in is required.
-
-## Backup Boundary
-
-Portable backup data contains durable user configuration, all local profile definitions and profile-scoped Library state.
-
-```text
-BACKUP
-  Profiles
-  Content Manager preferences
-  Settings
-  Optional enhancement preferences
-  Library
-  Playback progress
-  API keys only with explicit opt-in
-
-REBUILT
-  Catalog/search cache
-  Recent source cache
-  Provider health
-  Downloaded provider JavaScript
-```
-
-v0.9.4 uses backup schema 2 while remaining able to restore schema 1 backups.
-
-## Restore Flow
-
-```text
-Select VUEO JSON backup
-        |
-Validate format + schema
-        |
-Restore known preference groups including profiles
-        |
-Preserve local API keys when backup excluded credentials
-        |
-Clear stale caches + provider health
-        |
-Run data migration
-        |
-Ensure a valid local profile exists
-        |
-Reload Stremio addons
-        |
-Sync missing provider scripts
-        |
-Refresh Home + Library + profile state
-```
-
-## Migration
-
-`VueoDataMigration` durable-data schema is version 2. The v2 migration guarantees a default local profile exists while keeping the existing default-profile Library and playback keys intact.
+Viewing state and personal playback/subtitle preferences are profile-scoped. Content sources, provider configuration, optional enhancement keys and update configuration remain global.

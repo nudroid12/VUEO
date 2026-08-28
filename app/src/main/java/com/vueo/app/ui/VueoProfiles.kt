@@ -136,7 +136,7 @@ internal fun WhosWatchingScreen(
                 Text(
                     text = "VUEO",
                     color =
-                        VueoPalette.Neon,
+                        VueoPalette.BrandLime,
                     fontWeight =
                         FontWeight.Black,
                     fontSize = 30.sp,
@@ -462,7 +462,7 @@ internal fun ProfileSettingsScreen(
             Text(
                 text = "PROFILES",
                 color =
-                    VueoPalette.Neon,
+                    VueoPalette.Accent,
                 fontWeight =
                     FontWeight.Bold,
                 fontSize = 12.sp,
@@ -544,7 +544,7 @@ internal fun ProfileSettingsScreen(
             Text(
                 text = "STARTUP",
                 color =
-                    VueoPalette.Neon,
+                    VueoPalette.Accent,
                 fontWeight =
                     FontWeight.Bold,
                 fontSize = 12.sp,
@@ -987,7 +987,7 @@ private fun ManageProfileCard(
                     },
                     color =
                         if (selected) {
-                            VueoPalette.Neon
+                            VueoPalette.Accent
                         } else {
                             VueoPalette.Muted
                         },

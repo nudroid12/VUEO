@@ -48,6 +48,36 @@ enum class SubtitleSize(
     LARGE("Large"),
 }
 
+enum class AppAccent(
+    val label: String,
+    val argb: Long,
+) {
+    WHITE(
+        label = "White",
+        argb = 0xFFF2F3F5,
+    ),
+    LIME(
+        label = "Lime Green",
+        argb = 0xFF8CE66A,
+    ),
+    OCEAN(
+        label = "Ocean",
+        argb = 0xFF63A6FF,
+    ),
+    VIOLET(
+        label = "Violet",
+        argb = 0xFFA78BFA,
+    ),
+    AMBER(
+        label = "Amber",
+        argb = 0xFFFFC857,
+    ),
+    CORAL(
+        label = "Coral",
+        argb = 0xFFFF7A7A,
+    ),
+}
+
 class SettingsStore(
     context: Context,
 ) {
@@ -412,6 +442,23 @@ class SettingsStore(
             .apply()
     }
 
+    fun appAccent(): AppAccent =
+        enumValue(
+            key = KEY_APP_ACCENT,
+            default = AppAccent.WHITE,
+        )
+
+    fun setAppAccent(
+        value: AppAccent,
+    ) {
+        prefs.edit()
+            .putString(
+                KEY_APP_ACCENT,
+                value.name,
+            )
+            .apply()
+    }
+
     fun automaticUpdateChecksEnabled(): Boolean =
         prefs.getBoolean(
             KEY_AUTO_UPDATE_CHECKS,
@@ -526,6 +573,9 @@ class SettingsStore(
 
         private const val KEY_MDBLIST_TRAKT =
             "mdblist_trakt"
+
+        private const val KEY_APP_ACCENT =
+            "app_accent"
 
         private const val KEY_AUTO_UPDATE_CHECKS =
             "automatic_update_checks"
