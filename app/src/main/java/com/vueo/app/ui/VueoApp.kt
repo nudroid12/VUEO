@@ -31,10 +31,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -542,6 +544,15 @@ fun VueoApp() {
                             null
                         selectedMedia = it
                     },
+                    onPlaybackClick = {
+                        entry ->
+                        mediaBackStack =
+                            emptyList()
+                        selectedLibraryEntry =
+                            entry
+                        selectedMedia =
+                            entry.media
+                    },
                 )
 
                 AppTab.SEARCH -> SearchScreen(
@@ -887,8 +898,10 @@ private fun HomeScreen(
     onOpenContentManager: () -> Unit,
     onSearch: () -> Unit,
     onMediaClick: (MediaItem) -> Unit,
+    onPlaybackClick: (LibraryPlaybackEntry) -> Unit,
 ) {
     val context = LocalContext.current
+    val listState = rememberLazyListState()
 
     var rows by remember {
         mutableStateOf(
@@ -897,14 +910,24 @@ private fun HomeScreen(
                 .orEmpty()
         )
     }
-    var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+
+    var loading by remember {
+        mutableStateOf(false)
+    }
+
+    var error by remember {
+        mutableStateOf<String?>(null)
+    }
 
     LaunchedEffect(contentVersion) {
         CatalogDiscoveryCache
             .home(allowStale = true)
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { rows = it }
+            ?.takeIf {
+                it.isNotEmpty()
+            }
+            ?.let {
+                rows = it
+            }
 
         if (booting) {
             loading = false
@@ -918,391 +941,467 @@ private fun HomeScreen(
             engine.loadCatalogRows(
                 forceRefresh = rows.isNotEmpty(),
             )
-        }.onSuccess { fresh ->
+        }.onSuccess {
+            fresh ->
             if (fresh.isNotEmpty()) {
                 rows = fresh
                 CatalogDiscoveryCache.persistHome(
-                    context = context.applicationContext,
+                    context =
+                        context.applicationContext,
                     rows = fresh,
                 )
             }
-        }.onFailure { failure ->
+        }.onFailure {
+            failure ->
             error = failure.message
+
             if (rows.isEmpty()) {
-                rows = CatalogDiscoveryCache
-                    .home(allowStale = true)
-                    .orEmpty()
+                rows =
+                    CatalogDiscoveryCache
+                        .home(
+                            allowStale = true
+                        )
+                        .orEmpty()
             }
         }
 
         loading = false
     }
 
-    val hero = rows
-        .asSequence()
-        .flatMap { it.items.asSequence() }
-        .firstOrNull { !it.background.isNullOrBlank() }
-        ?: rows.firstOrNull()?.items?.firstOrNull()
+    val hero =
+        rows
+            .asSequence()
+            .flatMap {
+                it.items.asSequence()
+            }
+            .firstOrNull {
+                !it.background.isNullOrBlank()
+            }
+            ?: rows
+                .firstOrNull()
+                ?.items
+                ?.firstOrNull()
 
-    val heroWatchlisted = remember(
-        hero?.id,
-        hero?.type,
-        libraryVersion,
-    ) {
-        hero?.let(libraryStore::isWatchlisted) ?: false
-    }
+    val heroWatchlisted =
+        remember(
+            hero?.id,
+            hero?.type,
+            libraryVersion,
+        ) {
+            hero?.let(
+                libraryStore::isWatchlisted
+            ) ?: false
+        }
+
+    val continueWatching =
+        remember(
+            libraryVersion
+        ) {
+            libraryStore
+                .continueWatching()
+                .take(12)
+        }
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(VueoPalette.Background),
-        contentPadding = PaddingValues(bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        state = listState,
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(
+                    VueoPalette.Background
+                ),
+        contentPadding =
+            PaddingValues(
+                bottom = 28.dp
+            ),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                24.dp
+            ),
     ) {
-        item {
-            VueoHeader(
-                profile = activeProfile,
-                onProfileClick = onProfileClick,
-                onSearch = onSearch,
-            )
-        }
-
-        if (booting || loading) {
-            item {
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
-                )
-            }
-        }
-
-        if (!booting && !loading && rows.isEmpty()) {
-            item {
-                EmptyHomeCard(
-                    hasAddons = engine.stremioAddons().isNotEmpty(),
-                    error = error,
-                    onOpenContentManager = onOpenContentManager,
-                )
-            }
-        }
-
         if (hero != null) {
-            item {
-                HeroMediaCard(
+            item(
+                key = "home_hero"
+            ) {
+                HomeCinematicHero(
                     item = hero,
-                    isWatchlisted = heroWatchlisted,
-                    onWatch = { onMediaClick(hero) },
+                    profile = activeProfile,
+                    isWatchlisted =
+                        heroWatchlisted,
+                    onProfileClick =
+                        onProfileClick,
+                    onSearch = onSearch,
+                    onWatch = {
+                        onMediaClick(hero)
+                    },
                     onToggleMyList = {
-                        libraryStore.toggleWatchlist(hero)
+                        libraryStore
+                            .toggleWatchlist(
+                                hero
+                            )
                         onLibraryChanged()
                     },
                 )
             }
+        } else {
+            item(
+                key = "home_header"
+            ) {
+                HomeStandaloneHeader(
+                    profile = activeProfile,
+                    onProfileClick =
+                        onProfileClick,
+                    onSearch = onSearch,
+                )
+            }
+        }
+
+        if (
+            (booting || loading) &&
+            rows.isEmpty()
+        ) {
+            item(
+                key = "home_loading"
+            ) {
+                HomeLoadingState()
+            }
+        }
+
+        if (
+            !booting &&
+            !loading &&
+            rows.isEmpty()
+        ) {
+            item(
+                key = "home_empty"
+            ) {
+                EmptyHomeCard(
+                    hasAddons =
+                        engine
+                            .stremioAddons()
+                            .isNotEmpty(),
+                    error = error,
+                    onOpenContentManager =
+                        onOpenContentManager,
+                )
+            }
+        }
+
+        if (
+            continueWatching
+                .isNotEmpty()
+        ) {
+            item(
+                key = "continue_watching"
+            ) {
+                HomeContinueWatchingSection(
+                    entries =
+                        continueWatching,
+                    onPlaybackClick =
+                        onPlaybackClick,
+                )
+            }
         }
 
         items(
-            rows,
-            key = { it.id },
-        ) { row ->
+            items = rows,
+            key = {
+                "catalog:${it.id}"
+            },
+        ) {
+            row ->
             CatalogSection(
                 row = row,
-                onMediaClick = onMediaClick,
+                onMediaClick =
+                    onMediaClick,
             )
         }
     }
 }
 
 @Composable
-private fun VueoHeader(
+private fun HomeCinematicHero(
+    item: MediaItem,
     profile: VueoProfile,
+    isWatchlisted: Boolean,
     onProfileClick: () -> Unit,
     onSearch: () -> Unit,
+    onWatch: () -> Unit,
+    onToggleMyList: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                horizontal = 20.dp,
-                vertical = 18.dp,
-            ),
-        verticalAlignment = Alignment.CenterVertically,
+    Box(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(440.dp),
     ) {
-        VueoBrandLockup(
-            modifier = Modifier.weight(1f),
+        NetworkImage(
+            url =
+                item.background
+                    ?: item.poster,
+            contentDescription =
+                item.name,
+            modifier =
+                Modifier.fillMaxSize(),
+            contentScale =
+                ContentScale.Crop,
+            fallbackText =
+                item.name,
         )
 
-        Surface(
-            modifier = Modifier
-                .padding(end = 8.dp)
-                .clickable(onClick = onProfileClick),
-            shape = RoundedCornerShape(50),
-            color = VueoPalette.SurfaceElevated,
-        ) {
-            Box(
-                modifier = Modifier.size(42.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    profile.avatar,
-                    fontSize = 18.sp,
-                )
-            }
-        }
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colorStops =
+                                arrayOf(
+                                    0.00f to
+                                        Color.Black.copy(
+                                            alpha = .18f
+                                        ),
+                                    0.40f to
+                                        Color.Black.copy(
+                                            alpha = .10f
+                                        ),
+                                    0.70f to
+                                        Color.Black.copy(
+                                            alpha = .58f
+                                        ),
+                                    1.00f to
+                                        VueoPalette
+                                            .Background,
+                                )
+                        )
+                    ),
+        )
 
-        Surface(
-            shape = RoundedCornerShape(50),
-            color = VueoPalette.SurfaceElevated,
-        ) {
-            IconButton(onClick = onSearch) {
-                Icon(
-                    Icons.Default.Search,
-                    contentDescription = "Search",
-                    tint = Color.White,
-                )
-            }
-        }
-    }
-}
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            colors =
+                                listOf(
+                                    Color.Black.copy(
+                                        alpha = .64f
+                                    ),
+                                    Color.Transparent,
+                                    Color.Transparent,
+                                )
+                        )
+                    ),
+        )
 
-@Composable
-private fun HomeFilterRow(
-    selected: HomeMediaFilter,
-    onSelect: (HomeMediaFilter) -> Unit,
-) {
-    LazyRow(
-        contentPadding =
-            PaddingValues(
-                horizontal = 20.dp
-            ),
-        horizontalArrangement =
-            Arrangement.spacedBy(8.dp),
-    ) {
-        items(
-            HomeMediaFilter.values().toList()
-        ) { filter ->
-            FilterChip(
-                selected =
-                    selected == filter,
-                onClick = {
-                    onSelect(filter)
-                },
-                label = {
-                    Text(
-                        filter.label,
-                        fontWeight =
-                            if (
-                                selected ==
-                                filter
-                            ) {
-                                FontWeight.Bold
-                            } else {
-                                FontWeight.Medium
-                            },
+        HomeHeroHeader(
+            profile = profile,
+            onProfileClick =
+                onProfileClick,
+            onSearch = onSearch,
+            modifier =
+                Modifier
+                    .align(
+                        Alignment.TopCenter
                     )
-                },
-            )
-        }
-    }
-}
+                    .statusBarsPadding(),
+        )
 
-@Composable
-private fun EmptyHomeCard(
-    hasAddons: Boolean,
-    error: String?,
-    onOpenContentManager: () -> Unit,
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                horizontal = 20.dp
-            ),
-        shape =
-            RoundedCornerShape(22.dp),
-        colors =
-            CardDefaults.cardColors(
-                containerColor =
-                    VueoPalette
-                        .SurfaceElevated
-            ),
-    ) {
         Column(
             modifier =
-                Modifier.padding(22.dp),
+                Modifier
+                    .align(
+                        Alignment.BottomStart
+                    )
+                    .fillMaxWidth()
+                    .padding(
+                        start = 20.dp,
+                        end = 20.dp,
+                        bottom = 24.dp,
+                    ),
             verticalArrangement =
                 Arrangement.spacedBy(
                     10.dp
                 ),
         ) {
             Text(
-                "CONTENT",
-                color =
-                    VueoPalette.Accent,
+                text =
+                    item.name.uppercase(),
+                color = Color.White,
+                fontSize = 30.sp,
+                lineHeight = 31.sp,
                 fontWeight =
                     FontWeight.Black,
-                fontSize = 11.sp,
-                letterSpacing = 1.4.sp,
+                maxLines = 2,
+                overflow =
+                    TextOverflow.Ellipsis,
             )
 
-            Text(
-                if (hasAddons) {
-                    "No catalog loaded"
-                } else {
-                    "Connect your first content source"
-                },
-                fontSize = 22.sp,
-                fontWeight =
-                    FontWeight.Black,
-            )
+            val metadata =
+                buildList {
+                    item.releaseInfo
+                        ?.takeIf {
+                            it.isNotBlank()
+                        }
+                        ?.let(::add)
 
-            Text(
-                when {
-                    error != null ->
-                        "VUEO could not load a catalog right now. Open Content Manager to review your addon."
+                    item.genres
+                        .take(3)
+                        .forEach(::add)
+                }
+                    .joinToString(
+                        "  •  "
+                    )
 
-                    hasAddons ->
-                        "The installed addon does not expose a catalog that can load without extra filters."
-
-                    else ->
-                        "Install a Stremio addon in Content Manager. Available catalogs will appear here automatically."
-                },
-                color =
-                    VueoPalette.Muted,
-            )
-
-            Spacer(
-                Modifier.height(4.dp)
-            )
-
-            Button(
-                onClick =
-                    onOpenContentManager,
+            if (
+                metadata.isNotBlank()
             ) {
                 Text(
-                    "Open Content Manager"
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun HeroMediaCard(
-    item: MediaItem,
-    isWatchlisted: Boolean,
-    onWatch: () -> Unit,
-    onToggleMyList: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .padding(horizontal = 20.dp)
-            .fillMaxWidth()
-            .height(390.dp)
-            .clip(RoundedCornerShape(28.dp)),
-    ) {
-        NetworkImage(
-            url = item.background ?: item.poster,
-            contentDescription = item.name,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
-            fallbackText = item.name,
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = .08f),
-                            Color.Black.copy(alpha = .20f),
-                            Color.Black.copy(alpha = .98f),
-                        ),
-                    )
-                ),
-        )
-
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(9.dp),
-        ) {
-            Text(
-                item.name,
-                color = Color.White,
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Black,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-
-            val metaLine = listOfNotNull(
-                item.releaseInfo,
-                item.type
-                    .replaceFirstChar { it.uppercase() },
-                item.genres
-                    .take(3)
-                    .takeIf { it.isNotEmpty() }
-                    ?.joinToString(" • "),
-            ).joinToString("  •  ")
-
-            if (metaLine.isNotBlank()) {
-                Text(
-                    metaLine,
-                    color = Color.White.copy(alpha = .76f),
+                    text = metadata,
+                    color =
+                        Color.White
+                            .copy(
+                                alpha = .82f
+                            ),
                     fontSize = 12.sp,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    overflow =
+                        TextOverflow.Ellipsis,
                 )
             }
 
             item.description
-                ?.takeIf { it.isNotBlank() }
+                ?.takeIf {
+                    it.isNotBlank()
+                }
                 ?.let {
+                    description ->
                     Text(
-                        it,
-                        color = Color.White.copy(alpha = .68f),
+                        text =
+                            description,
+                        color =
+                            Color.White
+                                .copy(
+                                    alpha = .76f
+                                ),
                         fontSize = 12.sp,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = 17.sp,
+                        maxLines = 2,
+                        overflow =
+                            TextOverflow.Ellipsis,
+                        modifier =
+                            Modifier
+                                .fillMaxWidth(
+                                    .78f
+                                ),
                     )
                 }
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement =
+                    Arrangement.spacedBy(
+                        10.dp
+                    ),
             ) {
                 Button(
                     onClick = onWatch,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(14.dp),
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .height(50.dp),
+                    shape =
+                        RoundedCornerShape(
+                            14.dp
+                        ),
                 ) {
                     Icon(
-                        Icons.Default.PlayArrow,
-                        contentDescription = null,
+                        imageVector =
+                            Icons.Default
+                                .PlayArrow,
+                        contentDescription =
+                            null,
                     )
-                    Spacer(Modifier.width(7.dp))
+
+                    Spacer(
+                        Modifier.width(
+                            7.dp
+                        )
+                    )
+
                     Text(
-                        "Watch Now",
-                        fontWeight = FontWeight.Bold,
+                        text = "Watch Now",
+                        fontWeight =
+                            FontWeight.Bold,
                     )
                 }
 
-                OutlinedButton(
-                    onClick = onToggleMyList,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(14.dp),
+                Surface(
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .height(50.dp)
+                            .clickable(
+                                onClick =
+                                    onToggleMyList
+                            ),
+                    shape =
+                        RoundedCornerShape(
+                            14.dp
+                        ),
+                    color =
+                        Color.Black.copy(
+                            alpha = .46f
+                        ),
+                    border =
+                        androidx.compose
+                            .foundation
+                            .BorderStroke(
+                                width = 1.dp,
+                                color =
+                                    Color.White
+                                        .copy(
+                                            alpha = .20f
+                                        ),
+                            ),
                 ) {
-                    Icon(
-                        Icons.Default.Add,
-                        contentDescription = null,
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        if (isWatchlisted) "In My List" else "My List",
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxSize(),
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                        horizontalArrangement =
+                            Arrangement.Center,
+                    ) {
+                        Icon(
+                            imageVector =
+                                Icons.Default.Add,
+                            contentDescription =
+                                null,
+                            tint = Color.White,
+                        )
+
+                        Spacer(
+                            Modifier.width(
+                                7.dp
+                            )
+                        )
+
+                        Text(
+                            text =
+                                if (
+                                    isWatchlisted
+                                ) {
+                                    "In My List"
+                                } else {
+                                    "My List"
+                                },
+                            color = Color.White,
+                            fontWeight =
+                                FontWeight.SemiBold,
+                        )
+                    }
                 }
             }
         }
@@ -1310,9 +1409,166 @@ private fun HeroMediaCard(
 }
 
 @Composable
-private fun CatalogSection(
-    row: CatalogRow,
-    onMediaClick: (MediaItem) -> Unit,
+private fun HomeHeroHeader(
+    profile: VueoProfile,
+    onProfileClick: () -> Unit,
+    onSearch: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = 20.dp,
+                    vertical = 14.dp,
+                ),
+        verticalAlignment =
+            Alignment.CenterVertically,
+    ) {
+        VueoBrandLockup(
+            modifier =
+                Modifier.weight(1f),
+        )
+
+        HomeProfileButton(
+            profile = profile,
+            onClick =
+                onProfileClick,
+        )
+
+        Spacer(
+            Modifier.width(8.dp)
+        )
+
+        HomeRoundIconButton(
+            icon =
+                Icons.Default.Search,
+            contentDescription =
+                "Search",
+            onClick =
+                onSearch,
+        )
+    }
+}
+
+@Composable
+private fun HomeStandaloneHeader(
+    profile: VueoProfile,
+    onProfileClick: () -> Unit,
+    onSearch: () -> Unit,
+) {
+    HomeHeroHeader(
+        profile = profile,
+        onProfileClick =
+            onProfileClick,
+        onSearch = onSearch,
+        modifier =
+            Modifier
+                .statusBarsPadding()
+                .padding(
+                    top = 2.dp
+                ),
+    )
+}
+
+@Composable
+private fun HomeProfileButton(
+    profile: VueoProfile,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier =
+            Modifier
+                .size(42.dp)
+                .clickable(
+                    onClick = onClick
+                ),
+        shape =
+            RoundedCornerShape(50),
+        color =
+            Color.Black.copy(
+                alpha = .42f
+            ),
+        border =
+            androidx.compose
+                .foundation
+                .BorderStroke(
+                    width = 1.dp,
+                    color =
+                        Color.White.copy(
+                            alpha = .16f
+                        ),
+                ),
+    ) {
+        Box(
+            contentAlignment =
+                Alignment.Center,
+        ) {
+            Text(
+                text =
+                    profile.name
+                        .trim()
+                        .firstOrNull()
+                        ?.uppercase()
+                        ?: "P",
+                color = Color.White,
+                fontWeight =
+                    FontWeight.Bold,
+                fontSize = 15.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeRoundIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier =
+            Modifier.size(42.dp),
+        shape =
+            RoundedCornerShape(50),
+        color =
+            Color.Black.copy(
+                alpha = .42f
+            ),
+        border =
+            androidx.compose
+                .foundation
+                .BorderStroke(
+                    width = 1.dp,
+                    color =
+                        Color.White.copy(
+                            alpha = .16f
+                        ),
+                ),
+    ) {
+        IconButton(
+            onClick = onClick,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription =
+                    contentDescription,
+                tint = Color.White,
+                modifier =
+                    Modifier.size(
+                        22.dp
+                    ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeContinueWatchingSection(
+    entries: List<LibraryPlaybackEntry>,
+    onPlaybackClick:
+        (LibraryPlaybackEntry) -> Unit,
 ) {
     Column(
         verticalArrangement =
@@ -1320,69 +1576,12 @@ private fun CatalogSection(
                 11.dp
             ),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal = 20.dp
-                ),
-            verticalAlignment =
-                Alignment.CenterVertically,
-        ) {
-            Column(
-                modifier =
-                    Modifier.weight(1f),
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        2.dp
-                    ),
-            ) {
-                Text(
-                    row.title,
-                    color = Color.White,
-                    fontWeight =
-                        FontWeight.Bold,
-                    fontSize = 19.sp,
-                    maxLines = 1,
-                    overflow =
-                        TextOverflow.Ellipsis,
-                )
-
-                Text(
-                    row.providerName,
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow =
-                        TextOverflow.Ellipsis,
-                )
-            }
-
-            Surface(
-                shape =
-                    RoundedCornerShape(
-                        50
-                    ),
-                color =
-                    VueoPalette
-                        .SurfaceElevated,
-            ) {
-                Text(
-                    "${row.items.size}",
-                    modifier =
-                        Modifier.padding(
-                            horizontal = 10.dp,
-                            vertical = 5.dp,
-                        ),
-                    color =
-                        VueoPalette.Accent,
-                    fontSize = 10.sp,
-                    fontWeight =
-                        FontWeight.Bold,
-                )
-            }
-        }
+        HomeSectionHeader(
+            title =
+                "Continue Watching",
+            subtitle =
+                "${entries.size} in progress",
+        )
 
         LazyRow(
             contentPadding =
@@ -1395,11 +1594,492 @@ private fun CatalogSection(
                 ),
         ) {
             items(
+                items = entries,
+                key = {
+                    it.mediaKey
+                },
+            ) {
+                entry ->
+                HomeContinueWatchingCard(
+                    entry = entry,
+                    onClick = {
+                        onPlaybackClick(
+                            entry
+                        )
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeContinueWatchingCard(
+    entry: LibraryPlaybackEntry,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier =
+            Modifier
+                .width(218.dp)
+                .clickable(
+                    onClick = onClick
+                ),
+        shape =
+            RoundedCornerShape(
+                16.dp
+            ),
+        color =
+            VueoPalette.Surface,
+    ) {
+        Column {
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(122.dp),
+            ) {
+                NetworkImage(
+                    url =
+                        entry.media.background
+                            ?: entry.media.poster,
+                    contentDescription =
+                        entry.media.name,
+                    modifier =
+                        Modifier.fillMaxSize(),
+                    contentScale =
+                        ContentScale.Crop,
+                    fallbackText =
+                        entry.media.name,
+                )
+
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors =
+                                        listOf(
+                                            Color.Transparent,
+                                            Color.Black.copy(
+                                                alpha = .70f
+                                            ),
+                                        )
+                                )
+                            ),
+                )
+
+                Surface(
+                    modifier =
+                        Modifier
+                            .align(
+                                Alignment.Center
+                            )
+                            .size(38.dp),
+                    shape =
+                        RoundedCornerShape(50),
+                    color =
+                        Color.Black.copy(
+                            alpha = .62f
+                        ),
+                ) {
+                    Box(
+                        contentAlignment =
+                            Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector =
+                                Icons.Default
+                                    .PlayArrow,
+                            contentDescription =
+                                null,
+                            tint = Color.White,
+                        )
+                    }
+                }
+            }
+
+            Column(
+                modifier =
+                    Modifier.padding(
+                        start = 10.dp,
+                        end = 10.dp,
+                        top = 8.dp,
+                        bottom = 9.dp,
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        4.dp
+                    ),
+            ) {
+                Text(
+                    text =
+                        entry.media.name,
+                    color = Color.White,
+                    fontWeight =
+                        FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                )
+
+                Text(
+                    text =
+                        homePlaybackSubtitle(
+                            entry
+                        ),
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                )
+
+                LinearProgressIndicator(
+                    progress = {
+                        entry
+                            .progressFraction
+                            .coerceIn(
+                                0f,
+                                1f
+                            )
+                    },
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .clip(
+                                RoundedCornerShape(
+                                    50
+                                )
+                            ),
+                    color =
+                        VueoPalette.Accent,
+                    trackColor =
+                        Color.White.copy(
+                            alpha = .12f
+                        ),
+                )
+            }
+        }
+    }
+}
+
+private fun homePlaybackSubtitle(
+    entry: LibraryPlaybackEntry,
+): String {
+    val episodeLabel =
+        if (
+            entry.season != null &&
+            entry.episode != null
+        ) {
+            "S${entry.season} E${entry.episode}"
+        } else {
+            null
+        }
+
+    val remainingMs =
+        (
+            entry.durationMs -
+                entry.positionMs
+        )
+            .coerceAtLeast(0L)
+
+    val remainingLabel =
+        when {
+            entry.durationMs <= 0L ->
+                null
+
+            remainingMs >=
+                60L * 60L * 1000L -> {
+                val hours =
+                    remainingMs /
+                        (
+                            60L *
+                                60L *
+                                1000L
+                        )
+
+                val minutes =
+                    (
+                        remainingMs /
+                            (
+                                60L *
+                                    1000L
+                            )
+                    ) % 60L
+
+                "${hours}h ${minutes}m left"
+            }
+
+            else -> {
+                val minutes =
+                    (
+                        remainingMs /
+                            (
+                                60L *
+                                    1000L
+                            )
+                    )
+                        .coerceAtLeast(1L)
+
+                "${minutes}m left"
+            }
+        }
+
+    return listOfNotNull(
+        episodeLabel,
+        remainingLabel,
+    ).joinToString(
+        "  •  "
+    )
+        .ifBlank {
+            "Continue watching"
+        }
+}
+
+@Composable
+private fun HomeSectionHeader(
+    title: String,
+    subtitle: String? = null,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = 20.dp
+                ),
+        verticalAlignment =
+            Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            color = Color.White,
+            fontWeight =
+                FontWeight.Bold,
+            fontSize = 19.sp,
+            maxLines = 1,
+            overflow =
+                TextOverflow.Ellipsis,
+            modifier =
+                Modifier.weight(1f),
+        )
+
+        subtitle
+            ?.takeIf {
+                it.isNotBlank()
+            }
+            ?.let {
+                Text(
+                    text = it,
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                )
+            }
+    }
+}
+
+@Composable
+private fun HomeLoadingState() {
+    Column(
+        verticalArrangement =
+            Arrangement.spacedBy(
+                12.dp
+            ),
+    ) {
+        HomeSectionHeader(
+            title = "Loading VUEO",
+            subtitle =
+                "Refreshing catalogs",
+        )
+
+        LazyRow(
+            contentPadding =
+                PaddingValues(
+                    horizontal = 20.dp
+                ),
+            horizontalArrangement =
+                Arrangement.spacedBy(
+                    12.dp
+                ),
+        ) {
+            items(
+                listOf(
+                    1,
+                    2,
+                    3,
+                )
+            ) {
+                Surface(
+                    modifier =
+                        Modifier
+                            .width(126.dp)
+                            .height(190.dp),
+                    shape =
+                        RoundedCornerShape(
+                            16.dp
+                        ),
+                    color =
+                        VueoPalette
+                            .SurfaceElevated,
+                ) {}
+            }
+        }
+
+        LinearProgressIndicator(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = 20.dp
+                    ),
+            color =
+                VueoPalette.Accent,
+            trackColor =
+                VueoPalette
+                    .SurfaceStrong,
+        )
+    }
+}
+
+@Composable
+private fun EmptyHomeCard(
+    hasAddons: Boolean,
+    error: String?,
+    onOpenContentManager: () -> Unit,
+) {
+    Card(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = 20.dp
+                ),
+        shape =
+            RoundedCornerShape(
+                22.dp
+            ),
+        colors =
+            CardDefaults
+                .cardColors(
+                    containerColor =
+                        VueoPalette
+                            .SurfaceElevated
+                ),
+    ) {
+        Column(
+            modifier =
+                Modifier.padding(
+                    22.dp
+                ),
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    10.dp
+                ),
+        ) {
+            Text(
+                text = "CONTENT",
+                color =
+                    VueoPalette.Accent,
+                fontWeight =
+                    FontWeight.Black,
+                fontSize = 11.sp,
+                letterSpacing =
+                    1.4.sp,
+            )
+
+            Text(
+                text =
+                    if (hasAddons) {
+                        "No catalog loaded"
+                    } else {
+                        "Connect your first content source"
+                    },
+                color = Color.White,
+                fontSize = 22.sp,
+                fontWeight =
+                    FontWeight.Black,
+            )
+
+            Text(
+                text =
+                    when {
+                        error != null ->
+                            "VUEO could not load a catalog right now. Open Content Manager to review your addon."
+
+                        hasAddons ->
+                            "The installed addon does not expose a catalog that can load without extra filters."
+
+                        else ->
+                            "Install a Stremio addon in Content Manager. Available catalogs will appear here automatically."
+                    },
+                color =
+                    VueoPalette.Muted,
+            )
+
+            Spacer(
+                Modifier.height(
+                    4.dp
+                )
+            )
+
+            Button(
+                onClick =
+                    onOpenContentManager,
+            ) {
+                Text(
+                    text =
+                        "Open Content Manager"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CatalogSection(
+    row: CatalogRow,
+    onMediaClick:
+        (MediaItem) -> Unit,
+) {
+    Column(
+        verticalArrangement =
+            Arrangement.spacedBy(
+                11.dp
+            ),
+    ) {
+        HomeSectionHeader(
+            title = row.title,
+            subtitle =
+                row.providerName
+                    .takeIf {
+                        it.isNotBlank()
+                    },
+        )
+
+        LazyRow(
+            contentPadding =
+                PaddingValues(
+                    horizontal = 20.dp
+                ),
+            horizontalArrangement =
+                Arrangement.spacedBy(
+                    11.dp
+                ),
+        ) {
+            items(
                 items = row.items,
                 key = {
                     "${row.id}:${it.id}"
                 },
-            ) { item ->
+            ) {
+                item ->
                 MediaPoster(
                     item = item,
                     onClick = {
@@ -1418,74 +2098,74 @@ private fun MediaPoster(
     item: MediaItem,
     onClick: () -> Unit,
 ) {
-    Surface(
-        modifier = Modifier
-            .width(138.dp)
-            .clickable(
-                onClick = onClick
+    Column(
+        modifier =
+            Modifier
+                .width(126.dp)
+                .clickable(
+                    onClick = onClick
+                ),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                7.dp
             ),
-        shape =
-            RoundedCornerShape(
-                17.dp
-            ),
-        color =
-            VueoPalette.Surface,
     ) {
-        Column {
+        Surface(
+            shape =
+                RoundedCornerShape(
+                    14.dp
+                ),
+            color =
+                VueoPalette.Surface,
+        ) {
             NetworkImage(
                 url = item.poster,
                 contentDescription =
                     item.name,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(184.dp),
                 contentScale =
                     ContentScale.Crop,
                 fallbackText =
                     item.name,
             )
-
-            Column(
-                modifier =
-                    Modifier.padding(
-                        10.dp
-                    ),
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        3.dp
-                    ),
-            ) {
-                Text(
-                    item.name,
-                    color = Color.White,
-                    maxLines = 2,
-                    overflow =
-                        TextOverflow.Ellipsis,
-                    fontWeight =
-                        FontWeight.SemiBold,
-                    fontSize = 13.sp,
-                )
-
-                Text(
-                    listOfNotNull(
-                        item.releaseInfo,
-                        item.type
-                            .takeIf {
-                                it.isNotBlank()
-                            }
-                            ?.replaceFirstChar {
-                                it.uppercase()
-                            },
-                    ).joinToString(" • "),
-                    maxLines = 1,
-                    overflow =
-                        TextOverflow.Ellipsis,
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 10.sp,
-                )
-            }
         }
+
+        Text(
+            text = item.name,
+            color = Color.White,
+            maxLines = 1,
+            overflow =
+                TextOverflow.Ellipsis,
+            fontWeight =
+                FontWeight.SemiBold,
+            fontSize = 12.sp,
+        )
+
+        Text(
+            text =
+                listOfNotNull(
+                    item.releaseInfo,
+                    item.type
+                        .takeIf {
+                            it.isNotBlank()
+                        }
+                        ?.replaceFirstChar {
+                            it.uppercase()
+                        },
+                )
+                    .joinToString(
+                        " • "
+                    ),
+            maxLines = 1,
+            overflow =
+                TextOverflow.Ellipsis,
+            color =
+                VueoPalette.Muted,
+            fontSize = 9.sp,
+        )
     }
 }
 
