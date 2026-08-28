@@ -87,3 +87,37 @@ Repository metadata       scrapers[]
 ```
 
 v0.3.0 deliberately separates repository management from arbitrary JavaScript execution.
+
+
+## v0.3.1 plugin execution path
+
+```text
+Cinemeta / Media Item
+        |
+     IMDb ID
+        |
+   TMDB Resolver
+        |
+   Numeric TMDB ID
+        |
+Enabled Plugin Repositories
+        |
+Provider JS Bundles
+        |
+Sandboxed WebView Runtime
+        |
+restricted native HTTPS fetch
+        |
+getStreams(...)
+        |
+Plugin StreamSource[]
+        |
+        +---------------- Stremio sources
+        |
+        v
+Unified Source Picker
+        |
+Media3 with provider request headers
+```
+
+Remote provider JavaScript cannot access Android files, content providers, or local/private network addresses through VUEO's native fetch bridge.

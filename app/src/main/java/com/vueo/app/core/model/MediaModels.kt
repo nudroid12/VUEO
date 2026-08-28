@@ -41,6 +41,7 @@ data class StreamSource(
     val audio: String? = null,
     val language: String? = null,
     val sizeBytes: Long? = null,
+    val headers: Map<String, String> = emptyMap(),
     val providerId: String,
     val providerName: String,
 ) {

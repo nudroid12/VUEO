@@ -72,6 +72,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.ui.PlayerView
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.MediaItem as Media3MediaItem
@@ -81,10 +83,13 @@ import com.vueo.app.core.extensions.primaryAddonCategory
 import com.vueo.app.core.extensions.ExtensionKind
 import com.vueo.app.core.extensions.MediaExtension
 import com.vueo.app.core.extensions.UnifiedMediaEngine
+import com.vueo.app.core.extensions.SourceRanker
 import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.core.storage.PlaybackStore
 import com.vueo.app.core.model.SubtitleTrack
 import com.vueo.app.core.plugin.PluginStore
+import com.vueo.app.core.plugin.TmdbResolver
+import com.vueo.app.core.plugin.PluginSourceEngine
 import com.vueo.app.core.plugin.PluginRepositoryDescriptor
 import com.vueo.app.core.plugin.PluginRepositoryClient
 import com.vueo.app.core.model.EpisodeItem
@@ -111,7 +116,12 @@ private enum class ContentPage {
 fun VueoApp() {
     val context = LocalContext.current
     val engine = remember { UnifiedMediaEngine() }
-    val store = remember { AddonStore(context.applicationContext) }
+    val store = remember {
+        AddonStore(context.applicationContext)
+    }
+    val pluginStore = remember {
+        PluginStore(context.applicationContext)
+    }
 
     var selectedTab by remember { mutableStateOf(AppTab.HOME) }
     var contentPage by remember { mutableStateOf(ContentPage.ROOT) }
@@ -121,6 +131,7 @@ fun VueoApp() {
 
     LaunchedEffect(Unit) {
         store.seedDevelopmentDefaultsIfNeeded()
+        pluginStore.seedDevelopmentDefaultsIfNeeded()
 
         store.manifestUrls().forEach { manifestUrl ->
             runCatching {
@@ -1042,15 +1053,29 @@ private fun PluginsScreen(
 ) {
     val context = LocalContext.current
     val store = remember {
-        PluginStore(context.applicationContext)
+        PluginStore(
+            context.applicationContext
+        )
     }
     val scope = rememberCoroutineScope()
 
     var repositories by remember {
-        mutableStateOf(store.repositories())
+        mutableStateOf(
+            store.repositories()
+        )
     }
     var pluginsEnabled by remember {
-        mutableStateOf(store.pluginsEnabled())
+        mutableStateOf(
+            store.pluginsEnabled()
+        )
+    }
+    var tmdbKey by remember {
+        mutableStateOf(
+            store.tmdbApiKey()
+        )
+    }
+    var tmdbSaved by remember {
+        mutableStateOf(false)
     }
     var showAddDialog by remember {
         mutableStateOf(false)
@@ -1068,20 +1093,30 @@ private fun PluginsScreen(
         mutableStateOf<String?>(null)
     }
 
+    LaunchedEffect(Unit) {
+        store.seedDevelopmentDefaultsIfNeeded()
+        repositories =
+            store.repositories()
+    }
+
     Column(
         modifier = Modifier.fillMaxSize(),
     ) {
         ScreenHeader(
             title = "Plugins",
-            subtitle = "JavaScript provider repositories",
+            subtitle =
+                "JavaScript provider repositories",
             onBack = onBack,
             action = {
                 FilledIconButton(
-                    onClick = { showAddDialog = true },
+                    onClick = {
+                        showAddDialog = true
+                    },
                 ) {
                     Icon(
                         Icons.Default.Add,
-                        contentDescription = "Add repository",
+                        contentDescription =
+                            "Add repository",
                     )
                 }
             },
@@ -1089,45 +1124,128 @@ private fun PluginsScreen(
 
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(
-                horizontal = 20.dp,
-                vertical = 8.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding =
+                PaddingValues(
+                    horizontal = 20.dp,
+                    vertical = 8.dp,
+                ),
+            verticalArrangement =
+                Arrangement.spacedBy(14.dp),
         ) {
             item {
                 ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier =
+                        Modifier.fillMaxWidth(),
                 ) {
                     Row(
-                        modifier = Modifier.padding(18.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        modifier =
+                            Modifier.padding(18.dp),
+                        verticalAlignment =
+                            Alignment.CenterVertically,
                     ) {
                         Column(
-                            modifier = Modifier.weight(1f),
+                            modifier =
+                                Modifier.weight(1f),
                         ) {
                             Text(
                                 "Plugin providers",
-                                fontWeight = FontWeight.Bold,
+                                fontWeight =
+                                    FontWeight.Bold,
                                 fontSize = 18.sp,
                             )
                             Text(
                                 "${repositories.size} repos • " +
                                     "${store.enabledProviderCount()} enabled providers",
-                                color = MaterialTheme.colorScheme.onSurface.copy(
-                                    alpha = .6f
-                                ),
+                                color =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .onSurface
+                                        .copy(alpha = .6f),
                                 fontSize = 12.sp,
                             )
                         }
 
                         Switch(
-                            checked = pluginsEnabled,
+                            checked =
+                                pluginsEnabled,
                             onCheckedChange = {
                                 pluginsEnabled = it
-                                store.setPluginsEnabled(it)
+                                store.setPluginsEnabled(
+                                    it
+                                )
                             },
                         )
+                    }
+                }
+            }
+
+            item {
+                ElevatedCard(
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier =
+                            Modifier.padding(18.dp),
+                        verticalArrangement =
+                            Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            "TMDB Bridge",
+                            fontWeight =
+                                FontWeight.Bold,
+                            fontSize = 18.sp,
+                        )
+
+                        Text(
+                            "Plugin providers need a numeric TMDB ID. " +
+                                "Enter a TMDB v3 API key so VUEO can map " +
+                                "Cinemeta IMDb IDs to TMDB IDs.",
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurface
+                                    .copy(alpha = .62f),
+                            fontSize = 12.sp,
+                        )
+
+                        OutlinedTextField(
+                            value = tmdbKey,
+                            onValueChange = {
+                                tmdbKey = it
+                                tmdbSaved = false
+                            },
+                            label = {
+                                Text(
+                                    "TMDB API Key"
+                                )
+                            },
+                            singleLine = true,
+                            modifier =
+                                Modifier.fillMaxWidth(),
+                        )
+
+                        Button(
+                            onClick = {
+                                store.setTmdbApiKey(
+                                    tmdbKey
+                                )
+                                tmdbSaved = true
+                            },
+                        ) {
+                            Text("Save TMDB Key")
+                        }
+
+                        if (tmdbSaved) {
+                            Text(
+                                "TMDB key saved.",
+                                color =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .primary,
+                                fontSize = 12.sp,
+                            )
+                        }
                     }
                 }
             }
@@ -1135,29 +1253,42 @@ private fun PluginsScreen(
             if (repositories.isEmpty()) {
                 item {
                     ElevatedCard(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier =
+                            Modifier.fillMaxWidth(),
                     ) {
                         Column(
-                            modifier = Modifier.padding(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier =
+                                Modifier.padding(20.dp),
+                            verticalArrangement =
+                                Arrangement.spacedBy(
+                                    10.dp
+                                ),
                         ) {
                             Text(
                                 "No plugin repositories",
                                 fontSize = 21.sp,
-                                fontWeight = FontWeight.Black,
+                                fontWeight =
+                                    FontWeight.Black,
                             )
                             Text(
-                                "Add a Nuvio-style provider repository URL. " +
-                                    "VUEO accepts either the repository base URL " +
-                                    "or a direct manifest.json URL.",
-                                color = MaterialTheme.colorScheme.onSurface.copy(
-                                    alpha = .68f
-                                ),
+                                "Add a Nuvio-style provider repository URL.",
+                                color =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .onSurface
+                                        .copy(
+                                            alpha = .68f
+                                        ),
                             )
                             Button(
-                                onClick = { showAddDialog = true },
+                                onClick = {
+                                    showAddDialog =
+                                        true
+                                },
                             ) {
-                                Text("Add Repository")
+                                Text(
+                                    "Add Repository"
+                                )
                             }
                         }
                     }
@@ -1166,60 +1297,89 @@ private fun PluginsScreen(
 
             items(
                 repositories,
-                key = { it.manifestUrl },
+                key = {
+                    it.manifestUrl
+                },
             ) { repository ->
                 PluginRepositoryCard(
                     repository = repository,
                     store = store,
-                    refreshing = refreshingUrl == repository.manifestUrl,
+                    isDevelopmentDefault =
+                        store.isDevelopmentDefault(
+                            repository.manifestUrl
+                        ),
+                    refreshing =
+                        refreshingUrl ==
+                        repository.manifestUrl,
                     onRefresh = {
                         scope.launch {
-                            refreshingUrl = repository.manifestUrl
+                            refreshingUrl =
+                                repository
+                                    .manifestUrl
 
                             runCatching {
-                                PluginRepositoryClient.fetch(
-                                    repository.manifestUrl
+                                PluginRepositoryClient
+                                    .fetch(
+                                        repository
+                                            .manifestUrl
+                                    )
+                            }.onSuccess {
+                                refreshed ->
+
+                                store.upsert(
+                                    refreshed
                                 )
-                            }.onSuccess { refreshed ->
-                                store.upsert(refreshed)
-                                repositories = store.repositories()
+                                repositories =
+                                    store.repositories()
                             }.onFailure {
-                                message = it.message
+                                message =
+                                    it.message
                             }
 
                             refreshingUrl = null
                         }
                     },
                     onDelete = {
-                        store.remove(repository.manifestUrl)
-                        repositories = store.repositories()
+                        store.remove(
+                            repository.manifestUrl
+                        )
+                        repositories =
+                            store.repositories()
                     },
                     onProviderChanged = {
-                        repositories = store.repositories()
+                        repositories =
+                            store.repositories()
                     },
                 )
             }
 
             item {
                 ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier =
+                        Modifier.fillMaxWidth(),
                 ) {
                     Column(
-                        modifier = Modifier.padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                        modifier =
+                            Modifier.padding(18.dp),
+                        verticalArrangement =
+                            Arrangement.spacedBy(
+                                7.dp
+                            ),
                     ) {
                         Text(
                             "Runtime status",
-                            fontWeight = FontWeight.Bold,
+                            fontWeight =
+                                FontWeight.Bold,
                         )
                         Text(
-                            "Repository compatibility and provider management " +
-                                "are active. JavaScript execution is intentionally " +
-                                "disabled in v0.3.0 and will be added as the next " +
-                                "runtime milestone.",
-                            color = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = .62f
-                            ),
+                            "Provider runtime ACTIVE. " +
+                                "VUEO executes enabled provider bundles " +
+                                "inside an isolated WebView and exposes " +
+                                "only a restricted native HTTPS fetch bridge.",
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .primary,
                             fontSize = 12.sp,
                         )
                     }
@@ -1237,11 +1397,14 @@ private fun PluginsScreen(
                 }
             },
             title = {
-                Text("Add Plugin Repository")
+                Text(
+                    "Add Plugin Repository"
+                )
             },
             text = {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement =
+                        Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         "Paste a repository base URL or direct manifest.json URL."
@@ -1254,10 +1417,14 @@ private fun PluginsScreen(
                             message = null
                         },
                         label = {
-                            Text("Repository URL")
+                            Text(
+                                "Repository URL"
+                            )
                         },
                         placeholder = {
-                            Text("https://.../main")
+                            Text(
+                                "https://.../manifest.json"
+                            )
                         },
                         enabled = !busy,
                         singleLine = true,
@@ -1266,7 +1433,10 @@ private fun PluginsScreen(
                     message?.let {
                         Text(
                             it,
-                            color = MaterialTheme.colorScheme.error,
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .error,
                             fontSize = 12.sp,
                         )
                     }
@@ -1280,23 +1450,32 @@ private fun PluginsScreen(
             },
             confirmButton = {
                 TextButton(
-                    enabled = repositoryUrl.isNotBlank() && !busy,
+                    enabled =
+                        repositoryUrl.isNotBlank() &&
+                        !busy,
                     onClick = {
                         scope.launch {
                             busy = true
                             message = null
 
                             runCatching {
-                                PluginRepositoryClient.fetch(
-                                    repositoryUrl
+                                PluginRepositoryClient
+                                    .fetch(
+                                        repositoryUrl
+                                    )
+                            }.onSuccess {
+                                repository ->
+
+                                store.upsert(
+                                    repository
                                 )
-                            }.onSuccess { repository ->
-                                store.upsert(repository)
-                                repositories = store.repositories()
+                                repositories =
+                                    store.repositories()
                                 repositoryUrl = ""
                                 showAddDialog = false
                             }.onFailure {
-                                message = it.message
+                                message =
+                                    it.message
                                     ?: "Unable to install repository."
                             }
 
@@ -1326,6 +1505,7 @@ private fun PluginsScreen(
 private fun PluginRepositoryCard(
     repository: PluginRepositoryDescriptor,
     store: PluginStore,
+    isDevelopmentDefault: Boolean,
     refreshing: Boolean,
     onRefresh: () -> Unit,
     onDelete: () -> Unit,
@@ -1336,43 +1516,109 @@ private fun PluginRepositoryCard(
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement =
+                Arrangement.spacedBy(12.dp),
         ) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment =
+                    Alignment.CenterVertically,
             ) {
                 Box(
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(
+                            RoundedCornerShape(
+                                12.dp
+                            )
+                        )
                         .background(
-                            MaterialTheme.colorScheme.surfaceVariant
+                            MaterialTheme
+                                .colorScheme
+                                .surfaceVariant
                         ),
-                    contentAlignment = Alignment.Center,
+                    contentAlignment =
+                        Alignment.Center,
                 ) {
                     Text(
                         "JS",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Black,
+                        color =
+                            MaterialTheme
+                                .colorScheme
+                                .primary,
+                        fontWeight =
+                            FontWeight.Black,
                     )
                 }
 
-                Spacer(Modifier.width(12.dp))
+                Spacer(
+                    Modifier.width(12.dp)
+                )
 
                 Column(
-                    modifier = Modifier.weight(1f),
+                    modifier =
+                        Modifier.weight(1f),
                 ) {
-                    Text(
-                        repository.name,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 18.sp,
-                    )
+                    Row(
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            repository.name,
+                            fontWeight =
+                                FontWeight.Black,
+                            fontSize = 18.sp,
+                        )
+
+                        if (
+                            isDevelopmentDefault
+                        ) {
+                            Spacer(
+                                Modifier.width(8.dp)
+                            )
+                            Surface(
+                                shape =
+                                    RoundedCornerShape(
+                                        50
+                                    ),
+                                color =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .primary
+                                        .copy(
+                                            alpha =
+                                                .14f
+                                        ),
+                            ) {
+                                Text(
+                                    "DEV DEFAULT",
+                                    modifier =
+                                        Modifier.padding(
+                                            horizontal =
+                                                7.dp,
+                                            vertical =
+                                                3.dp,
+                                        ),
+                                    color =
+                                        MaterialTheme
+                                            .colorScheme
+                                            .primary,
+                                    fontSize =
+                                        9.sp,
+                                    fontWeight =
+                                        FontWeight.Black,
+                                )
+                            }
+                        }
+                    }
+
                     Text(
                         "v${repository.version} • " +
                             "${repository.providers.size} providers",
-                        color = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = .55f
-                        ),
+                        color =
+                            MaterialTheme
+                                .colorScheme
+                                .onSurface
+                                .copy(alpha = .55f),
                         fontSize = 12.sp,
                     )
                 }
@@ -1383,7 +1629,8 @@ private fun PluginRepositoryCard(
                 ) {
                     Icon(
                         Icons.Default.Refresh,
-                        contentDescription = "Refresh",
+                        contentDescription =
+                            "Refresh",
                     )
                 }
 
@@ -1392,8 +1639,12 @@ private fun PluginRepositoryCard(
                 ) {
                     Icon(
                         Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.error,
+                        contentDescription =
+                            "Delete",
+                        tint =
+                            MaterialTheme
+                                .colorScheme
+                                .error,
                     )
                 }
             }
@@ -1407,63 +1658,99 @@ private fun PluginRepositoryCard(
             repository.description?.let {
                 Text(
                     it,
-                    color = MaterialTheme.colorScheme.onSurface.copy(
-                        alpha = .65f
-                    ),
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurface
+                            .copy(alpha = .65f),
                     fontSize = 12.sp,
                     maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
+                    overflow =
+                        TextOverflow.Ellipsis,
                 )
             }
 
             HorizontalDivider()
 
-            repository.providers.forEach { provider ->
-                val enabled = store.isProviderEnabled(
-                    repository,
-                    provider,
-                )
+            repository.providers.forEach {
+                provider ->
+
+                val enabled =
+                    store.isProviderEnabled(
+                        repository,
+                        provider,
+                    )
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    verticalAlignment =
+                        Alignment.CenterVertically,
                 ) {
                     Column(
-                        modifier = Modifier.weight(1f),
+                        modifier =
+                            Modifier.weight(1f),
                     ) {
                         Text(
                             provider.name,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight =
+                                FontWeight.Bold,
                         )
 
-                        val details = buildList {
-                            if (provider.supportedTypes.isNotEmpty()) {
-                                add(
-                                    provider.supportedTypes
-                                        .sorted()
-                                        .joinToString("/")
-                                )
-                            }
+                        val details =
+                            buildList {
+                                if (
+                                    provider
+                                        .supportedTypes
+                                        .isNotEmpty()
+                                ) {
+                                    add(
+                                        provider
+                                            .supportedTypes
+                                            .sorted()
+                                            .joinToString(
+                                                "/"
+                                            )
+                                    )
+                                }
 
-                            if (provider.formats.isNotEmpty()) {
-                                add(
-                                    provider.formats
-                                        .take(3)
-                                        .joinToString(", ")
-                                )
-                            }
+                                if (
+                                    provider
+                                        .formats
+                                        .isNotEmpty()
+                                ) {
+                                    add(
+                                        provider
+                                            .formats
+                                            .take(3)
+                                            .joinToString(
+                                                ", "
+                                            )
+                                    )
+                                }
 
-                            if (provider.limited) {
-                                add("limited")
-                            }
-                        }.joinToString(" • ")
+                                if (
+                                    provider.limited
+                                ) {
+                                    add("limited")
+                                }
+                            }.joinToString(
+                                " • "
+                            )
 
-                        if (details.isNotBlank()) {
+                        if (
+                            details.isNotBlank()
+                        ) {
                             Text(
                                 details,
-                                color = MaterialTheme.colorScheme.onSurface.copy(
-                                    alpha = .5f
-                                ),
+                                color =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .onSurface
+                                        .copy(
+                                            alpha =
+                                                .5f
+                                        ),
                                 fontSize = 11.sp,
                             )
                         }
@@ -1493,6 +1780,16 @@ private fun MediaDetailsScreen(
     onBack: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val pluginStore = remember {
+        PluginStore(context.applicationContext)
+    }
+    val pluginEngine = remember {
+        PluginSourceEngine(
+            context = context,
+            store = pluginStore,
+        )
+    }
 
     var item by remember(initialItem) { mutableStateOf(initialItem) }
     var loadingMeta by remember { mutableStateOf(true) }
@@ -1507,6 +1804,9 @@ private fun MediaDetailsScreen(
     }
     var sourcePickerSubtitles by remember {
         mutableStateOf<List<SubtitleTrack>>(emptyList())
+    }
+    var sourcePickerNotice by remember {
+        mutableStateOf<String?>(null)
     }
     var selectedPlaybackSource by remember {
         mutableStateOf<StreamSource?>(null)
@@ -1561,6 +1861,7 @@ private fun MediaDetailsScreen(
                 episode = selectedEpisode,
             ),
             streams = streams,
+            notice = sourcePickerNotice,
             onBack = { sourcePickerStreams = null },
             onPlay = { source ->
                 val videoId = selectedVideoId(item, selectedEpisode)
@@ -1700,30 +2001,115 @@ private fun MediaDetailsScreen(
                             loadingStreams = true
                             sourceStatus = null
 
-                            val streams = runCatching {
-                                engine.resolveStreams(
-                                    type = item.type,
-                                    videoId = targetVideoId,
+                            val addonStreams =
+                                runCatching {
+                                    engine.resolveStreams(
+                                        type = item.type,
+                                        videoId = targetVideoId,
+                                    )
+                                }.getOrElse {
+                                    sourceStatus =
+                                        it.message
+                                        ?: "Unable to discover addon streams."
+                                    emptyList()
+                                }
+
+                            val subtitles =
+                                runCatching {
+                                    engine.resolveSubtitles(
+                                        type = item.type,
+                                        videoId = targetVideoId,
+                                    )
+                                }.getOrDefault(
+                                    emptyList()
                                 )
-                            }.getOrElse {
-                                sourceStatus =
-                                    it.message ?: "Unable to discover streams."
-                                emptyList()
+
+                            var pluginStreams =
+                                emptyList<StreamSource>()
+
+                            sourcePickerNotice = null
+
+                            if (
+                                pluginStore.pluginsEnabled() &&
+                                pluginStore.repositories()
+                                    .isNotEmpty()
+                            ) {
+                                val tmdbId =
+                                    runCatching {
+                                        TmdbResolver.resolve(
+                                            media = item,
+                                            apiKey =
+                                                pluginStore.tmdbApiKey(),
+                                        )
+                                    }.getOrNull()
+
+                                if (tmdbId == null) {
+                                    sourcePickerNotice =
+                                        "Plugin providers skipped: VUEO could not resolve a TMDB ID. Add your TMDB API key in Content Manager > Plugins."
+                                } else {
+                                    val mediaType =
+                                        if (
+                                            item.type == "series"
+                                        ) {
+                                            "tv"
+                                        } else {
+                                            "movie"
+                                        }
+
+                                    val pluginResult =
+                                        runCatching {
+                                            pluginEngine.discover(
+                                                tmdbId = tmdbId,
+                                                mediaType =
+                                                    mediaType,
+                                                season =
+                                                    selectedEpisode
+                                                        ?.season,
+                                                episode =
+                                                    selectedEpisode
+                                                        ?.episode,
+                                            )
+                                        }.getOrNull()
+
+                                    if (
+                                        pluginResult != null
+                                    ) {
+                                        pluginStreams =
+                                            pluginResult.streams
+
+                                        sourcePickerNotice =
+                                            "Plugins: ${pluginResult.attemptedProviders} checked • ${pluginResult.successfulProviders} returned sources"
+                                    }
+                                }
                             }
 
-                            val subtitles = runCatching {
-                                engine.resolveSubtitles(
-                                    type = item.type,
-                                    videoId = targetVideoId,
+                            val streams =
+                                (
+                                    addonStreams +
+                                    pluginStreams
                                 )
-                            }.getOrDefault(emptyList())
+                                    .distinctBy {
+                                        listOf(
+                                            it.url,
+                                            it.infoHash,
+                                            it.providerId,
+                                            it.name,
+                                        )
+                                    }
+                                    .sortedWith(
+                                        SourceRanker
+                                            .comparator
+                                    )
 
                             if (streams.isEmpty()) {
                                 sourceStatus =
-                                    "No sources were returned by installed stream addons."
+                                    sourcePickerNotice
+                                    ?: "No sources were returned by installed addons or plugins."
                             } else {
-                                sourcePickerSubtitles = subtitles
-                                sourcePickerStreams = streams
+                                sourcePickerSubtitles =
+                                    subtitles
+                                sourcePickerStreams =
+                                    streams
                             }
 
                             loadingStreams = false
@@ -1884,6 +2270,7 @@ private fun EpisodeSelector(
 private fun SourcePickerScreen(
     mediaTitle: String,
     streams: List<StreamSource>,
+    notice: String?,
     onBack: () -> Unit,
     onPlay: (StreamSource) -> Unit,
 ) {
@@ -1901,6 +2288,28 @@ private fun SourcePickerScreen(
                 subtitle = mediaTitle,
                 onBack = onBack,
             )
+        }
+
+        if (!notice.isNullOrBlank()) {
+            item {
+                ElevatedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp),
+                ) {
+                    Text(
+                        notice,
+                        modifier =
+                            Modifier.padding(14.dp),
+                        color =
+                            MaterialTheme
+                                .colorScheme
+                                .onSurface
+                                .copy(alpha = .65f),
+                        fontSize = 12.sp,
+                    )
+                }
+            }
         }
 
         if (best != null) {
@@ -2084,8 +2493,33 @@ private fun PlayerScreen(
         PlaybackStore(context.applicationContext)
     }
 
-    val player = remember(source.url, mediaKey) {
-        ExoPlayer.Builder(context).build().apply {
+    val player = remember(
+        source.url,
+        source.headers,
+        mediaKey,
+    ) {
+        val httpFactory =
+            DefaultHttpDataSource.Factory()
+                .setUserAgent("VUEO/0.3.1")
+                .setAllowCrossProtocolRedirects(
+                    true
+                )
+                .setDefaultRequestProperties(
+                    source.headers
+                )
+
+        val mediaSourceFactory =
+            DefaultMediaSourceFactory(context)
+                .setDataSourceFactory(
+                    httpFactory
+                )
+
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(
+                mediaSourceFactory
+            )
+            .build()
+            .apply {
             val mediaItem = buildPlayerMediaItem(
                 sourceUrl = requireNotNull(source.url),
                 subtitles = subtitles,

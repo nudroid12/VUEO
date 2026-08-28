@@ -1,4 +1,4 @@
-# VUEO v0.3.0
+# VUEO v0.3.1
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -136,3 +136,38 @@ Not yet implemented:
 - Plugin stream results in Unified Source Engine
 
 Those are the next runtime milestone.
+
+
+## v0.3.1 Provider Runtime
+
+Development-default plugin repositories:
+
+- Yoru's Repo
+- All-in-One-Nuvio
+
+They are seeded once and remain removable.
+
+Runtime:
+
+- Nuvio-style `getStreams(tmdbId, mediaType, season, episode)`
+- Provider JS loaded from repository `filename`
+- WebView-based JavaScript sandbox
+- WebView network access blocked
+- Restricted native HTTPS `fetch` bridge
+- Local/private network requests blocked
+- Provider timeout
+- Up to 3 provider executions concurrently
+- Provider URL, quality and request headers mapped into VUEO `StreamSource`
+- Stremio and plugin sources merged in the same Source Picker
+- Provider headers passed into Media3 playback
+
+TMDB bridge:
+
+- Numeric or `tmdb:` media IDs are used directly
+- IMDb IDs can be mapped through TMDB `/find`
+- User supplies their own TMDB v3 API key in Content Manager > Plugins
+
+Compatibility note:
+
+This first runtime targets bundled Nuvio providers that export `module.exports.getStreams` and use `fetch`.
+Providers requiring unsupported Node modules or special runtime globals can fail individually without stopping the rest of source discovery.
