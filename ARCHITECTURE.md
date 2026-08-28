@@ -409,3 +409,29 @@ Library
 ```
 
 LibraryStore uses app-private SharedPreferences with compact JSON records. This milestone intentionally stays local-only.
+
+
+## v0.8.0 presentation layer
+
+```text
+                 VUEO visual system
+                       |
+        +--------------+--------------+
+        |              |              |
+   Background       Surfaces        Accent
+   #080B0F         layered dark     restrained
+        |              |              |
+        +--------------+--------------+
+                       |
+   +---------+---------+---------+---------+
+   |         |         |         |         |
+  Home     Search    Details   Library   Content
+   |         |         |         |       Manager
+   +---------+---------+---------+---------+
+                       |
+                 Source Picker
+                       |
+                    Player
+```
+
+The UI overhaul is deliberately presentation-only. Core discovery, provider, player and Library logic remain separate from the visual layer.

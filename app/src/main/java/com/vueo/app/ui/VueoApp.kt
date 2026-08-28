@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
@@ -49,6 +50,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -70,6 +72,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -255,7 +258,11 @@ fun VueoApp() {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            NavigationBar(containerColor = Color(0xFF0B1114)) {
+            NavigationBar(
+                containerColor =
+                    VueoPalette.Nav,
+                tonalElevation = 0.dp,
+            ) {
                 BottomTab(
                     tab = AppTab.HOME,
                     selected = selectedTab,
@@ -292,6 +299,9 @@ fun VueoApp() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(
+                    VueoPalette.Background
+                )
                 .padding(padding),
         ) {
             when (selectedTab) {
@@ -393,9 +403,47 @@ private fun RowScope.BottomTab(
 ) {
     NavigationBarItem(
         selected = selected == tab,
-        onClick = { onSelect(tab) },
-        icon = { Icon(icon, contentDescription = label) },
-        label = { Text(label) },
+        onClick = {
+            onSelect(tab)
+        },
+        icon = {
+            Icon(
+                icon,
+                contentDescription =
+                    label,
+            )
+        },
+        label = {
+            Text(
+                label,
+                fontSize = 11.sp,
+                fontWeight =
+                    if (
+                        selected == tab
+                    ) {
+                        FontWeight.Bold
+                    } else {
+                        FontWeight.Medium
+                    },
+            )
+        },
+        colors =
+            NavigationBarItemDefaults
+                .colors(
+                    selectedIconColor =
+                        VueoPalette.Neon,
+                    selectedTextColor =
+                        Color.White,
+                    indicatorColor =
+                        VueoPalette.Neon
+                            .copy(
+                                alpha = .12f
+                            ),
+                    unselectedIconColor =
+                        VueoPalette.Muted,
+                    unselectedTextColor =
+                        VueoPalette.Muted,
+                ),
     )
 }
 
@@ -448,7 +496,11 @@ private fun HomeScreen(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                VueoPalette.Background
+            ),
         contentPadding = PaddingValues(bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(22.dp),
     ) {
@@ -567,40 +619,92 @@ private fun VueoHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 18.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+            .padding(
+                horizontal = 20.dp,
+                vertical = 18.dp,
+            ),
+        verticalAlignment =
+            Alignment.CenterVertically,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier =
+                Modifier.weight(1f),
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
             Box(
                 modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(9.dp))
-                    .background(MaterialTheme.colorScheme.primary),
-                contentAlignment = Alignment.Center,
+                    .size(38.dp)
+                    .clip(
+                        RoundedCornerShape(
+                            12.dp
+                        )
+                    )
+                    .background(
+                        VueoPalette.Neon
+                    ),
+                contentAlignment =
+                    Alignment.Center,
             ) {
                 Icon(
-                    Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    tint = Color(0xFF081006),
+                    Icons.Default
+                        .PlayArrow,
+                    contentDescription =
+                        null,
+                    tint =
+                        VueoPalette
+                            .Background,
                 )
             }
-            Spacer(Modifier.width(12.dp))
-            Text(
-                "VUEO",
-                fontWeight = FontWeight.Black,
-                fontSize = 25.sp,
-                letterSpacing = 5.sp,
+
+            Spacer(
+                Modifier.width(12.dp)
             )
+
+            Column(
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        1.dp
+                    ),
+            ) {
+                Text(
+                    "VUEO",
+                    color =
+                        VueoPalette.Neon,
+                    fontWeight =
+                        FontWeight.Black,
+                    fontSize = 23.sp,
+                    letterSpacing = 4.sp,
+                )
+
+                Text(
+                    "Your media. Your sources.",
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 10.sp,
+                )
+            }
         }
 
-        IconButton(
-            onClick = onSearch,
+        Surface(
+            shape =
+                RoundedCornerShape(
+                    50
+                ),
+            color =
+                VueoPalette
+                    .SurfaceElevated,
         ) {
-            Icon(
-                Icons.Default.Search,
-                contentDescription = "Search",
-            )
+            IconButton(
+                onClick = onSearch,
+            ) {
+                Icon(
+                    Icons.Default.Search,
+                    contentDescription =
+                        "Search",
+                    tint = Color.White,
+                )
+            }
         }
     }
 }
@@ -628,7 +732,18 @@ private fun HomeFilterRow(
                     onSelect(filter)
                 },
                 label = {
-                    Text(filter.label)
+                    Text(
+                        filter.label,
+                        fontWeight =
+                            if (
+                                selected ==
+                                filter
+                            ) {
+                                FontWeight.Bold
+                            } else {
+                                FontWeight.Medium
+                            },
+                    )
                 },
             )
         }
@@ -641,34 +756,76 @@ private fun EmptyHomeCard(
     error: String?,
     onOpenContentManager: () -> Unit,
 ) {
-    ElevatedCard(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp),
+            .padding(
+                horizontal = 20.dp
+            ),
+        shape =
+            RoundedCornerShape(22.dp),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    VueoPalette
+                        .SurfaceElevated
+            ),
     ) {
         Column(
-            modifier = Modifier.padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier =
+                Modifier.padding(22.dp),
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    10.dp
+                ),
         ) {
             Text(
-                if (hasAddons) "No catalog loaded" else "Connect your first content source",
+                "CONTENT",
+                color =
+                    VueoPalette.Neon,
+                fontWeight =
+                    FontWeight.Black,
+                fontSize = 11.sp,
+                letterSpacing = 1.4.sp,
+            )
+
+            Text(
+                if (hasAddons) {
+                    "No catalog loaded"
+                } else {
+                    "Connect your first content source"
+                },
                 fontSize = 22.sp,
-                fontWeight = FontWeight.Black,
+                fontWeight =
+                    FontWeight.Black,
             )
 
             Text(
                 when {
-                    error != null -> "VUEO could not load a catalog right now. Open Content Manager to review your addon."
-                    hasAddons -> "The installed addon does not expose a catalog that can load without extra filters."
-                    else -> "Install a Stremio addon in Content Manager. Its available catalogs will appear here automatically."
+                    error != null ->
+                        "VUEO could not load a catalog right now. Open Content Manager to review your addon."
+
+                    hasAddons ->
+                        "The installed addon does not expose a catalog that can load without extra filters."
+
+                    else ->
+                        "Install a Stremio addon in Content Manager. Available catalogs will appear here automatically."
                 },
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f),
+                color =
+                    VueoPalette.Muted,
             )
 
-            Spacer(Modifier.height(4.dp))
+            Spacer(
+                Modifier.height(4.dp)
+            )
 
-            Button(onClick = onOpenContentManager) {
-                Text("Open Content Manager")
+            Button(
+                onClick =
+                    onOpenContentManager,
+            ) {
+                Text(
+                    "Open Content Manager"
+                )
             }
         }
     }
@@ -681,59 +838,177 @@ private fun HeroMediaCard(
 ) {
     Box(
         modifier = Modifier
-            .padding(horizontal = 20.dp)
+            .padding(
+                horizontal = 20.dp
+            )
             .fillMaxWidth()
-            .height(235.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .clickable(onClick = onClick),
+            .height(305.dp)
+            .clip(
+                RoundedCornerShape(
+                    26.dp
+                )
+            )
+            .clickable(
+                onClick = onClick
+            ),
     ) {
         NetworkImage(
-            url = item.background ?: item.poster,
-            contentDescription = item.name,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
-            fallbackText = item.name,
+            url =
+                item.background
+                    ?: item.poster,
+            contentDescription =
+                item.name,
+            modifier =
+                Modifier.fillMaxSize(),
+            contentScale =
+                ContentScale.Crop,
+            fallbackText =
+                item.name,
         )
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = .48f)),
+                .background(
+                    brush =
+                        Brush.verticalGradient(
+                            colors =
+                                listOf(
+                                    Color.Black
+                                        .copy(
+                                            alpha = .08f
+                                        ),
+                                    Color.Black
+                                        .copy(
+                                            alpha = .22f
+                                        ),
+                                    Color.Black
+                                        .copy(
+                                            alpha = .94f
+                                        ),
+                                ),
+                        )
+                ),
         )
+
+        Surface(
+            modifier = Modifier
+                .align(
+                    Alignment.TopStart
+                )
+                .padding(18.dp),
+            shape =
+                RoundedCornerShape(
+                    50
+                ),
+            color =
+                Color.Black.copy(
+                    alpha = .54f
+                ),
+        ) {
+            Text(
+                "FEATURED",
+                modifier =
+                    Modifier.padding(
+                        horizontal = 11.dp,
+                        vertical = 6.dp,
+                    ),
+                color =
+                    VueoPalette.Neon,
+                fontSize = 10.sp,
+                fontWeight =
+                    FontWeight.Black,
+                letterSpacing = 1.2.sp,
+            )
+        }
 
         Column(
             modifier = Modifier
-                .align(Alignment.BottomStart)
+                .align(
+                    Alignment.BottomStart
+                )
                 .padding(22.dp),
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    7.dp
+                ),
         ) {
             Text(
-                item.name.uppercase(),
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Black,
+                item.name,
+                color = Color.White,
+                fontSize = 30.sp,
+                fontWeight =
+                    FontWeight.Black,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                overflow =
+                    TextOverflow.Ellipsis,
             )
 
-            val metaLine = listOfNotNull(
-                item.releaseInfo,
-                item.genres.take(2).takeIf { it.isNotEmpty() }?.joinToString(" • "),
-            ).joinToString("  •  ")
+            val metaLine =
+                listOfNotNull(
+                    item.type
+                        .replaceFirstChar {
+                            it.uppercase()
+                        },
+                    item.releaseInfo,
+                    item.genres
+                        .take(2)
+                        .takeIf {
+                            it.isNotEmpty()
+                        }
+                        ?.joinToString(" • "),
+                ).joinToString("  •  ")
 
-            if (metaLine.isNotBlank()) {
+            if (
+                metaLine.isNotBlank()
+            ) {
                 Text(
                     metaLine,
-                    color = Color.White.copy(alpha = .78f),
+                    color =
+                        Color.White.copy(
+                            alpha = .72f
+                        ),
+                    fontSize = 12.sp,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    overflow =
+                        TextOverflow.Ellipsis,
                 )
             }
 
-            Spacer(Modifier.height(14.dp))
+            item.description
+                ?.takeIf {
+                    it.isNotBlank()
+                }
+                ?.let {
+                    Text(
+                        it,
+                        color =
+                            Color.White.copy(
+                                alpha = .68f
+                            ),
+                        fontSize = 12.sp,
+                        maxLines = 2,
+                        overflow =
+                            TextOverflow.Ellipsis,
+                    )
+                }
 
-            Button(onClick = onClick) {
-                Icon(Icons.Default.PlayArrow, contentDescription = null)
-                Spacer(Modifier.width(7.dp))
-                Text("View")
+            Spacer(
+                Modifier.height(3.dp)
+            )
+
+            Button(
+                onClick = onClick,
+            ) {
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription =
+                        null,
+                )
+                Spacer(
+                    Modifier.width(7.dp)
+                )
+                Text("View Details")
             }
         }
     }
@@ -745,46 +1020,98 @@ private fun CatalogSection(
     onMediaClick: (MediaItem) -> Unit,
 ) {
     Column(
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                11.dp
+            ),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom,
+                .padding(
+                    horizontal = 20.dp
+                ),
+            verticalAlignment =
+                Alignment.CenterVertically,
         ) {
-            Column {
+            Column(
+                modifier =
+                    Modifier.weight(1f),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        2.dp
+                    ),
+            ) {
                 Text(
                     row.title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
+                    color = Color.White,
+                    fontWeight =
+                        FontWeight.Bold,
+                    fontSize = 19.sp,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
                 )
+
                 Text(
                     row.providerName,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f),
-                    fontSize = 12.sp,
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
                 )
             }
 
-            Text(
-                "${row.items.size} titles",
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 12.sp,
-            )
+            Surface(
+                shape =
+                    RoundedCornerShape(
+                        50
+                    ),
+                color =
+                    VueoPalette
+                        .SurfaceElevated,
+            ) {
+                Text(
+                    "${row.items.size}",
+                    modifier =
+                        Modifier.padding(
+                            horizontal = 10.dp,
+                            vertical = 5.dp,
+                        ),
+                    color =
+                        VueoPalette.Neon,
+                    fontSize = 10.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                )
+            }
         }
 
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding =
+                PaddingValues(
+                    horizontal = 20.dp
+                ),
+            horizontalArrangement =
+                Arrangement.spacedBy(
+                    12.dp
+                ),
         ) {
             items(
                 items = row.items,
-                key = { "${row.id}:${it.id}" },
+                key = {
+                    "${row.id}:${it.id}"
+                },
             ) { item ->
                 MediaPoster(
                     item = item,
-                    onClick = { onMediaClick(item) },
+                    onClick = {
+                        onMediaClick(
+                            item
+                        )
+                    },
                 )
             }
         }
@@ -796,42 +1123,76 @@ private fun MediaPoster(
     item: MediaItem,
     onClick: () -> Unit,
 ) {
-    Column(
+    Surface(
         modifier = Modifier
-            .width(126.dp)
-            .clickable(onClick = onClick),
+            .width(138.dp)
+            .clickable(
+                onClick = onClick
+            ),
+        shape =
+            RoundedCornerShape(
+                17.dp
+            ),
+        color =
+            VueoPalette.Surface,
     ) {
-        NetworkImage(
-            url = item.poster,
-            contentDescription = item.name,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(184.dp)
-                .clip(RoundedCornerShape(14.dp)),
-            fallbackText = item.name,
-        )
-
-        Spacer(Modifier.height(7.dp))
-
-        Text(
-            item.name,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            fontWeight = FontWeight.Medium,
-            fontSize = 13.sp,
-        )
-
-        item.releaseInfo?.let {
-            Text(
-                it,
-                maxLines = 1,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f),
-                fontSize = 11.sp,
+        Column {
+            NetworkImage(
+                url = item.poster,
+                contentDescription =
+                    item.name,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp),
+                contentScale =
+                    ContentScale.Crop,
+                fallbackText =
+                    item.name,
             )
+
+            Column(
+                modifier =
+                    Modifier.padding(
+                        10.dp
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        3.dp
+                    ),
+            ) {
+                Text(
+                    item.name,
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                    fontWeight =
+                        FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                )
+
+                Text(
+                    listOfNotNull(
+                        item.releaseInfo,
+                        item.type
+                            .takeIf {
+                                it.isNotBlank()
+                            }
+                            ?.replaceFirstChar {
+                                it.uppercase()
+                            },
+                    ).joinToString(" • "),
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 10.sp,
+                )
+            }
         }
     }
 }
-
 
 @Composable
 private fun SearchScreen(
@@ -941,7 +1302,11 @@ private fun SearchScreen(
 
     LazyColumn(
         modifier =
-            Modifier.fillMaxSize(),
+            Modifier
+                .fillMaxSize()
+                .background(
+                    VueoPalette.Background
+                ),
         contentPadding =
             PaddingValues(
                 bottom = 28.dp
@@ -960,10 +1325,28 @@ private fun SearchScreen(
                     Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    "Search",
-                    fontSize = 30.sp,
+                    "DISCOVER",
+                    color =
+                        VueoPalette.Neon,
+                    fontSize = 11.sp,
                     fontWeight =
                         FontWeight.Black,
+                    letterSpacing = 1.4.sp,
+                )
+
+                Text(
+                    "Find something to watch",
+                    color = Color.White,
+                    fontSize = 29.sp,
+                    fontWeight =
+                        FontWeight.Black,
+                )
+
+                Text(
+                    "Search across the catalogs connected to VUEO.",
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 12.sp,
                 )
 
                 OutlinedTextField(
@@ -986,6 +1369,10 @@ private fun SearchScreen(
                         )
                     },
                     singleLine = true,
+                    shape =
+                        RoundedCornerShape(
+                            18.dp
+                        ),
                 )
 
                 if (searching) {
@@ -1029,7 +1416,7 @@ private fun SearchResultCard(
     item: MediaItem,
     onClick: () -> Unit,
 ) {
-    ElevatedCard(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(
@@ -1038,10 +1425,20 @@ private fun SearchResultCard(
             .clickable(
                 onClick = onClick
             ),
+        shape =
+            RoundedCornerShape(
+                18.dp
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    VueoPalette
+                        .SurfaceElevated
+            ),
     ) {
         Row(
             modifier =
-                Modifier.padding(12.dp),
+                Modifier.padding(11.dp),
             verticalAlignment =
                 Alignment.CenterVertically,
         ) {
@@ -1050,13 +1447,15 @@ private fun SearchResultCard(
                 contentDescription =
                     item.name,
                 modifier = Modifier
-                    .width(76.dp)
-                    .height(112.dp)
+                    .width(78.dp)
+                    .height(116.dp)
                     .clip(
                         RoundedCornerShape(
-                            10.dp
+                            12.dp
                         )
                     ),
+                contentScale =
+                    ContentScale.Crop,
                 fallbackText =
                     item.name,
             )
@@ -1069,11 +1468,14 @@ private fun SearchResultCard(
                 modifier =
                     Modifier.weight(1f),
                 verticalArrangement =
-                    Arrangement.spacedBy(5.dp),
+                    Arrangement.spacedBy(
+                        6.dp
+                    ),
             ) {
                 Text(
                     item.name,
-                    fontSize = 18.sp,
+                    color = Color.White,
+                    fontSize = 17.sp,
                     fontWeight =
                         FontWeight.Bold,
                     maxLines = 2,
@@ -1090,10 +1492,10 @@ private fun SearchResultCard(
                         item.releaseInfo,
                     ).joinToString(" • "),
                     color =
-                        MaterialTheme
-                            .colorScheme
-                            .primary,
-                    fontSize = 12.sp,
+                        VueoPalette.Neon,
+                    fontSize = 11.sp,
+                    fontWeight =
+                        FontWeight.Bold,
                 )
 
                 if (
@@ -1104,11 +1506,11 @@ private fun SearchResultCard(
                             .take(3)
                             .joinToString(" • "),
                         color =
-                            MaterialTheme
-                                .colorScheme
-                                .onSurface
-                                .copy(alpha = .58f),
-                        fontSize = 11.sp,
+                            VueoPalette.Muted,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow =
+                            TextOverflow.Ellipsis,
                     )
                 }
 
@@ -1123,14 +1525,20 @@ private fun SearchResultCard(
                             overflow =
                                 TextOverflow.Ellipsis,
                             color =
-                                MaterialTheme
-                                    .colorScheme
-                                    .onSurface
-                                    .copy(alpha = .62f),
-                            fontSize = 12.sp,
+                                Color.White.copy(
+                                    alpha = .58f
+                                ),
+                            fontSize = 11.sp,
                         )
                     }
             }
+
+            Text(
+                "›",
+                color =
+                    VueoPalette.Muted,
+                fontSize = 28.sp,
+            )
         }
     }
 }
@@ -1181,7 +1589,11 @@ private fun LibraryScreen(
 
     LazyColumn(
         modifier =
-            Modifier.fillMaxSize(),
+            Modifier
+                .fillMaxSize()
+                .background(
+                    VueoPalette.Background
+                ),
         contentPadding =
             PaddingValues(
                 bottom = 30.dp
@@ -1204,21 +1616,54 @@ private fun LibraryScreen(
                     ),
             ) {
                 Text(
+                    "YOUR SPACE",
+                    color =
+                        VueoPalette.Neon,
+                    fontSize = 11.sp,
+                    fontWeight =
+                        FontWeight.Black,
+                    letterSpacing = 1.4.sp,
+                )
+
+                Text(
                     "Library",
+                    color = Color.White,
                     fontSize = 30.sp,
                     fontWeight =
                         FontWeight.Black,
                 )
 
                 Text(
-                    "Your local VUEO watch activity.",
+                    "Continue where you left off, keep a watchlist, and revisit your history.",
                     color =
-                        MaterialTheme
-                            .colorScheme
-                            .onSurface
-                            .copy(alpha = .58f),
+                        VueoPalette.Muted,
                     fontSize = 12.sp,
                 )
+
+                Row(
+                    horizontalArrangement =
+                        Arrangement.spacedBy(
+                            8.dp
+                        ),
+                ) {
+                    LibraryMetricPill(
+                        label = "Continue",
+                        count =
+                            continueWatching.size,
+                    )
+
+                    LibraryMetricPill(
+                        label = "My List",
+                        count =
+                            watchlist.size,
+                    )
+
+                    LibraryMetricPill(
+                        label = "History",
+                        count =
+                            history.size,
+                    )
+                }
             }
         }
 
@@ -1449,14 +1894,29 @@ private fun LibrarySectionHeader(
         verticalAlignment =
             Alignment.CenterVertically,
     ) {
-        Text(
-            "$title • $count",
+        Column(
             modifier =
                 Modifier.weight(1f),
-            fontSize = 20.sp,
-            fontWeight =
-                FontWeight.Black,
-        )
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    2.dp
+                ),
+        ) {
+            Text(
+                title,
+                color = Color.White,
+                fontSize = 19.sp,
+                fontWeight =
+                    FontWeight.Black,
+            )
+
+            Text(
+                "$count items",
+                color =
+                    VueoPalette.Muted,
+                fontSize = 10.sp,
+            )
+        }
 
         if (
             actionLabel != null &&
@@ -1465,9 +1925,51 @@ private fun LibrarySectionHeader(
             TextButton(
                 onClick = onAction,
             ) {
-                Text(actionLabel)
+                Text(
+                    actionLabel,
+                    color =
+                        VueoPalette.Neon,
+                    fontWeight =
+                        FontWeight.Bold,
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun LibraryMetricPill(
+    label: String,
+    count: Int,
+) {
+    Surface(
+        shape =
+            RoundedCornerShape(
+                50
+            ),
+        color =
+            VueoPalette
+                .SurfaceElevated,
+    ) {
+        Text(
+            "$count $label",
+            modifier =
+                Modifier.padding(
+                    horizontal = 10.dp,
+                    vertical = 6.dp,
+                ),
+            color =
+                if (
+                    count > 0
+                ) {
+                    Color.White
+                } else {
+                    VueoPalette.Muted
+                },
+            fontSize = 10.sp,
+            fontWeight =
+                FontWeight.SemiBold,
+        )
     }
 }
 
@@ -1477,11 +1979,21 @@ private fun ContinueWatchingCard(
     onClick: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    ElevatedCard(
+    Card(
         modifier = Modifier
             .width(250.dp)
             .clickable(
                 onClick = onClick
+            ),
+        shape =
+            RoundedCornerShape(
+                18.dp
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    VueoPalette
+                        .SurfaceElevated
             ),
     ) {
         Column {
@@ -1660,7 +2172,7 @@ private fun HistoryRow(
     onClick: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    ElevatedCard(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(
@@ -1668,6 +2180,16 @@ private fun HistoryRow(
             )
             .clickable(
                 onClick = onClick
+            ),
+        shape =
+            RoundedCornerShape(
+                16.dp
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    VueoPalette
+                        .SurfaceElevated
             ),
     ) {
         Row(
@@ -1811,33 +2333,138 @@ private fun ContentManagerScreen(
     onAddons: () -> Unit,
     onPlugins: () -> Unit,
 ) {
-    val addons = engine.stremioAddons()
+    val context =
+        LocalContext.current
+
+    val pluginStore =
+        remember {
+            PluginStore(
+                context.applicationContext
+            )
+        }
+
+    val addons =
+        engine.stremioAddons()
+
+    val repositoryCount =
+        pluginStore
+            .repositories()
+            .size
+
+    val providerCount =
+        pluginStore
+            .totalProviderCount()
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                VueoPalette.Background
+            ),
+        contentPadding =
+            PaddingValues(
+                horizontal = 20.dp,
+                vertical = 20.dp,
+            ),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                14.dp
+            ),
     ) {
         item {
-            Column {
+            Column(
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        5.dp
+                    ),
+            ) {
+                Text(
+                    "CONTROL CENTER",
+                    color =
+                        VueoPalette.Neon,
+                    fontSize = 11.sp,
+                    fontWeight =
+                        FontWeight.Black,
+                    letterSpacing = 1.4.sp,
+                )
+
                 Text(
                     "Content Manager",
+                    color = Color.White,
                     fontSize = 30.sp,
-                    fontWeight = FontWeight.Black,
+                    fontWeight =
+                        FontWeight.Black,
                 )
+
                 Text(
-                    "Manage where VUEO gets content and stream sources.",
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f),
+                    "Manage the catalogs, stream addons, and JavaScript providers that power VUEO.",
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 12.sp,
                 )
+            }
+        }
+
+        item {
+            Card(
+                shape =
+                    RoundedCornerShape(
+                        20.dp
+                    ),
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor =
+                            VueoPalette
+                                .SurfaceElevated
+                    ),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement =
+                        Arrangement.spacedBy(
+                            10.dp
+                        ),
+                ) {
+                    ContentMetric(
+                        modifier =
+                            Modifier.weight(1f),
+                        value =
+                            addons.size
+                                .toString(),
+                        label = "Addons",
+                    )
+
+                    ContentMetric(
+                        modifier =
+                            Modifier.weight(1f),
+                        value =
+                            repositoryCount
+                                .toString(),
+                        label = "Repos",
+                    )
+
+                    ContentMetric(
+                        modifier =
+                            Modifier.weight(1f),
+                        value =
+                            providerCount
+                                .toString(),
+                        label = "Providers",
+                    )
+                }
             }
         }
 
         item {
             Text(
                 "SOURCES",
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f),
-                fontSize = 12.sp,
+                fontWeight =
+                    FontWeight.Black,
+                color =
+                    VueoPalette.Muted,
+                fontSize = 10.sp,
                 letterSpacing = 1.4.sp,
             )
         }
@@ -1845,28 +2472,62 @@ private fun ContentManagerScreen(
         item {
             ContentManagerCard(
                 title = "Addons",
-                subtitle = "Install and manage Stremio addons.",
-                status = "${addons.size} installed",
-                icon = Icons.Default.Extension,
+                subtitle =
+                    "Stremio-compatible catalogs, metadata, streams, and subtitles.",
+                status =
+                    "${addons.size} installed",
+                icon =
+                    Icons.Default.Extension,
                 onClick = onAddons,
             )
         }
 
         item {
-            val pluginStore = PluginStore(
-                LocalContext.current.applicationContext
-            )
-            val repositoryCount = pluginStore.repositories().size
-            val providerCount = pluginStore.totalProviderCount()
-
             ContentManagerCard(
                 title = "Plugins",
-                subtitle = "JavaScript provider repositories for stream discovery.",
-                status = "$repositoryCount repos • $providerCount providers",
-                icon = Icons.Default.SettingsInputComponent,
+                subtitle =
+                    "QuickJS provider repositories used by the Smart Source Engine.",
+                status =
+                    "$repositoryCount repos • $providerCount providers",
+                icon =
+                    Icons.Default
+                        .SettingsInputComponent,
                 onClick = onPlugins,
             )
         }
+    }
+}
+
+@Composable
+private fun ContentMetric(
+    modifier: Modifier,
+    value: String,
+    label: String,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment =
+            Alignment.CenterHorizontally,
+        verticalArrangement =
+            Arrangement.spacedBy(
+                2.dp
+            ),
+    ) {
+        Text(
+            value,
+            color =
+                VueoPalette.Neon,
+            fontSize = 22.sp,
+            fontWeight =
+                FontWeight.Black,
+        )
+
+        Text(
+            label,
+            color =
+                VueoPalette.Muted,
+            fontSize = 10.sp,
+        )
     }
 }
 
@@ -1878,50 +2539,98 @@ private fun ContentManagerCard(
     icon: ImageVector,
     onClick: () -> Unit,
 ) {
-    ElevatedCard(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(
+                onClick = onClick
+            ),
+        shape =
+            RoundedCornerShape(
+                20.dp
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    VueoPalette
+                        .SurfaceElevated
+            ),
     ) {
         Row(
-            modifier = Modifier.padding(18.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            modifier =
+                Modifier.padding(
+                    17.dp
+                ),
+            verticalAlignment =
+                Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
+                    .clip(
+                        RoundedCornerShape(
+                            14.dp
+                        )
+                    )
+                    .background(
+                        VueoPalette
+                            .SurfaceStrong
+                    ),
+                contentAlignment =
+                    Alignment.Center,
             ) {
                 Icon(
                     icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    contentDescription =
+                        null,
+                    tint =
+                        VueoPalette.Neon,
                 )
             }
 
-            Spacer(Modifier.width(15.dp))
+            Spacer(
+                Modifier.width(14.dp)
+            )
 
-            Column(Modifier.weight(1f)) {
+            Column(
+                modifier =
+                    Modifier.weight(1f),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        3.dp
+                    ),
+            ) {
                 Text(
                     title,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight =
+                        FontWeight.Bold,
                 )
+
                 Text(
                     subtitle,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .64f),
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 11.sp,
                 )
-                Spacer(Modifier.height(4.dp))
+
                 Text(
                     status,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 12.sp,
+                    color =
+                        VueoPalette.Neon,
+                    fontSize = 10.sp,
+                    fontWeight =
+                        FontWeight.Bold,
                 )
             }
 
-            Text("›", fontSize = 30.sp)
+            Text(
+                "›",
+                color =
+                    VueoPalette.Muted,
+                fontSize = 28.sp,
+            )
         }
     }
 }
@@ -3453,58 +4162,172 @@ private fun MediaDetailsScreen(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                VueoPalette.Background
+            ),
+        contentPadding =
+            PaddingValues(
+                bottom = 32.dp
+            ),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                18.dp
+            ),
     ) {
         item {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(290.dp),
+                    .height(330.dp),
             ) {
                 NetworkImage(
-                    url = item.background ?: item.poster,
-                    contentDescription = item.name,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    fallbackText = item.name,
+                    url =
+                        item.background
+                            ?: item.poster,
+                    contentDescription =
+                        item.name,
+                    modifier =
+                        Modifier.fillMaxSize(),
+                    contentScale =
+                        ContentScale.Crop,
+                    fallbackText =
+                        item.name,
                 )
 
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = .5f)),
+                        .background(
+                            brush =
+                                Brush.verticalGradient(
+                                    colors =
+                                        listOf(
+                                            Color.Black
+                                                .copy(
+                                                    alpha = .12f
+                                                ),
+                                            Color.Black
+                                                .copy(
+                                                    alpha = .30f
+                                                ),
+                                            VueoPalette
+                                                .Background
+                                                .copy(
+                                                    alpha = .98f
+                                                ),
+                                        ),
+                                )
+                        ),
                 )
 
-                IconButton(
-                    onClick = onBack,
+                Surface(
                     modifier = Modifier
                         .padding(16.dp)
-                        .align(Alignment.TopStart),
+                        .align(
+                            Alignment.TopStart
+                        ),
+                    shape =
+                        RoundedCornerShape(
+                            50
+                        ),
+                    color =
+                        Color.Black.copy(
+                            alpha = .52f
+                        ),
                 ) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    IconButton(
+                        onClick = onBack,
+                    ) {
+                        Icon(
+                            Icons.Default
+                                .ArrowBack,
+                            contentDescription =
+                                "Back",
+                            tint = Color.White,
+                        )
+                    }
                 }
 
                 Column(
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(22.dp),
+                        .align(
+                            Alignment.BottomStart
+                        )
+                        .padding(
+                            horizontal = 20.dp,
+                            vertical = 18.dp,
+                        ),
+                    verticalArrangement =
+                        Arrangement.spacedBy(
+                            7.dp
+                        ),
                 ) {
+                    Surface(
+                        shape =
+                            RoundedCornerShape(
+                                50
+                            ),
+                        color =
+                            VueoPalette.Neon
+                                .copy(
+                                    alpha = .15f
+                                ),
+                    ) {
+                        Text(
+                            item.type
+                                .replaceFirstChar {
+                                    it.uppercase()
+                                },
+                            modifier =
+                                Modifier.padding(
+                                    horizontal =
+                                        10.dp,
+                                    vertical =
+                                        5.dp,
+                                ),
+                            color =
+                                VueoPalette.Neon,
+                            fontSize = 10.sp,
+                            fontWeight =
+                                FontWeight.Black,
+                        )
+                    }
+
                     Text(
                         item.name,
-                        fontSize = 30.sp,
-                        fontWeight = FontWeight.Black,
+                        color = Color.White,
+                        fontSize = 34.sp,
+                        fontWeight =
+                            FontWeight.Black,
+                        maxLines = 2,
+                        overflow =
+                            TextOverflow.Ellipsis,
                     )
 
                     Text(
                         listOfNotNull(
                             item.releaseInfo,
-                            item.genres.take(3)
-                                .takeIf { it.isNotEmpty() }
-                                ?.joinToString(" • "),
-                        ).joinToString("  •  "),
-                        color = Color.White.copy(alpha = .78f),
+                            item.genres
+                                .take(3)
+                                .takeIf {
+                                    it.isNotEmpty()
+                                }
+                                ?.joinToString(
+                                    " • "
+                                ),
+                        ).joinToString(
+                            "  •  "
+                        ),
+                        color =
+                            Color.White.copy(
+                                alpha = .68f
+                            ),
+                        fontSize = 12.sp,
+                        maxLines = 2,
+                        overflow =
+                            TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -3541,9 +4364,8 @@ private fun MediaDetailsScreen(
                                     50
                                 ),
                             color =
-                                MaterialTheme
-                                    .colorScheme
-                                    .surfaceVariant,
+                                VueoPalette
+                                    .SurfaceStrong,
                         ) {
                             Text(
                                 genre,
@@ -3566,29 +4388,54 @@ private fun MediaDetailsScreen(
             description ->
 
             item {
-                Column(
-                    modifier =
-                        Modifier.padding(
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
                             horizontal = 20.dp
                         ),
-                    verticalArrangement =
-                        Arrangement.spacedBy(6.dp),
+                    shape =
+                        RoundedCornerShape(
+                            20.dp
+                        ),
+                    colors =
+                        CardDefaults.cardColors(
+                            containerColor =
+                                VueoPalette
+                                    .Surface
+                        ),
                 ) {
-                    Text(
-                        "Overview",
-                        fontSize = 20.sp,
-                        fontWeight =
-                            FontWeight.Black,
-                    )
+                    Column(
+                        modifier =
+                            Modifier.padding(
+                                17.dp
+                            ),
+                        verticalArrangement =
+                            Arrangement.spacedBy(
+                                7.dp
+                            ),
+                    ) {
+                        Text(
+                            "OVERVIEW",
+                            color =
+                                VueoPalette.Neon,
+                            fontSize = 10.sp,
+                            fontWeight =
+                                FontWeight.Black,
+                            letterSpacing =
+                                1.2.sp,
+                        )
 
-                    Text(
-                        description,
-                        color =
-                            MaterialTheme
-                                .colorScheme
-                                .onSurface
-                                .copy(alpha = .76f),
-                    )
+                        Text(
+                            description,
+                            color =
+                                Color.White
+                                    .copy(
+                                        alpha = .72f
+                                    ),
+                            fontSize = 13.sp,
+                        )
+                    }
                 }
             }
         }
@@ -4059,6 +4906,7 @@ onClick = {
                 ) {
                     Text(
                         "More Like This",
+                        color = Color.White,
                         modifier =
                             Modifier.padding(
                                 horizontal = 20.dp
@@ -4258,7 +5106,11 @@ private fun SourcePickerScreen(
         }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                VueoPalette.Background
+            ),
         contentPadding = PaddingValues(bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -4271,10 +5123,22 @@ private fun SourcePickerScreen(
         }
 
         item {
-            ElevatedCard(
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
+                    .padding(
+                        horizontal = 20.dp
+                    ),
+                shape =
+                    RoundedCornerShape(
+                        18.dp
+                    ),
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor =
+                            VueoPalette
+                                .SurfaceElevated
+                    ),
             ) {
                 Column(
                     modifier = Modifier.padding(14.dp),
@@ -4352,10 +5216,22 @@ private fun SourcePickerScreen(
 
         if (!notice.isNullOrBlank()) {
             item {
-                ElevatedCard(
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
+                        .padding(
+                            horizontal = 20.dp
+                        ),
+                    shape =
+                        RoundedCornerShape(
+                            16.dp
+                        ),
+                    colors =
+                        CardDefaults.cardColors(
+                            containerColor =
+                                VueoPalette
+                                    .Surface
+                        ),
                 ) {
                     Text(
                         notice,
@@ -4374,18 +5250,30 @@ private fun SourcePickerScreen(
 
         if (best != null) {
             item {
-                ElevatedCard(
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
+                        .padding(
+                            horizontal = 20.dp
+                        ),
+                    shape =
+                        RoundedCornerShape(
+                            22.dp
+                        ),
+                    colors =
+                        CardDefaults.cardColors(
+                            containerColor =
+                                VueoPalette
+                                    .SurfaceElevated
+                        ),
                 ) {
                     Column(
                         modifier = Modifier.padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(9.dp),
                     ) {
                         Text(
-                            "BEST PLAYABLE SOURCE",
-                            color = MaterialTheme.colorScheme.primary,
+                            "VUEO RECOMMENDS",
+                            color = VueoPalette.Neon,
                             fontWeight = FontWeight.Black,
                             fontSize = 12.sp,
                             letterSpacing = 1.2.sp,
@@ -4556,62 +5444,148 @@ private fun StreamSourceCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
+            .padding(
+                horizontal = 20.dp
+            )
             .then(
                 if (onClick != null) {
-                    Modifier.clickable(onClick = onClick)
+                    Modifier.clickable(
+                        onClick = onClick
+                    )
                 } else {
                     Modifier
                 }
             ),
+        shape =
+            RoundedCornerShape(
+                16.dp
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    VueoPalette.Surface
+            ),
     ) {
         Column(
-            modifier = Modifier.padding(15.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp),
+            modifier =
+                Modifier.padding(
+                    14.dp
+                ),
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    6.dp
+                ),
         ) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment =
+                    Alignment.CenterVertically,
             ) {
+                Surface(
+                    shape =
+                        RoundedCornerShape(
+                            50
+                        ),
+                    color =
+                        VueoPalette.Neon
+                            .copy(
+                                alpha = .12f
+                            ),
+                ) {
+                    Text(
+                        source.quality
+                            ?: "Source",
+                        modifier =
+                            Modifier.padding(
+                                horizontal =
+                                    9.dp,
+                                vertical =
+                                    5.dp,
+                            ),
+                        color =
+                            VueoPalette.Neon,
+                        fontWeight =
+                            FontWeight.Black,
+                        fontSize = 11.sp,
+                    )
+                }
+
+                Spacer(
+                    Modifier.width(8.dp)
+                )
+
                 Text(
-                    source.quality ?: "Source",
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Black,
-                    modifier = Modifier.weight(1f),
+                    source.providerName,
+                    modifier =
+                        Modifier.weight(1f),
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
                 )
 
                 Text(
                     when {
-                        source.isDirectPlayable -> "PLAYABLE"
-                        source.infoHash != null -> "TORRENT"
-                        else -> "UNSUPPORTED"
+                        source
+                            .isDirectPlayable ->
+                            "READY"
+
+                        source.infoHash !=
+                            null ->
+                            "TORRENT"
+
+                        else ->
+                            "OTHER"
                     },
-                    color = if (source.isDirectPlayable) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = .48f)
-                    },
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
+                    color =
+                        if (
+                            source
+                                .isDirectPlayable
+                        ) {
+                            VueoPalette.Success
+                        } else {
+                            VueoPalette.Muted
+                        },
+                    fontSize = 9.sp,
+                    fontWeight =
+                        FontWeight.Black,
+                    letterSpacing = .8.sp,
                 )
             }
 
             Text(
                 source.name,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                fontSize = 13.sp,
+                color =
+                    Color.White.copy(
+                        alpha = .86f
+                    ),
+                maxLines = 2,
+                overflow =
+                    TextOverflow.Ellipsis,
+                fontSize = 12.sp,
             )
 
-            Text(
+            val tags =
                 listOfNotNull(
                     source.codec,
                     source.hdr,
                     source.audio,
-                    source.providerName,
-                ).joinToString(" • "),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f),
-                fontSize = 11.sp,
-            )
+                ).joinToString(" • ")
+
+            if (
+                tags.isNotBlank()
+            ) {
+                Text(
+                    tags,
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -5922,25 +6896,65 @@ private fun ScreenHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(20.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(
+                horizontal = 16.dp,
+                vertical = 16.dp,
+            ),
+        verticalAlignment =
+            Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+        Surface(
+            shape =
+                RoundedCornerShape(
+                    50
+                ),
+            color =
+                VueoPalette
+                    .SurfaceElevated,
+        ) {
+            IconButton(
+                onClick = onBack,
+            ) {
+                Icon(
+                    Icons.Default.ArrowBack,
+                    contentDescription =
+                        "Back",
+                    tint = Color.White,
+                )
+            }
         }
 
-        Spacer(Modifier.width(5.dp))
+        Spacer(
+            Modifier.width(12.dp)
+        )
 
-        Column(Modifier.weight(1f)) {
+        Column(
+            modifier =
+                Modifier.weight(1f),
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    2.dp
+                ),
+        ) {
             Text(
                 title,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Black,
+                color = Color.White,
+                fontSize = 25.sp,
+                fontWeight =
+                    FontWeight.Black,
+                maxLines = 1,
+                overflow =
+                    TextOverflow.Ellipsis,
             )
+
             Text(
                 subtitle,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f),
-                fontSize = 13.sp,
+                color =
+                    VueoPalette.Muted,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow =
+                    TextOverflow.Ellipsis,
             )
         }
 

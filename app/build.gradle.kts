@@ -11,8 +11,8 @@ android {
         applicationId = "com.vueo.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 15
-        versionName = "0.7.0"
+        versionCode = 16
+        versionName = "0.8.0"
     }
 
     buildFeatures {

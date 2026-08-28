@@ -1,4 +1,4 @@
-# VUEO v0.7.0
+# VUEO v0.8.0
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -511,3 +511,72 @@ Library progress is updated from the Media3 player when:
 PlaybackStore remains responsible for the actual resume timestamp. LibraryStore owns discovery-facing media history and watchlist metadata.
 
 All Library data is local to the device in this milestone.
+
+
+## v0.8.0 UI / UX Overhaul
+
+This milestone unifies VUEO's visual language across the application without changing the underlying provider architecture.
+
+### Visual system
+
+VUEO now uses a consistent dark media-client palette:
+
+- near-black background
+- layered charcoal surfaces
+- restrained neon-green VUEO accent
+- softer secondary text
+- consistent rounded panel geometry
+- consistent content spacing
+
+The neon accent is used as a VUEO identity and state cue rather than filling the whole interface.
+
+### Home
+
+- stronger VUEO brand header
+- premium Search affordance
+- taller cinematic hero with gradient readability
+- Featured treatment
+- clearer metadata hierarchy
+- larger, more consistent poster cards
+- cleaner catalog headings and item counts
+- polished All / Movies / Series filters
+
+### Search
+
+- Discover-oriented header
+- improved search-field hierarchy
+- cohesive result cards
+- clearer content type, year, genre and synopsis hierarchy
+
+### Details
+
+- taller cinematic backdrop
+- smooth dark gradient into the page
+- content-type badge
+- stronger title hierarchy
+- overview card
+- refined genre surfaces
+- existing Watch, My List, seasons and episodes remain functional
+
+### Library
+
+- visual summary for Continue Watching, My List and History
+- consistent section headers
+- polished Continue Watching and History surfaces
+- existing local Library behavior remains unchanged
+
+### Source Picker
+
+- Source Engine status now looks like a consumer-facing product surface
+- Best Source is presented as `VUEO RECOMMENDS`
+- source rows use compact quality/status/provider hierarchy
+- all progressive discovery behavior from v0.4 remains intact
+
+### Content Manager
+
+- redesigned as a control center
+- top-level addon / repository / provider metrics
+- simpler source cards
+- technical controls remain available deeper in each section
+
+This milestone intentionally focuses on consistency and hierarchy rather than adding new backend features.
