@@ -433,6 +433,7 @@ object CatalogDiscoveryCache {
     )
 }
 
+@kotlin.jvm.JvmName("catalogRowsToJson")
 private fun List<CatalogRow>
     .toJson(): JSONArray =
     JSONArray().also {
@@ -462,6 +463,7 @@ private fun List<CatalogRow>
         }
     }
 
+@kotlin.jvm.JvmName("mediaItemsToJson")
 private fun List<MediaItem>
     .toJson(): JSONArray =
     JSONArray().also {
