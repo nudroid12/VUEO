@@ -426,6 +426,11 @@ fun VueoApp() {
                     booting = booting,
                     activeProfile =
                         profileStore.activeProfile(),
+                    libraryStore = libraryStore,
+                    libraryVersion = libraryVersion,
+                    onLibraryChanged = {
+                        libraryVersion++
+                    },
                     onProfileClick = {
                         showProfilePicker =
                             true
@@ -467,6 +472,8 @@ fun VueoApp() {
                 AppTab.LIBRARY -> LibraryScreen(
                     store =
                         libraryStore,
+                    activeProfile =
+                        profileStore.activeProfile(),
                     version =
                         libraryVersion,
                     onVersionChanged = {
@@ -784,129 +791,91 @@ private fun HomeScreen(
     contentVersion: Int,
     booting: Boolean,
     activeProfile: VueoProfile,
+    libraryStore: LibraryStore,
+    libraryVersion: Int,
+    onLibraryChanged: () -> Unit,
     onProfileClick: () -> Unit,
     onOpenContentManager: () -> Unit,
     onSearch: () -> Unit,
     onMediaClick: (MediaItem) -> Unit,
 ) {
-    val context =
-        LocalContext.current
+    val context = LocalContext.current
 
     var rows by remember {
         mutableStateOf(
             CatalogDiscoveryCache
-                .home(
-                    allowStale = true
-                )
+                .home(allowStale = true)
                 .orEmpty()
         )
     }
-    var loading by remember {
-        mutableStateOf(false)
-    }
-    var error by remember {
-        mutableStateOf<String?>(null)
-    }
-    var mediaFilter by remember {
-        mutableStateOf(
-            HomeMediaFilter.ALL
-        )
-    }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(contentVersion) {
         CatalogDiscoveryCache
-            .home(
-                allowStale = true
-            )
-            ?.takeIf {
-                it.isNotEmpty()
-            }
-            ?.let {
-                rows = it
-            }
+            .home(allowStale = true)
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { rows = it }
 
         if (booting) {
             loading = false
             return@LaunchedEffect
         }
 
-        loading =
-            rows.isEmpty()
-
+        loading = rows.isEmpty()
         error = null
 
         runCatching {
             engine.loadCatalogRows(
-                forceRefresh =
-                    rows.isNotEmpty(),
+                forceRefresh = rows.isNotEmpty(),
             )
-        }.onSuccess {
-            fresh ->
-
-            if (
-                fresh.isNotEmpty()
-            ) {
+        }.onSuccess { fresh ->
+            if (fresh.isNotEmpty()) {
                 rows = fresh
-
-                CatalogDiscoveryCache
-                    .persistHome(
-                        context =
-                            context
-                                .applicationContext,
-                        rows = fresh,
-                    )
+                CatalogDiscoveryCache.persistHome(
+                    context = context.applicationContext,
+                    rows = fresh,
+                )
             }
-        }.onFailure {
-            failure ->
-
-            error =
-                failure.message
-
-            if (
-                rows.isEmpty()
-            ) {
-                rows =
-                    CatalogDiscoveryCache
-                        .home(
-                            allowStale =
-                                true
-                        )
-                        .orEmpty()
+        }.onFailure { failure ->
+            error = failure.message
+            if (rows.isEmpty()) {
+                rows = CatalogDiscoveryCache
+                    .home(allowStale = true)
+                    .orEmpty()
             }
         }
 
         loading = false
     }
 
+    val hero = rows
+        .asSequence()
+        .flatMap { it.items.asSequence() }
+        .firstOrNull { !it.background.isNullOrBlank() }
+        ?: rows.firstOrNull()?.items?.firstOrNull()
+
+    val heroWatchlisted = remember(
+        hero?.id,
+        hero?.type,
+        libraryVersion,
+    ) {
+        hero?.let(libraryStore::isWatchlisted) ?: false
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                VueoPalette.Background
-            ),
+            .background(VueoPalette.Background),
         contentPadding = PaddingValues(bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(22.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         item {
             VueoHeader(
-                profile =
-                    activeProfile,
-                onProfileClick =
-                    onProfileClick,
+                profile = activeProfile,
+                onProfileClick = onProfileClick,
                 onSearch = onSearch,
             )
-        }
-
-        if (rows.isNotEmpty()) {
-            item {
-                HomeFilterRow(
-                    selected =
-                        mediaFilter,
-                    onSelect = {
-                        mediaFilter = it
-                    },
-                )
-            }
         }
 
         if (booting || loading) {
@@ -929,72 +898,28 @@ private fun HomeScreen(
             }
         }
 
-        if (rows.isNotEmpty()) {
-            val filteredRows =
-                rows.mapNotNull { row ->
-                    val filteredItems =
-                        row.items.filter {
-                            item ->
-
-                            when (mediaFilter) {
-                                HomeMediaFilter.ALL ->
-                                    true
-
-                                HomeMediaFilter.MOVIES ->
-                                    item.type == "movie"
-
-                                HomeMediaFilter.SERIES ->
-                                    item.type == "series"
-                            }
-                        }
-
-                    if (
-                        filteredItems.isEmpty()
-                    ) {
-                        null
-                    } else {
-                        row.copy(
-                            items =
-                                filteredItems
-                        )
-                    }
-                }
-
-            val hero =
-                filteredRows
-                    .asSequence()
-                    .flatMap {
-                        it.items.asSequence()
-                    }
-                    .firstOrNull {
-                        !it.background.isNullOrBlank()
-                    }
-                    ?: filteredRows
-                        .firstOrNull()
-                        ?.items
-                        ?.firstOrNull()
-
-            if (hero != null) {
-                item {
-                    HeroMediaCard(
-                        item = hero,
-                        onClick = {
-                            onMediaClick(hero)
-                        },
-                    )
-                }
-            }
-
-            items(
-                filteredRows,
-                key = { it.id },
-            ) { row ->
-                CatalogSection(
-                    row = row,
-                    onMediaClick =
-                        onMediaClick,
+        if (hero != null) {
+            item {
+                HeroMediaCard(
+                    item = hero,
+                    isWatchlisted = heroWatchlisted,
+                    onWatch = { onMediaClick(hero) },
+                    onToggleMyList = {
+                        libraryStore.toggleWatchlist(hero)
+                        onLibraryChanged()
+                    },
                 )
             }
+        }
+
+        items(
+            rows,
+            key = { it.id },
+        ) { row ->
+            CatalogSection(
+                row = row,
+                onMediaClick = onMediaClick,
+            )
         }
     }
 }
@@ -1012,117 +937,38 @@ private fun VueoHeader(
                 horizontal = 20.dp,
                 vertical = 18.dp,
             ),
-        verticalAlignment =
-            Alignment.CenterVertically,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier =
-                Modifier.weight(1f),
-            verticalAlignment =
-                Alignment.CenterVertically,
+        VueoBrandLockup(
+            modifier = Modifier.weight(1f),
+        )
+
+        Surface(
+            modifier = Modifier
+                .padding(end = 8.dp)
+                .clickable(onClick = onProfileClick),
+            shape = RoundedCornerShape(50),
+            color = VueoPalette.SurfaceElevated,
         ) {
             Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(
-                        RoundedCornerShape(
-                            12.dp
-                        )
-                    )
-                    .background(
-                        VueoPalette
-                            .SurfaceElevated
-                    ),
-                contentAlignment =
-                    Alignment.Center,
-            ) {
-                VueoBrandMark(
-                    modifier =
-                        Modifier.size(
-                            27.dp
-                        ),
-                )
-            }
-
-            Spacer(
-                Modifier.width(12.dp)
-            )
-
-            Column(
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        1.dp
-                    ),
+                modifier = Modifier.size(42.dp),
+                contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    "VUEO",
-                    color =
-                        VueoPalette.BrandLime,
-                    fontWeight =
-                        FontWeight.Black,
-                    fontSize = 23.sp,
-                    letterSpacing = 4.sp,
-                )
-
-                Text(
-                    "Your media. Your sources.",
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 10.sp,
+                    profile.avatar,
+                    fontSize = 18.sp,
                 )
             }
         }
 
         Surface(
-            modifier =
-                Modifier
-                    .padding(
-                        end = 8.dp
-                    )
-                    .clickable(
-                        onClick =
-                            onProfileClick
-                    ),
-            shape =
-                RoundedCornerShape(
-                    50
-                ),
-            color =
-                VueoPalette
-                    .SurfaceElevated,
+            shape = RoundedCornerShape(50),
+            color = VueoPalette.SurfaceElevated,
         ) {
-            Box(
-                modifier =
-                    Modifier.size(
-                        48.dp
-                    ),
-                contentAlignment =
-                    Alignment.Center,
-            ) {
-                Text(
-                    text =
-                        profile.avatar,
-                    fontSize = 20.sp,
-                )
-            }
-        }
-
-        Surface(
-            shape =
-                RoundedCornerShape(
-                    50
-                ),
-            color =
-                VueoPalette
-                    .SurfaceElevated,
-        ) {
-            IconButton(
-                onClick = onSearch,
-            ) {
+            IconButton(onClick = onSearch) {
                 Icon(
                     Icons.Default.Search,
-                    contentDescription =
-                        "Search",
+                    contentDescription = "Search",
                     tint = Color.White,
                 )
             }
@@ -1255,181 +1101,120 @@ private fun EmptyHomeCard(
 @Composable
 private fun HeroMediaCard(
     item: MediaItem,
-    onClick: () -> Unit,
+    isWatchlisted: Boolean,
+    onWatch: () -> Unit,
+    onToggleMyList: () -> Unit,
 ) {
     Box(
         modifier = Modifier
-            .padding(
-                horizontal = 20.dp
-            )
+            .padding(horizontal = 20.dp)
             .fillMaxWidth()
-            .height(305.dp)
-            .clip(
-                RoundedCornerShape(
-                    26.dp
-                )
-            )
-            .clickable(
-                onClick = onClick
-            ),
+            .height(390.dp)
+            .clip(RoundedCornerShape(28.dp)),
     ) {
         NetworkImage(
-            url =
-                item.background
-                    ?: item.poster,
-            contentDescription =
-                item.name,
-            modifier =
-                Modifier.fillMaxSize(),
-            contentScale =
-                ContentScale.Crop,
-            fallbackText =
-                item.name,
+            url = item.background ?: item.poster,
+            contentDescription = item.name,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            fallbackText = item.name,
         )
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    brush =
-                        Brush.verticalGradient(
-                            colors =
-                                listOf(
-                                    Color.Black
-                                        .copy(
-                                            alpha = .08f
-                                        ),
-                                    Color.Black
-                                        .copy(
-                                            alpha = .22f
-                                        ),
-                                    Color.Black
-                                        .copy(
-                                            alpha = .94f
-                                        ),
-                                ),
-                        )
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = .08f),
+                            Color.Black.copy(alpha = .20f),
+                            Color.Black.copy(alpha = .98f),
+                        ),
+                    )
                 ),
         )
 
-        Surface(
-            modifier = Modifier
-                .align(
-                    Alignment.TopStart
-                )
-                .padding(18.dp),
-            shape =
-                RoundedCornerShape(
-                    50
-                ),
-            color =
-                Color.Black.copy(
-                    alpha = .54f
-                ),
-        ) {
-            Text(
-                "FEATURED",
-                modifier =
-                    Modifier.padding(
-                        horizontal = 11.dp,
-                        vertical = 6.dp,
-                    ),
-                color =
-                    VueoPalette.Accent,
-                fontSize = 10.sp,
-                fontWeight =
-                    FontWeight.Black,
-                letterSpacing = 1.2.sp,
-            )
-        }
-
         Column(
             modifier = Modifier
-                .align(
-                    Alignment.BottomStart
-                )
+                .align(Alignment.BottomStart)
                 .padding(22.dp),
-            verticalArrangement =
-                Arrangement.spacedBy(
-                    7.dp
-                ),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
             Text(
                 item.name,
                 color = Color.White,
-                fontSize = 30.sp,
-                fontWeight =
-                    FontWeight.Black,
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Black,
                 maxLines = 2,
-                overflow =
-                    TextOverflow.Ellipsis,
+                overflow = TextOverflow.Ellipsis,
             )
 
-            val metaLine =
-                listOfNotNull(
-                    item.type
-                        .replaceFirstChar {
-                            it.uppercase()
-                        },
-                    item.releaseInfo,
-                    item.genres
-                        .take(2)
-                        .takeIf {
-                            it.isNotEmpty()
-                        }
-                        ?.joinToString(" • "),
-                ).joinToString("  •  ")
+            val metaLine = listOfNotNull(
+                item.releaseInfo,
+                item.type
+                    .replaceFirstChar { it.uppercase() },
+                item.genres
+                    .take(3)
+                    .takeIf { it.isNotEmpty() }
+                    ?.joinToString(" • "),
+            ).joinToString("  •  ")
 
-            if (
-                metaLine.isNotBlank()
-            ) {
+            if (metaLine.isNotBlank()) {
                 Text(
                     metaLine,
-                    color =
-                        Color.White.copy(
-                            alpha = .72f
-                        ),
+                    color = Color.White.copy(alpha = .76f),
                     fontSize = 12.sp,
                     maxLines = 1,
-                    overflow =
-                        TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
             item.description
-                ?.takeIf {
-                    it.isNotBlank()
-                }
+                ?.takeIf { it.isNotBlank() }
                 ?.let {
                     Text(
                         it,
-                        color =
-                            Color.White.copy(
-                                alpha = .68f
-                            ),
+                        color = Color.White.copy(alpha = .68f),
                         fontSize = 12.sp,
-                        maxLines = 2,
-                        overflow =
-                            TextOverflow.Ellipsis,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 
-            Spacer(
-                Modifier.height(3.dp)
-            )
-
-            Button(
-                onClick = onClick,
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Icon(
-                    Icons.Default.PlayArrow,
-                    contentDescription =
-                        null,
-                )
-                Spacer(
-                    Modifier.width(7.dp)
-                )
-                Text("View Details")
+                Button(
+                    onClick = onWatch,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = null,
+                    )
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        "Watch Now",
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = onToggleMyList,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = null,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (isWatchlisted) "In My List" else "My List",
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
             }
         }
     }
@@ -1622,212 +1407,187 @@ private fun SearchScreen(
     booting: Boolean,
     onMediaClick: (MediaItem) -> Unit,
 ) {
-    var query by remember {
-        mutableStateOf("")
-    }
+    var query by remember { mutableStateOf("") }
     var results by remember {
-        mutableStateOf<
-            List<MediaItem>
-        >(emptyList())
+        mutableStateOf<List<MediaItem>>(emptyList())
     }
-    var searching by remember {
-        mutableStateOf(false)
-    }
+    var searching by remember { mutableStateOf(false) }
     var status by remember {
-        mutableStateOf(
-            "Search movies and series across compatible catalogs."
-        )
+        mutableStateOf("Search connected VUEO catalogs.")
+    }
+    var filter by remember {
+        mutableStateOf(HomeMediaFilter.ALL)
     }
 
-    LaunchedEffect(
-        query,
-        contentVersion,
-        booting,
-    ) {
-        val normalized =
-            query.trim()
+    LaunchedEffect(query, contentVersion, booting) {
+        val normalized = query.trim()
 
-        if (
-            booting ||
-            normalized.length < 2
-        ) {
+        if (booting || normalized.length < 2) {
             searching = false
-            results =
-                if (
-                    normalized.length >= 2
-                ) {
-                    CatalogDiscoveryCache
-                        .searchLocal(
-                            normalized
-                        )
-                } else {
-                    emptyList()
-                }
-
-            status =
-                if (
-                    normalized.isBlank()
-                ) {
-                    "Search movies and series across compatible catalogs."
-                } else {
-                    "Type at least 2 characters."
-                }
-
-            return@LaunchedEffect
-        }
-
-        results =
-            CatalogDiscoveryCache
-                .searchLocal(
-                    normalized
-                )
-
-        status =
-            if (results.isEmpty()) {
-                "Searching connected catalogs…"
+            results = if (normalized.length >= 2) {
+                CatalogDiscoveryCache.searchLocal(normalized)
             } else {
-                "${results.size} cached matches • checking connected catalogs…"
-            }
-
-        searching = true
-
-        delay(450)
-
-        val remote =
-            runCatching {
-                engine.search(
-                    normalized
-                )
-            }.getOrElse {
                 emptyList()
             }
 
-        results =
-            if (remote.isNotEmpty()) {
-                remote
+            status = if (normalized.isBlank()) {
+                "Search movies and series across connected catalogs."
             } else {
-                results
+                "Type at least 2 characters."
             }
+            return@LaunchedEffect
+        }
+
+        results = CatalogDiscoveryCache.searchLocal(normalized)
+        status = if (results.isEmpty()) {
+            "Searching connected catalogs..."
+        } else {
+            "${results.size} cached matches • refreshing..."
+        }
+
+        searching = true
+        delay(450)
+
+        val remote = runCatching {
+            engine.search(normalized)
+        }.getOrElse { emptyList() }
+
+        if (remote.isNotEmpty()) {
+            results = remote
+        }
 
         searching = false
+        status = if (results.isEmpty()) {
+            "No results for \"$normalized\"."
+        } else {
+            "${results.size} results"
+        }
+    }
 
-        status =
-            when {
-                results.isEmpty() ->
-                    "No results for \"$normalized\"."
-
-                else ->
-                    "${results.size} results"
-            }
+    val filtered = results.filter { item ->
+        when (filter) {
+            HomeMediaFilter.ALL -> true
+            HomeMediaFilter.MOVIES -> item.type == "movie"
+            HomeMediaFilter.SERIES -> item.type == "series"
+        }
     }
 
     LazyColumn(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .background(
-                    VueoPalette.Background
-                ),
-        contentPadding =
-            PaddingValues(
-                bottom = 28.dp
-            ),
-        verticalArrangement =
-            Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(VueoPalette.Background),
+        contentPadding = PaddingValues(bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
             Column(
-                modifier =
-                    Modifier.padding(
-                        horizontal = 20.dp,
-                        vertical = 18.dp,
-                    ),
-                verticalArrangement =
-                    Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(
+                    horizontal = 20.dp,
+                    vertical = 18.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Text(
-                    "DISCOVER",
-                    color =
-                        VueoPalette.Accent,
-                    fontSize = 11.sp,
-                    fontWeight =
-                        FontWeight.Black,
-                    letterSpacing = 1.4.sp,
-                )
+                VueoBrandLockup(compact = true)
 
                 Text(
-                    "Find something to watch",
+                    "Search",
                     color = Color.White,
-                    fontSize = 29.sp,
-                    fontWeight =
-                        FontWeight.Black,
-                )
-
-                Text(
-                    "Search across the catalogs connected to VUEO.",
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 12.sp,
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Black,
                 )
 
                 OutlinedTextField(
                     value = query,
-                    onValueChange = {
-                        query = it
-                    },
-                    modifier =
-                        Modifier.fillMaxWidth(),
-                    label = {
-                        Text(
-                            "Movies or series"
-                        )
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = {
+                        Text("Search movies, series, people")
                     },
                     leadingIcon = {
                         Icon(
                             Icons.Default.Search,
-                            contentDescription =
-                                null,
+                            contentDescription = null,
                         )
                     },
                     singleLine = true,
-                    shape =
-                        RoundedCornerShape(
-                            18.dp
-                        ),
+                    shape = RoundedCornerShape(18.dp),
                 )
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(HomeMediaFilter.values().toList()) { option ->
+                        FilterChip(
+                            selected = filter == option,
+                            onClick = { filter = option },
+                            label = {
+                                Text(
+                                    option.label,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            },
+                        )
+                    }
+                }
 
                 if (searching) {
                     LinearProgressIndicator(
-                        modifier =
-                            Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
 
                 Text(
                     status,
-                    color =
-                        MaterialTheme
-                            .colorScheme
-                            .onSurface
-                            .copy(alpha = .58f),
+                    color = VueoPalette.Muted,
                     fontSize = 12.sp,
                 )
             }
         }
 
-        items(
-            results,
-            key = {
-                "${it.sourceExtensionId}:" +
-                    "${it.type}:${it.id}"
-            },
-        ) { item ->
-            SearchResultCard(
-                item = item,
-                onClick = {
-                    onMediaClick(item)
+        if (filtered.isNotEmpty()) {
+            item {
+                Text(
+                    "Search Results",
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Black,
+                )
+            }
+
+            item {
+                SearchResultCard(
+                    item = filtered.first(),
+                    onClick = { onMediaClick(filtered.first()) },
+                )
+            }
+
+            items(
+                filtered.drop(1).chunked(2),
+                key = { row ->
+                    row.joinToString("|") {
+                        "${it.type}:${it.id}"
+                    }
                 },
-            )
+            ) { row ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    row.forEach { item ->
+                        SearchPosterTile(
+                            item = item,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onMediaClick(item) },
+                        )
+                    }
+                    if (row.size == 1) {
+                        Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
         }
     }
 }
@@ -1840,133 +1600,139 @@ private fun SearchResultCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                horizontal = 20.dp
-            )
-            .clickable(
-                onClick = onClick
-            ),
-        shape =
-            RoundedCornerShape(
-                18.dp
-            ),
-        colors =
-            CardDefaults.cardColors(
-                containerColor =
-                    VueoPalette
-                        .SurfaceElevated
-            ),
+            .padding(horizontal = 20.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = VueoPalette.SurfaceElevated
+        ),
     ) {
         Row(
-            modifier =
-                Modifier.padding(11.dp),
-            verticalAlignment =
-                Alignment.CenterVertically,
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             NetworkImage(
                 url = item.poster,
-                contentDescription =
-                    item.name,
+                contentDescription = item.name,
                 modifier = Modifier
-                    .width(78.dp)
-                    .height(116.dp)
-                    .clip(
-                        RoundedCornerShape(
-                            12.dp
-                        )
-                    ),
-                contentScale =
-                    ContentScale.Crop,
-                fallbackText =
-                    item.name,
+                    .width(104.dp)
+                    .height(154.dp)
+                    .clip(RoundedCornerShape(14.dp)),
+                contentScale = ContentScale.Crop,
+                fallbackText = item.name,
             )
 
-            Spacer(
-                Modifier.width(14.dp)
-            )
+            Spacer(Modifier.width(14.dp))
 
             Column(
-                modifier =
-                    Modifier.weight(1f),
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        6.dp
-                    ),
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
                 Text(
                     item.name,
                     color = Color.White,
-                    fontSize = 17.sp,
-                    fontWeight =
-                        FontWeight.Bold,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Black,
                     maxLines = 2,
-                    overflow =
-                        TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis,
                 )
 
                 Text(
                     listOfNotNull(
-                        item.type
-                            .replaceFirstChar {
-                                it.uppercase()
-                            },
                         item.releaseInfo,
+                        item.type.replaceFirstChar { it.uppercase() },
                     ).joinToString(" • "),
-                    color =
-                        VueoPalette.Accent,
+                    color = VueoPalette.Muted,
                     fontSize = 11.sp,
-                    fontWeight =
-                        FontWeight.Bold,
                 )
 
-                if (
-                    item.genres.isNotEmpty()
-                ) {
+                if (item.genres.isNotEmpty()) {
                     Text(
-                        item.genres
-                            .take(3)
-                            .joinToString(" • "),
-                        color =
-                            VueoPalette.Muted,
-                        fontSize = 10.sp,
+                        item.genres.take(3).joinToString(" • "),
+                        color = VueoPalette.Accent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
                         maxLines = 1,
-                        overflow =
-                            TextOverflow.Ellipsis,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 
                 item.description
-                    ?.takeIf {
-                        it.isNotBlank()
-                    }
+                    ?.takeIf { it.isNotBlank() }
                     ?.let {
                         Text(
                             it,
-                            maxLines = 2,
-                            overflow =
-                                TextOverflow.Ellipsis,
-                            color =
-                                Color.White.copy(
-                                    alpha = .58f
-                                ),
+                            color = Color.White.copy(alpha = .62f),
                             fontSize = 11.sp,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
             }
 
-            Text(
-                "›",
-                color =
-                    VueoPalette.Muted,
-                fontSize = 28.sp,
-            )
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = VueoPalette.Accent,
+            ) {
+                Box(
+                    modifier = Modifier.size(42.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = VueoPalette.Background,
+                    )
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun SearchPosterTile(
+    item: MediaItem,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = modifier.clickable(onClick = onClick),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        NetworkImage(
+            url = item.poster,
+            contentDescription = item.name,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(230.dp)
+                .clip(RoundedCornerShape(16.dp)),
+            contentScale = ContentScale.Crop,
+            fallbackText = item.name,
+        )
+        Text(
+            item.name,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            listOfNotNull(
+                item.releaseInfo,
+                item.type.replaceFirstChar { it.uppercase() },
+            ).joinToString(" • "),
+            color = VueoPalette.Muted,
+            fontSize = 10.sp,
+            maxLines = 1,
+        )
     }
 }
 
 @Composable
 private fun LibraryScreen(
     store: LibraryStore,
+    activeProfile: VueoProfile,
     version: Int,
     onVersionChanged: () -> Unit,
     onMediaClick: (MediaItem) -> Unit,
@@ -2026,63 +1792,57 @@ private fun LibraryScreen(
     ) {
         item {
             Column(
-                modifier =
-                    Modifier.padding(
-                        horizontal = 20.dp,
-                        vertical = 18.dp,
-                    ),
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        5.dp
-                    ),
+                modifier = Modifier.padding(
+                    horizontal = 20.dp,
+                    vertical = 18.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Text(
-                    "YOUR SPACE",
-                    color =
-                        VueoPalette.Accent,
-                    fontSize = 11.sp,
-                    fontWeight =
-                        FontWeight.Black,
-                    letterSpacing = 1.4.sp,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    VueoBrandLockup(
+                        modifier = Modifier.weight(1f),
+                        compact = true,
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = VueoPalette.SurfaceElevated,
+                    ) {
+                        Box(
+                            modifier = Modifier.size(40.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                activeProfile.avatar,
+                                fontSize = 17.sp,
+                            )
+                        }
+                    }
+                }
 
                 Text(
                     "Library",
                     color = Color.White,
                     fontSize = 30.sp,
-                    fontWeight =
-                        FontWeight.Black,
-                )
-
-                Text(
-                    "Continue where you left off, keep a watchlist, and revisit your history.",
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
                 )
 
                 Row(
-                    horizontalArrangement =
-                        Arrangement.spacedBy(
-                            8.dp
-                        ),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     LibraryMetricPill(
                         label = "Continue",
-                        count =
-                            continueWatching.size,
+                        count = continueWatching.size,
                     )
-
                     LibraryMetricPill(
                         label = "My List",
-                        count =
-                            watchlist.size,
+                        count = watchlist.size,
                     )
-
                     LibraryMetricPill(
                         label = "History",
-                        count =
-                            history.size,
+                        count = history.size,
                     )
                 }
             }
@@ -2756,97 +2516,69 @@ private fun ContentManagerScreen(
     onAddons: () -> Unit,
     onPlugins: () -> Unit,
 ) {
-    val context =
-        LocalContext.current
+    val context = LocalContext.current
+    val pluginStore = remember {
+        PluginStore(context.applicationContext)
+    }
+    val healthStore = remember {
+        PluginHealthStore(context.applicationContext)
+    }
 
-    val pluginStore =
-        remember {
-            PluginStore(
-                context.applicationContext
-            )
-        }
+    val addons = engine.stremioAddons()
+    val repositoryCount = pluginStore.repositories().size
+    val providerCount = pluginStore.totalProviderCount()
+    val health = healthStore.records()
 
-    val addons =
-        engine.stremioAddons()
-
-    val repositoryCount =
-        pluginStore
-            .repositories()
-            .size
-
-    val providerCount =
-        pluginStore
-            .totalProviderCount()
+    val onlineCount = health.count {
+        it.status == ProviderHealthStatus.ONLINE ||
+            it.status == ProviderHealthStatus.SLOW
+    }
+    val slowCount = health.count {
+        it.status == ProviderHealthStatus.SLOW ||
+            it.status == ProviderHealthStatus.TIMEOUT
+    }
+    val failedCount = health.count {
+        it.status == ProviderHealthStatus.FAILED ||
+            it.status == ProviderHealthStatus.BLOCKED ||
+            it.status == ProviderHealthStatus.UNAVAILABLE
+    }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                VueoPalette.Background
-            ),
-        contentPadding =
-            PaddingValues(
-                horizontal = 20.dp,
-                vertical = 20.dp,
-            ),
-        verticalArrangement =
-            Arrangement.spacedBy(
-                14.dp
-            ),
+            .background(VueoPalette.Background),
+        contentPadding = PaddingValues(
+            horizontal = 20.dp,
+            vertical = 20.dp,
+        ),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
             Row(
-                verticalAlignment =
-                    Alignment.Top,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(
-                    onClick = onBack,
-                ) {
+                IconButton(onClick = onBack) {
                     Icon(
                         Icons.Default.ArrowBack,
-                        contentDescription =
-                            "Back to Settings",
-                        tint =
-                            Color.White,
+                        contentDescription = "Back to Settings",
+                        tint = Color.White,
                     )
                 }
 
-                Spacer(
-                    Modifier.width(
-                        4.dp
-                    )
-                )
-
                 Column(
-                    modifier =
-                        Modifier.weight(1f),
-                    verticalArrangement =
-                        Arrangement.spacedBy(
-                            5.dp
-                        ),
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text(
-                        "CONTROL CENTER",
-                        color =
-                            VueoPalette.Accent,
-                        fontSize = 11.sp,
-                        fontWeight =
-                            FontWeight.Black,
-                        letterSpacing = 1.4.sp,
-                    )
-
+                    VueoBrandLockup(compact = true)
                     Text(
                         "Content Manager",
                         color = Color.White,
                         fontSize = 30.sp,
-                        fontWeight =
-                            FontWeight.Black,
+                        fontWeight = FontWeight.Black,
                     )
-
                     Text(
-                        "Manage the catalogs, stream addons, and JavaScript providers that power VUEO.",
-                        color =
-                            VueoPalette.Muted,
+                        "Manage addons, plugins, providers and health.",
+                        color = VueoPalette.Muted,
                         fontSize = 12.sp,
                     )
                 }
@@ -2855,93 +2587,73 @@ private fun ContentManagerScreen(
 
         item {
             Card(
-                shape =
-                    RoundedCornerShape(
-                        20.dp
-                    ),
-                colors =
-                    CardDefaults.cardColors(
-                        containerColor =
-                            VueoPalette
-                                .SurfaceElevated
-                    ),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = VueoPalette.SurfaceElevated
+                ),
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    horizontalArrangement =
-                        Arrangement.spacedBy(
-                            10.dp
-                        ),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     ContentMetric(
-                        modifier =
-                            Modifier.weight(1f),
-                        value =
-                            addons.size
-                                .toString(),
-                        label = "Addons",
+                        modifier = Modifier.weight(1f),
+                        value = addons.size.toString(),
+                        label = "Installed",
                     )
-
                     ContentMetric(
-                        modifier =
-                            Modifier.weight(1f),
-                        value =
-                            repositoryCount
-                                .toString(),
-                        label = "Repos",
+                        modifier = Modifier.weight(1f),
+                        value = onlineCount.toString(),
+                        label = "Online",
                     )
-
                     ContentMetric(
-                        modifier =
-                            Modifier.weight(1f),
-                        value =
-                            providerCount
-                                .toString(),
-                        label = "Providers",
+                        modifier = Modifier.weight(1f),
+                        value = slowCount.toString(),
+                        label = "Slow",
+                    )
+                    ContentMetric(
+                        modifier = Modifier.weight(1f),
+                        value = failedCount.toString(),
+                        label = "Failed",
                     )
                 }
             }
         }
 
         item {
-            Text(
-                "SOURCES",
-                fontWeight =
-                    FontWeight.Black,
-                color =
-                    VueoPalette.Muted,
-                fontSize = 10.sp,
-                letterSpacing = 1.4.sp,
-            )
-        }
-
-        item {
             ContentManagerCard(
                 title = "Addons",
-                subtitle =
-                    "Stremio-compatible catalogs, metadata, streams, and subtitles.",
-                status =
-                    "${addons.size} installed",
-                icon =
-                    Icons.Default.Extension,
+                subtitle = "Stremio compatible catalogs, metadata, streams and subtitles.",
+                status = "${addons.size} installed",
+                icon = Icons.Default.Extension,
                 onClick = onAddons,
             )
         }
 
         item {
             ContentManagerCard(
-                title = "Plugins",
-                subtitle =
-                    "QuickJS provider repositories used by the Smart Source Engine.",
-                status =
-                    "$repositoryCount repos • $providerCount providers",
-                icon =
-                    Icons.Default
-                        .SettingsInputComponent,
+                title = "Plugins & Providers",
+                subtitle = "QuickJS repositories, runtime providers, health and diagnostics.",
+                status = "$repositoryCount repos • $providerCount providers",
+                icon = Icons.Default.SettingsInputComponent,
                 onClick = onPlugins,
             )
+        }
+
+        item {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = VueoPalette.Surface,
+            ) {
+                Text(
+                    "Provider Health feeds Smart Source ranking. Slow or failed providers never need to block faster sources.",
+                    modifier = Modifier.padding(16.dp),
+                    color = VueoPalette.Muted,
+                    fontSize = 11.sp,
+                )
+            }
         }
     }
 }

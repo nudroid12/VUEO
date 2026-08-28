@@ -136,20 +136,76 @@ internal fun VueoSettingsHub(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            VueoSettingsTitle(
-                title = "Settings",
-                subtitle = "Manage VUEO without mixing content sources, optional enhancements, playback, subtitles, and app data.",
-            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                VueoBrandLockup(compact = true)
+                VueoSettingsTitle(
+                    title = "Settings",
+                    subtitle = "Profiles, sources, playback, appearance, data and VUEO services.",
+                )
+            }
         }
 
         item {
-            VueoSettingsNavigationCard(
-                title = "Profiles",
-                subtitle = "Who's Watching, local profiles, and personal viewing preferences.",
-                status = "${activeProfile.avatar} ${activeProfile.name} • $profileCount ${if (profileCount == 1) "profile" else "profiles"}",
-                icon = Icons.Default.VideoLibrary,
-                onClick = onProfiles,
-            )
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onProfiles),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = VueoPalette.SurfaceElevated,
+                ),
+            ) {
+                Row(
+                    modifier = Modifier.padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(58.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(VueoPalette.SurfaceStrong),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            activeProfile.avatar,
+                            fontSize = 24.sp,
+                        )
+                    }
+
+                    Spacer(Modifier.width(14.dp))
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Text(
+                            activeProfile.name,
+                            color = Color.White,
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Black,
+                        )
+                        Text(
+                            "${if (activeProfile.isKids) "Kids profile" else "Local profile"} • $profileCount ${if (profileCount == 1) "profile" else "profiles"}",
+                            color = VueoPalette.Muted,
+                            fontSize = 11.sp,
+                        )
+                        Text(
+                            "Manage Profiles",
+                            color = VueoPalette.Accent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+
+                    Text(
+                        "›",
+                        color = VueoPalette.Muted,
+                        fontSize = 28.sp,
+                    )
+                }
+            }
         }
 
         item {
@@ -2331,9 +2387,9 @@ private fun VueoInfoCard(
     text: String,
 ) {
     Card(
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = VueoPalette.SurfaceElevated,
+            containerColor = VueoPalette.Surface,
         ),
     ) {
         Column(

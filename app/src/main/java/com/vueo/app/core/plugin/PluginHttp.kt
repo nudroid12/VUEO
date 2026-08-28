@@ -87,7 +87,7 @@ object PluginHttp {
             val request = Request.Builder()
                 .url(url)
                 .header("Accept", "*/*")
-                .header("User-Agent", "VUEO/0.9.0")
+                .header("User-Agent", "VUEO/0.9.6")
                 .build()
 
             client.newCall(request).execute().use { response ->
@@ -131,7 +131,7 @@ object PluginHttp {
                 }
 
                 if (headers?.has("User-Agent") != true) {
-                    requestBuilder.header("User-Agent", "VUEO/0.9.0")
+                    requestBuilder.header("User-Agent", "VUEO/0.9.6")
                 }
 
                 val bodyText = if (input.isNull("body")) {

@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "versionCode": 22,
-  "versionName": "0.9.5",
+  "versionCode": 23,
+  "versionName": "0.9.6",
   "title": "VUEO 0.9.4",
   "publishedAt": "2026-08-28",
   "changelog": [
-    "White is now the default interface accent.",
-    "Appearance adds Lime Green, Ocean, Violet, Amber and Coral accent choices.",
-    "Accent changes apply instantly across Material3 and VUEO interactive states.",
-    "VUEO Lime Green remains the fixed brand color for the logo and wordmark.",
-    "Refined VUEO launcher mark and in-app brand mark.",
-    "Carries forward local Profiles and Who's Watching from v0.9.4."
+    "Final VUEO mobile UI overhaul based on the approved mockups",
+    "Approved VUEO logo and wordmark integrated across launcher, splash and app UI",
+    "Cinematic Home hero with Watch Now and My List actions",
+    "Search redesigned with filters, featured result and poster grid",
+    "Library, Settings, Content Manager and Who's Watching visually unified",
+    "White remains the default interface accent with five optional accent colors"
   ],
   "downloadUrl": "",
   "telegramUrl": ""

@@ -1,4 +1,4 @@
-# VUEO v0.9.5
+# VUEO v0.9.6
 
 VUEO is an Android media frontend with open content sources, local profiles, progressive source discovery, optional enrichment services, Library state and Media3 playback.
 
@@ -23,8 +23,13 @@ Appearance is stored in `vueo_settings`, so the selected accent is included auto
 
 ## Version
 
-- versionName: 0.9.5
-- versionCode: 22
+- versionName: 0.9.6
+- versionCode: 23
 - compileSdk: 36
 - targetSdk: 36
 - minSdk: 23
+
+
+## v0.9.6 Final UI Overhaul
+
+VUEO now uses the approved cinematic mobile design direction across Home, Search, Library, Settings, Content Manager, Profiles, source discovery and playback. The VUEO brand mark stays Lime Green while the interface accent remains user-selectable, with White as default.

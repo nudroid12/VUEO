@@ -71,183 +71,170 @@ internal fun WhosWatchingScreen(
     onProfileSelected: () -> Unit,
     onProfilesChanged: () -> Unit,
 ) {
-    val profiles =
-        remember(
-            profileVersion
-        ) {
-            profileStore.profiles()
-        }
-
+    val profiles = remember(profileVersion) {
+        profileStore.profiles()
+    }
+    var askOnStartup by remember(profileVersion) {
+        mutableStateOf(profileStore.askWhoIsWatchingOnStartup())
+    }
     var editor by remember {
-        mutableStateOf<ProfileEditorState?>(
-            null
-        )
+        mutableStateOf<ProfileEditorState?>(null)
     }
 
-    editor?.let {
-        state ->
+    editor?.let { state ->
         ProfileEditorDialog(
             state = state,
-            onDismiss = {
-                editor = null
-            },
-            onSave = {
-                name,
-                avatar,
-                isKids ->
-
+            onDismiss = { editor = null },
+            onSave = { name, avatar, isKids ->
                 profileStore.createProfile(
                     name = name,
                     avatar = avatar,
                     isKids = isKids,
                 )
-
                 onProfilesChanged()
                 editor = null
             },
         )
     }
 
-    Box(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .background(
-                    VueoPalette.Background
-                ),
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(VueoPalette.Background),
+        contentPadding = PaddingValues(
+            horizontal = 24.dp,
+            vertical = 42.dp,
+        ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        LazyColumn(
-            modifier =
-                Modifier
-                    .fillMaxSize(),
-            contentPadding =
-                PaddingValues(
-                    horizontal = 28.dp,
-                    vertical = 44.dp,
-                ),
-            horizontalAlignment =
-                Alignment.CenterHorizontally,
-            verticalArrangement =
-                Arrangement.spacedBy(
-                    14.dp
-                ),
-        ) {
-            item {
-                Text(
-                    text = "VUEO",
-                    color =
-                        VueoPalette.BrandLime,
-                    fontWeight =
-                        FontWeight.Black,
-                    fontSize = 30.sp,
-                    letterSpacing = 2.sp,
-                )
-            }
+        item {
+            VueoBrandLockup()
+        }
 
-            item {
-                Spacer(
-                    Modifier.height(
-                        12.dp
-                    )
-                )
-            }
+        item {
+            Text(
+                "Who's Watching?",
+                color = Color.White,
+                fontWeight = FontWeight.Black,
+                fontSize = 31.sp,
+                textAlign = TextAlign.Center,
+            )
+        }
 
-            item {
-                Text(
-                    text = "Who's Watching?",
-                    color =
-                        Color.White,
-                    fontWeight =
-                        FontWeight.Bold,
-                    fontSize = 28.sp,
-                    textAlign =
-                        TextAlign.Center,
-                )
-            }
+        item {
+            Text(
+                "No sign-in required. Profiles are local to this device.",
+                color = VueoPalette.Muted,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+            )
+        }
 
-            item {
-                Text(
-                    text = "Choose a local profile. No account, email, or sign-in required.",
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 14.sp,
-                    textAlign =
-                        TextAlign.Center,
-                )
-            }
-
-            item {
-                Spacer(
-                    Modifier.height(
-                        10.dp
-                    )
-                )
-            }
-
-            items(
-                items = profiles,
-                key = {
-                    it.id
-                },
+        items(
+            profiles.chunked(2),
+            key = { row -> row.joinToString("|") { it.id } },
+        ) { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                profile ->
-                WatchingProfileCard(
-                    profile = profile,
-                    onClick = {
-                        profileStore
-                            .setActiveProfile(
-                                profile.id
-                            )
-                        onProfileSelected()
-                    },
-                )
-            }
-
-            if (
-                profiles.size <
-                    ProfileStore.MAX_PROFILES
-            ) {
-                item {
-                    OutlinedButton(
+                row.forEach { profile ->
+                    WatchingProfileCard(
+                        profile = profile,
+                        modifier = Modifier.weight(1f),
                         onClick = {
-                            editor =
-                                ProfileEditorState(
-                                    profile = null
-                                )
+                            profileStore.setActiveProfile(profile.id)
+                            onProfileSelected()
                         },
-                        modifier =
-                            Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription =
-                                null,
-                        )
-                        Text(
-                            text = " Add Profile"
-                        )
-                    }
+                    )
+                }
+
+                if (
+                    row.size == 1 &&
+                    profiles.size >= ProfileStore.MAX_PROFILES
+                ) {
+                    Spacer(Modifier.weight(1f))
+                }
+
+                if (
+                    row.size == 1 &&
+                    profiles.size < ProfileStore.MAX_PROFILES
+                ) {
+                    AddProfileCard(
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            editor = ProfileEditorState(profile = null)
+                        },
+                    )
                 }
             }
+        }
 
+        if (
+            profiles.size % 2 == 0 &&
+            profiles.size < ProfileStore.MAX_PROFILES
+        ) {
             item {
-                Text(
-                    text = "My List, Continue Watching, History, playback progress, playback quality and subtitle preferences stay separate for each profile.",
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 12.sp,
-                    textAlign =
-                        TextAlign.Center,
-                    modifier =
-                        Modifier.padding(
-                            top = 12.dp
-                        ),
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    AddProfileCard(
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            editor = ProfileEditorState(profile = null)
+                        },
+                    )
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+
+        item {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        askOnStartup = !askOnStartup
+                        profileStore.setAskWhoIsWatchingOnStartup(
+                            askOnStartup
+                        )
+                    },
+                shape = RoundedCornerShape(18.dp),
+                color = VueoPalette.SurfaceElevated,
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Text(
+                            "Ask on startup",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "Show Who's Watching when VUEO launches.",
+                            color = VueoPalette.Muted,
+                            fontSize = 11.sp,
+                        )
+                    }
+                    Switch(
+                        checked = askOnStartup,
+                        onCheckedChange = {
+                            askOnStartup = it
+                            profileStore.setAskWhoIsWatchingOnStartup(it)
+                        },
+                    )
+                }
             }
         }
     }
 }
-
 @Composable
 internal fun ProfileSettingsScreen(
     profileStore: ProfileStore,
@@ -840,75 +827,98 @@ private fun ProfileEditorDialog(
 @Composable
 private fun WatchingProfileCard(
     profile: VueoProfile,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Card(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .clickable(
-                    onClick = onClick
-                ),
-        colors =
-            CardDefaults.cardColors(
-                containerColor =
-                    VueoPalette.Surface,
-            ),
-        shape =
-            RoundedCornerShape(
-                20.dp
-            ),
+        modifier = modifier.clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = VueoPalette.SurfaceElevated,
+        ),
+        shape = RoundedCornerShape(22.dp),
     ) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        18.dp
-                    ),
-            verticalAlignment =
-                Alignment.CenterVertically,
-            horizontalArrangement =
-                Arrangement.spacedBy(
-                    16.dp
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = 12.dp,
+                    vertical = 20.dp,
                 ),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             ProfileAvatar(
                 profile = profile,
-                size = 58,
+                size = 74,
             )
-
-            Column(
-                modifier =
-                    Modifier.weight(1f),
-            ) {
-                Text(
-                    text = profile.name,
-                    color =
-                        Color.White,
-                    fontWeight =
-                        FontWeight.Bold,
-                    fontSize = 18.sp,
-                )
-
-                Text(
-                    text =
-                        if (
-                            profile.isKids
-                        ) {
-                            "Kids profile"
-                        } else {
-                            "Personal profile"
-                        },
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 13.sp,
-                )
-            }
+            Text(
+                profile.name,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp,
+                maxLines = 1,
+            )
+            Text(
+                if (profile.isKids) "Kids" else "Profile",
+                color = VueoPalette.Muted,
+                fontSize = 11.sp,
+            )
         }
     }
 }
 
+@Composable
+private fun AddProfileCard(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = modifier.clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = VueoPalette.SurfaceElevated,
+        ),
+        shape = RoundedCornerShape(22.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = 12.dp,
+                    vertical = 20.dp,
+                ),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = VueoPalette.SurfaceStrong,
+            ) {
+                Box(
+                    modifier = Modifier.size(74.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = null,
+                        tint = VueoPalette.Accent,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+            }
+            Text(
+                "Add Profile",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp,
+            )
+            Text(
+                "Local",
+                color = VueoPalette.Muted,
+                fontSize = 11.sp,
+            )
+        }
+    }
+}
 @Composable
 private fun ManageProfileCard(
     profile: VueoProfile,

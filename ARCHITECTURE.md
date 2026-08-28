@@ -1,4 +1,4 @@
-# VUEO Architecture v0.9.5
+# VUEO Architecture v0.9.6
 
 ```text
 VUEO
@@ -51,3 +51,8 @@ The selected interface accent is a global app preference in `vueo_settings`. It 
 ## Profile ownership
 
 Viewing state and personal playback/subtitle preferences are profile-scoped. Content sources, provider configuration, optional enhancement keys and update configuration remain global.
+
+
+## v0.9.6 UI system
+
+Brand identity and interface accent are intentionally separate. The VUEO mark and wordmark use Brand Lime Green. Interactive accent color is controlled by Appearance and defaults to White. Core screens share the same dark layered surfaces, rounded cards, restrained status colors and cinematic poster/backdrop treatment.
