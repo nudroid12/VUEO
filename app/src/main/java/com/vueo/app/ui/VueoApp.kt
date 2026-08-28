@@ -94,6 +94,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -608,7 +609,8 @@ fun VueoApp() {
                 .background(
                     VueoPalette.Background
                 )
-                .padding(padding),
+                .padding(padding)
+                .clipToBounds(),
         ) {
             when (selectedTab) {
                 AppTab.HOME -> HomeScreen(
@@ -1307,7 +1309,7 @@ private fun HomeScreen(
             ),
         verticalArrangement =
             Arrangement.spacedBy(
-                20.dp
+                16.dp
             ),
     ) {
         if (
@@ -1750,7 +1752,7 @@ private fun HomeContinueWatchingCard(
     Surface(
         modifier =
             Modifier
-                .width(218.dp)
+                .width(232.dp)
                 .aspectRatio(
                     16f / 9f
                 )
@@ -2010,6 +2012,7 @@ private fun homeRemainingTimeLabel(
 @Composable
 private fun HomeSectionHeader(
     title: String,
+    contextLabel: String? = null,
     subtitle: String? = null,
     onTrailingClick:
         (() -> Unit)? = null,
@@ -2024,19 +2027,42 @@ private fun HomeSectionHeader(
         verticalAlignment =
             Alignment.CenterVertically,
     ) {
-        Text(
-            text = title,
-            color =
-                Color.White,
-            fontWeight =
-                FontWeight.Bold,
-            fontSize = 20.sp,
-            maxLines = 1,
-            overflow =
-                TextOverflow.Ellipsis,
+        Row(
             modifier =
                 Modifier.weight(1f),
-        )
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                color =
+                    Color.White,
+                fontWeight =
+                    FontWeight.Bold,
+                fontSize = 20.sp,
+                maxLines = 1,
+                overflow =
+                    TextOverflow.Ellipsis,
+            )
+
+            contextLabel
+                ?.takeIf {
+                    it.isNotBlank()
+                }
+                ?.let {
+                    label ->
+                    Text(
+                        text =
+                            " · $label",
+                        color =
+                            VueoPalette.Muted,
+                        fontWeight =
+                            FontWeight.Medium,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                    )
+                }
+        }
 
         subtitle
             ?.takeIf {
@@ -2274,6 +2300,40 @@ private fun EmptyHomeCard(
     }
 }
 
+private fun homeCatalogTypeLabel(
+    row: CatalogRow,
+): String? {
+    val type =
+        row.items
+            .asSequence()
+            .map {
+                it.type
+                    .trim()
+                    .lowercase()
+            }
+            .firstOrNull {
+                it.isNotBlank()
+            }
+            ?: return null
+
+    return when (type) {
+        "movie",
+        "movies" ->
+            "Movies"
+
+        "series",
+        "tv",
+        "show",
+        "shows" ->
+            "Series"
+
+        else ->
+            type.replaceFirstChar {
+                it.uppercase()
+            }
+    }
+}
+
 @Composable
 private fun CatalogSection(
     row: CatalogRow,
@@ -2289,6 +2349,10 @@ private fun CatalogSection(
     ) {
         HomeSectionHeader(
             title = row.title,
+            contextLabel =
+                homeCatalogTypeLabel(
+                    row
+                ),
             subtitle = "See All",
             onTrailingClick =
                 onSeeAll,
@@ -2449,10 +2513,6 @@ private fun CatalogGridPoster(
                 .clickable(
                     onClick = onClick
                 ),
-        verticalArrangement =
-            Arrangement.spacedBy(
-                7.dp
-            ),
     ) {
         Surface(
             modifier =
@@ -2481,6 +2541,12 @@ private fun CatalogGridPoster(
             )
         }
 
+        Spacer(
+            Modifier.height(
+                7.dp
+            )
+        )
+
         Text(
             text = item.name,
             color =
@@ -2491,6 +2557,12 @@ private fun CatalogGridPoster(
             fontWeight =
                 FontWeight.SemiBold,
             fontSize = 12.sp,
+        )
+
+        Spacer(
+            Modifier.height(
+                3.dp
+            )
         )
 
         Text(
@@ -2530,10 +2602,6 @@ private fun MediaPoster(
                 .clickable(
                     onClick = onClick
                 ),
-        verticalArrangement =
-            Arrangement.spacedBy(
-                7.dp
-            ),
     ) {
         Surface(
             shape =
@@ -2558,6 +2626,12 @@ private fun MediaPoster(
             )
         }
 
+        Spacer(
+            Modifier.height(
+                7.dp
+            )
+        )
+
         Text(
             text = item.name,
             color =
@@ -2568,6 +2642,12 @@ private fun MediaPoster(
             fontWeight =
                 FontWeight.SemiBold,
             fontSize = 12.sp,
+        )
+
+        Spacer(
+            Modifier.height(
+                3.dp
+            )
         )
 
         Text(
