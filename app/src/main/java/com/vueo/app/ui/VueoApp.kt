@@ -1993,7 +1993,7 @@ private fun ProviderHealthRow(
                 ProviderHealthStatus.TIMEOUT,
             )
         ) {
-            health.error?.let { error ->
+            health?.error?.let { error ->
                 Text(
                     error,
                     color = MaterialTheme.colorScheme.error.copy(alpha = .85f),
