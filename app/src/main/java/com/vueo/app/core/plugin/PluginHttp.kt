@@ -73,6 +73,13 @@ object PluginHttp {
             .build()
     }
 
+    private val manualRedirectClient: OkHttpClient by lazy {
+        client.newBuilder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
+    }
+
     suspend fun getText(url: String): String =
         withContext(Dispatchers.IO) {
             requireHttps(url)
@@ -161,7 +168,21 @@ object PluginHttp {
                     else -> requestBuilder.method(method, body)
                 }
 
-                client.newCall(requestBuilder.build())
+                val redirectMode =
+                    input.optString(
+                        "redirect",
+                        "follow",
+                    )
+
+                val requestClient =
+                    if (redirectMode == "manual") {
+                        manualRedirectClient
+                    } else {
+                        client
+                    }
+
+                requestClient
+                    .newCall(requestBuilder.build())
                     .execute()
                     .use { response ->
                         val responseHeaders = JSONObject()

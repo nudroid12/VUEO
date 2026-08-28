@@ -208,3 +208,34 @@ filesDir/nuvio_plugin_scrapers
 ```
 
 `Find Sources` never downloads provider JavaScript. Network access during discovery is only the provider's own `fetch()` traffic.
+
+
+## v0.3.5 compatibility layer
+
+```text
+Provider JS
+    |
+    +-- require("axios")
+    |
+    +-- require("cheerio-without-node-native")
+    |          |
+    |          +--> JS Cheerio facade
+    |                    |
+    |                    +--> native jsoup DOM/CSS engine
+    |
+    +-- require("crypto-js")
+    |          |
+    |          +--> JS WordArray facade
+    |                    |
+    |                    +--> native Android crypto
+    |
+    +-- URL / URLSearchParams
+    |          |
+    |          +--> native OkHttp URL parser
+    |
+    +-- fetch()
+               |
+               +--> native OkHttp
+```
+
+The compatibility layer is deliberately based on the provider APIs documented by Nuvio rather than exposing Node.js wholesale.

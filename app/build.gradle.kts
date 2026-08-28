@@ -11,8 +11,8 @@ android {
         applicationId = "com.vueo.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.3.4"
+        versionCode = 10
+        versionName = "0.3.5"
     }
 
     buildFeatures {
@@ -56,4 +56,7 @@ dependencies {
     // the device resolver cannot resolve provider or repository hosts.
     implementation("com.squareup.okhttp3:okhttp:5.4.0")
     implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:5.4.0")
+
+    // Native DOM engine behind the Nuvio-compatible Cheerio bridge.
+    implementation("org.jsoup:jsoup:1.23.2")
 }

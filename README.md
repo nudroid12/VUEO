@@ -1,4 +1,4 @@
-# VUEO v0.3.4
+# VUEO v0.3.5
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -233,3 +233,64 @@ Existing repositories are migrated in the background and missing provider code i
 ### Remaining compatibility work
 
 Some Nuvio providers use additional modules such as `crypto-js` or `cheerio-without-node-native`. v0.3.4 reports those as explicit unsupported module errors so later compatibility patches can target the modules actually used by failing providers.
+
+
+## v0.3.5 Nuvio Compatibility Pack
+
+This release targets the exact runtime failures seen in Provider Health.
+
+### Added require() modules
+
+- `cheerio-without-node-native`
+- `cheerio`
+- `crypto-js`
+- existing `axios`
+
+### HTML compatibility
+
+The Cheerio API is backed by native jsoup 1.23.2. Provider JavaScript gets a Cheerio-style wrapper while parsing and CSS selectors run natively.
+
+Implemented common provider calls include:
+
+- `cheerio.load(html)`
+- CSS selection
+- `.filter(callback)` and `.filter(selector)`
+- `.find()`
+- `.text()`
+- `.ownText()`
+- `.html()`
+- `.attr()`
+- `.data()`
+- `.each()`
+- `.map().get()`
+- `.eq()`, `.first()`, `.last()`
+- `.parent()`, `.parents()`, `.children()`
+- `.closest()`, `.next()`, `.prev()`, `.siblings()`
+- `.is()`, `.hasClass()`, `.remove()`
+
+### CryptoJS compatibility
+
+Native Android cryptography now backs a CryptoJS-style WordArray API.
+
+Implemented:
+
+- Base64, UTF8, Hex and Latin1 encoders
+- WordArray create, concat, clone and random
+- MD5
+- SHA1 / SHA256 / SHA384 / SHA512
+- HmacMD5 / HmacSHA1 / HmacSHA256 / HmacSHA512
+- AES CBC PKCS7 encrypt/decrypt
+- TripleDES CBC PKCS7 encrypt/decrypt
+
+This directly targets current providers such as Castle, MovieBox and ShowBox.
+
+### Web compatibility
+
+- `URL`
+- richer `URLSearchParams`
+- `TextEncoder`
+- `TextDecoder`
+- `AbortSignal.timeout`
+- fetch `redirect: "manual"` support
+
+Provider Health remains the source of truth. A provider that executes successfully but returns nothing remains `No Results`, not `Failed`.

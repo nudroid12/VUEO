@@ -420,6 +420,33 @@ class PluginSourceEngine(
                         )
                     }
 
+                    val htmlBridge =
+                        HtmlCompatBridge()
+
+                    function<String, String>(
+                        "__vueoHtmlOp"
+                    ) { requestJson ->
+                        htmlBridge.execute(
+                            requestJson
+                        )
+                    }
+
+                    function<String, String>(
+                        "__vueoCryptoOp"
+                    ) { requestJson ->
+                        CryptoCompatBridge.execute(
+                            requestJson
+                        )
+                    }
+
+                    function<String, String>(
+                        "__vueoUrlOp"
+                    ) { requestJson ->
+                        UrlCompatBridge.execute(
+                            requestJson
+                        )
+                    }
+
                     function<String, String>(
                         "__vueoBase64"
                     ) { value ->
@@ -576,7 +603,11 @@ class PluginSourceEngine(
                         init.headers["Content-Type"] ||
                         init.headers["content-type"]
                       )
-                    : null
+                    : null,
+                redirect:
+                  init.redirect == null
+                    ? "follow"
+                    : String(init.redirect)
               };
 
               var raw = await __vueoNativeFetch(
@@ -732,80 +763,1733 @@ class PluginSourceEngine(
 
             globalThis.clearTimeout = function () {};
 
-            globalThis.URLSearchParams =
-              globalThis.URLSearchParams ||
-              function (initial) {
-                this._pairs = [];
+            function __vueoNativeUrl(input, base) {
+                          var raw = __vueoUrlOp(
+                            JSON.stringify({
+                              input: String(input),
+                              base:
+                                base == null
+                                  ? ""
+                                  : String(
+                                      base.href ||
+                                      base
+                                    )
+                            })
+                          );
 
-                if (typeof initial === "string") {
-                  var source =
-                    initial.charAt(0) === "?"
-                      ? initial.slice(1)
-                      : initial;
+                          var parsed = JSON.parse(raw);
 
-                  if (source) {
-                    var parts = source.split("&");
-                    for (var i = 0; i < parts.length; i++) {
-                      var pair = parts[i].split("=");
-                      this.append(
-                        decodeURIComponent(pair[0] || ""),
-                        decodeURIComponent(pair.slice(1).join("=") || "")
-                      );
-                    }
-                  }
-                } else if (initial && typeof initial === "object") {
-                  var keys = Object.keys(initial);
-                  for (var j = 0; j < keys.length; j++) {
-                    this.append(keys[j], initial[keys[j]]);
-                  }
-                }
-              };
+                          if (parsed.error) {
+                            throw new TypeError(parsed.error);
+                          }
 
-            URLSearchParams.prototype.append = function (key, value) {
-              this._pairs.push([String(key), String(value)]);
-            };
+                          return parsed;
+                        }
 
-            URLSearchParams.prototype.set = function (key, value) {
-              this.delete(key);
-              this.append(key, value);
-            };
+                        globalThis.URLSearchParams =
+                          function (initial) {
+                            this._pairs = [];
 
-            URLSearchParams.prototype.get = function (key) {
-              key = String(key);
-              for (var i = 0; i < this._pairs.length; i++) {
-                if (this._pairs[i][0] === key) {
-                  return this._pairs[i][1];
-                }
-              }
-              return null;
-            };
+                            if (
+                              initial &&
+                              initial._pairs &&
+                              Array.isArray(initial._pairs)
+                            ) {
+                              this._pairs =
+                                initial._pairs.map(
+                                  function (pair) {
+                                    return [
+                                      String(pair[0]),
+                                      String(pair[1])
+                                    ];
+                                  }
+                                );
+                              return;
+                            }
 
-            URLSearchParams.prototype.delete = function (key) {
-              key = String(key);
-              this._pairs = this._pairs.filter(function (pair) {
-                return pair[0] !== key;
-              });
-            };
+                            if (Array.isArray(initial)) {
+                              for (
+                                var ai = 0;
+                                ai < initial.length;
+                                ai++
+                              ) {
+                                if (
+                                  initial[ai] &&
+                                  initial[ai].length >= 2
+                                ) {
+                                  this.append(
+                                    initial[ai][0],
+                                    initial[ai][1]
+                                  );
+                                }
+                              }
+                              return;
+                            }
 
-            URLSearchParams.prototype.toString = function () {
-              return this._pairs.map(function (pair) {
-                return (
-                  encodeURIComponent(pair[0]) +
-                  "=" +
-                  encodeURIComponent(pair[1])
-                );
-              }).join("&");
-            };
+                            if (typeof initial === "string") {
+                              var source =
+                                initial.charAt(0) === "?"
+                                  ? initial.slice(1)
+                                  : initial;
 
-            globalThis.require = function (name) {
-              if (name === "axios") {
-                return axios;
-              }
+                              if (source) {
+                                var parts = source.split("&");
 
-              throw new Error(
-                "Unsupported runtime require(): " + name
-              );
-            };
+                                for (
+                                  var i = 0;
+                                  i < parts.length;
+                                  i++
+                                ) {
+                                  if (!parts[i]) continue;
+
+                                  var eq =
+                                    parts[i].indexOf("=");
+
+                                  var rawKey =
+                                    eq >= 0
+                                      ? parts[i].slice(0, eq)
+                                      : parts[i];
+
+                                  var rawValue =
+                                    eq >= 0
+                                      ? parts[i].slice(eq + 1)
+                                      : "";
+
+                                  this.append(
+                                    decodeURIComponent(
+                                      rawKey.replace(/\+/g, " ")
+                                    ),
+                                    decodeURIComponent(
+                                      rawValue.replace(/\+/g, " ")
+                                    )
+                                  );
+                                }
+                              }
+                              return;
+                            }
+
+                            if (
+                              initial &&
+                              typeof initial === "object"
+                            ) {
+                              var keys =
+                                Object.keys(initial);
+
+                              for (
+                                var j = 0;
+                                j < keys.length;
+                                j++
+                              ) {
+                                this.append(
+                                  keys[j],
+                                  initial[keys[j]]
+                                );
+                              }
+                            }
+                          };
+
+                        URLSearchParams.prototype.append =
+                          function (key, value) {
+                            this._pairs.push([
+                              String(key),
+                              String(value)
+                            ]);
+                          };
+
+                        URLSearchParams.prototype.set =
+                          function (key, value) {
+                            this.delete(key);
+                            this.append(key, value);
+                          };
+
+                        URLSearchParams.prototype.get =
+                          function (key) {
+                            key = String(key);
+
+                            for (
+                              var i = 0;
+                              i < this._pairs.length;
+                              i++
+                            ) {
+                              if (
+                                this._pairs[i][0] === key
+                              ) {
+                                return this._pairs[i][1];
+                              }
+                            }
+
+                            return null;
+                          };
+
+                        URLSearchParams.prototype.getAll =
+                          function (key) {
+                            key = String(key);
+
+                            return this._pairs
+                              .filter(function (pair) {
+                                return pair[0] === key;
+                              })
+                              .map(function (pair) {
+                                return pair[1];
+                              });
+                          };
+
+                        URLSearchParams.prototype.has =
+                          function (key) {
+                            return this.get(key) !== null;
+                          };
+
+                        URLSearchParams.prototype.delete =
+                          function (key) {
+                            key = String(key);
+
+                            this._pairs =
+                              this._pairs.filter(
+                                function (pair) {
+                                  return pair[0] !== key;
+                                }
+                              );
+                          };
+
+                        URLSearchParams.prototype.keys =
+                          function () {
+                            return this._pairs
+                              .map(function (pair) {
+                                return pair[0];
+                              })
+                              [Symbol.iterator]();
+                          };
+
+                        URLSearchParams.prototype.values =
+                          function () {
+                            return this._pairs
+                              .map(function (pair) {
+                                return pair[1];
+                              })
+                              [Symbol.iterator]();
+                          };
+
+                        URLSearchParams.prototype.entries =
+                          function () {
+                            return this._pairs
+                              .map(function (pair) {
+                                return [
+                                  pair[0],
+                                  pair[1]
+                                ];
+                              })
+                              [Symbol.iterator]();
+                          };
+
+                        URLSearchParams.prototype.forEach =
+                          function (callback, thisArg) {
+                            for (
+                              var i = 0;
+                              i < this._pairs.length;
+                              i++
+                            ) {
+                              callback.call(
+                                thisArg,
+                                this._pairs[i][1],
+                                this._pairs[i][0],
+                                this
+                              );
+                            }
+                          };
+
+                        URLSearchParams.prototype.toString =
+                          function () {
+                            return this._pairs
+                              .map(function (pair) {
+                                return (
+                                  encodeURIComponent(pair[0])
+                                    .replace(/%20/g, "+") +
+                                  "=" +
+                                  encodeURIComponent(pair[1])
+                                    .replace(/%20/g, "+")
+                                );
+                              })
+                              .join("&");
+                          };
+
+                        if (
+                          typeof Symbol !== "undefined" &&
+                          Symbol.iterator
+                        ) {
+                          URLSearchParams.prototype[
+                            Symbol.iterator
+                          ] =
+                            URLSearchParams.prototype.entries;
+                        }
+
+                        globalThis.URL =
+                          function (input, base) {
+                            var parsed =
+                              __vueoNativeUrl(
+                                input,
+                                base
+                              );
+
+                            this.href = parsed.href;
+                            this.origin = parsed.origin;
+                            this.protocol = parsed.protocol;
+                            this.hostname = parsed.hostname;
+                            this.host = parsed.host;
+                            this.port = parsed.port;
+                            this.pathname = parsed.pathname;
+                            this.search = parsed.search;
+                            this.hash = parsed.hash;
+                            this.searchParams =
+                              new URLSearchParams(
+                                parsed.queryPairs || []
+                              );
+                          };
+
+                        URL.prototype.toString =
+                          function () {
+                            return this.href;
+                          };
+
+                        URL.prototype.toJSON =
+                          function () {
+                            return this.href;
+                          };
+
+                        globalThis.AbortSignal =
+                          globalThis.AbortSignal ||
+                          {
+                            timeout: function (millis) {
+                              return {
+                                __vueoTimeoutMs:
+                                  Number(millis || 0),
+                                aborted: false
+                              };
+                            }
+                          };
+
+                        function __vueoUtf8Bytes(value) {
+                          var text = String(value);
+                          var encoded =
+                            unescape(
+                              encodeURIComponent(text)
+                            );
+
+                          var bytes = [];
+
+                          for (
+                            var i = 0;
+                            i < encoded.length;
+                            i++
+                          ) {
+                            bytes.push(
+                              encoded.charCodeAt(i) & 255
+                            );
+                          }
+
+                          return bytes;
+                        }
+
+                        function __vueoUtf8String(bytes) {
+                          var binary = "";
+
+                          for (
+                            var i = 0;
+                            i < bytes.length;
+                            i++
+                          ) {
+                            binary +=
+                              String.fromCharCode(
+                                bytes[i] & 255
+                              );
+                          }
+
+                          try {
+                            return decodeURIComponent(
+                              escape(binary)
+                            );
+                          } catch (_) {
+                            return binary;
+                          }
+                        }
+
+                        globalThis.TextEncoder =
+                          globalThis.TextEncoder ||
+                          function () {};
+
+                        TextEncoder.prototype.encode =
+                          function (value) {
+                            return new Uint8Array(
+                              __vueoUtf8Bytes(value)
+                            );
+                          };
+
+                        globalThis.TextDecoder =
+                          globalThis.TextDecoder ||
+                          function () {};
+
+                        TextDecoder.prototype.decode =
+                          function (value) {
+                            if (value == null) {
+                              return "";
+                            }
+
+                            return __vueoUtf8String(
+                              Array.prototype.slice.call(
+                                value
+                              )
+                            );
+                          };
+
+                        function __vueoB64ToBytes(value) {
+                          var binary =
+                            atob(String(value));
+
+                          var bytes = [];
+
+                          for (
+                            var i = 0;
+                            i < binary.length;
+                            i++
+                          ) {
+                            bytes.push(
+                              binary.charCodeAt(i) & 255
+                            );
+                          }
+
+                          return bytes;
+                        }
+
+                        function __vueoBytesToB64(bytes) {
+                          var binary = "";
+
+                          for (
+                            var i = 0;
+                            i < bytes.length;
+                            i++
+                          ) {
+                            binary +=
+                              String.fromCharCode(
+                                bytes[i] & 255
+                              );
+                          }
+
+                          return btoa(binary);
+                        }
+
+                        function __vueoWordsToBytes(
+                          words,
+                          sigBytes
+                        ) {
+                          words = words || [];
+
+                          var count =
+                            sigBytes == null
+                              ? words.length * 4
+                              : Number(sigBytes);
+
+                          var bytes = [];
+
+                          for (
+                            var i = 0;
+                            i < count;
+                            i++
+                          ) {
+                            bytes.push(
+                              (
+                                words[i >>> 2] >>>
+                                (
+                                  24 -
+                                  (i % 4) * 8
+                                )
+                              ) & 255
+                            );
+                          }
+
+                          return bytes;
+                        }
+
+                        function __vueoBytesToWords(bytes) {
+                          var words = [];
+
+                          for (
+                            var i = 0;
+                            i < bytes.length;
+                            i++
+                          ) {
+                            words[i >>> 2] =
+                              (
+                                words[i >>> 2] || 0
+                              ) |
+                              (
+                                (bytes[i] & 255) <<
+                                (
+                                  24 -
+                                  (i % 4) * 8
+                                )
+                              );
+                          }
+
+                          return words;
+                        }
+
+                        function VueoWordArray(
+                          bytes
+                        ) {
+                          this._bytes =
+                            (bytes || []).slice();
+
+                          this.sigBytes =
+                            this._bytes.length;
+
+                          this.words =
+                            __vueoBytesToWords(
+                              this._bytes
+                            );
+                        }
+
+                        VueoWordArray.prototype.concat =
+                          function (other) {
+                            var incoming =
+                              __vueoAsWordArray(
+                                other
+                              );
+
+                            this._bytes =
+                              this._bytes.concat(
+                                incoming._bytes
+                              );
+
+                            this.sigBytes =
+                              this._bytes.length;
+
+                            this.words =
+                              __vueoBytesToWords(
+                                this._bytes
+                              );
+
+                            return this;
+                          };
+
+                        VueoWordArray.prototype.clamp =
+                          function () {
+                            return this;
+                          };
+
+                        VueoWordArray.prototype.clone =
+                          function () {
+                            return new VueoWordArray(
+                              this._bytes
+                            );
+                          };
+
+                        VueoWordArray.prototype.toString =
+                          function (encoder) {
+                            return (
+                              encoder ||
+                              CryptoJS.enc.Hex
+                            ).stringify(this);
+                          };
+
+                        function __vueoAsWordArray(
+                          value
+                        ) {
+                          if (
+                            value instanceof
+                            VueoWordArray
+                          ) {
+                            return value;
+                          }
+
+                          if (
+                            value &&
+                            Array.isArray(value._bytes)
+                          ) {
+                            return new VueoWordArray(
+                              value._bytes
+                            );
+                          }
+
+                          if (
+                            value &&
+                            Array.isArray(value.words)
+                          ) {
+                            return new VueoWordArray(
+                              __vueoWordsToBytes(
+                                value.words,
+                                value.sigBytes
+                              )
+                            );
+                          }
+
+                          if (
+                            value instanceof Uint8Array
+                          ) {
+                            return new VueoWordArray(
+                              Array.prototype.slice.call(
+                                value
+                              )
+                            );
+                          }
+
+                          if (
+                            value instanceof ArrayBuffer
+                          ) {
+                            return new VueoWordArray(
+                              Array.prototype.slice.call(
+                                new Uint8Array(value)
+                              )
+                            );
+                          }
+
+                          return new VueoWordArray(
+                            __vueoUtf8Bytes(
+                              String(value)
+                            )
+                          );
+                        }
+
+                        function __vueoCryptoNative(
+                          request
+                        ) {
+                          var raw =
+                            __vueoCryptoOp(
+                              JSON.stringify(request)
+                            );
+
+                          var parsed =
+                            JSON.parse(raw);
+
+                          if (parsed.error) {
+                            throw new Error(
+                              parsed.error
+                            );
+                          }
+
+                          return parsed;
+                        }
+
+                        function __vueoCryptoHash(
+                          algorithm,
+                          input
+                        ) {
+                          var wordArray =
+                            __vueoAsWordArray(
+                              input
+                            );
+
+                          var result =
+                            __vueoCryptoNative({
+                              op: "hash",
+                              algorithm: algorithm,
+                              data:
+                                __vueoBytesToB64(
+                                  wordArray._bytes
+                                )
+                            });
+
+                          return new VueoWordArray(
+                            __vueoB64ToBytes(
+                              result.data
+                            )
+                          );
+                        }
+
+                        function __vueoCryptoHmac(
+                          algorithm,
+                          data,
+                          key
+                        ) {
+                          var dataWa =
+                            __vueoAsWordArray(
+                              data
+                            );
+
+                          var keyWa =
+                            __vueoAsWordArray(
+                              key
+                            );
+
+                          var result =
+                            __vueoCryptoNative({
+                              op: "hmac",
+                              algorithm: algorithm,
+                              data:
+                                __vueoBytesToB64(
+                                  dataWa._bytes
+                                ),
+                              key:
+                                __vueoBytesToB64(
+                                  keyWa._bytes
+                                )
+                            });
+
+                          return new VueoWordArray(
+                            __vueoB64ToBytes(
+                              result.data
+                            )
+                          );
+                        }
+
+                        function __vueoCipherData(
+                          cipher
+                        ) {
+                          if (
+                            typeof cipher === "string"
+                          ) {
+                            return cipher;
+                          }
+
+                          if (
+                            cipher &&
+                            cipher.ciphertext
+                          ) {
+                            return __vueoBytesToB64(
+                              __vueoAsWordArray(
+                                cipher.ciphertext
+                              )._bytes
+                            );
+                          }
+
+                          return __vueoBytesToB64(
+                            __vueoAsWordArray(
+                              cipher
+                            )._bytes
+                          );
+                        }
+
+                        function __vueoDecrypt(
+                          algorithm,
+                          cipher,
+                          key,
+                          options
+                        ) {
+                          options =
+                            options || {};
+
+                          var keyWa =
+                            __vueoAsWordArray(
+                              key
+                            );
+
+                          var ivWa =
+                            options.iv
+                              ? __vueoAsWordArray(
+                                  options.iv
+                                )
+                              : new VueoWordArray([]);
+
+                          var result =
+                            __vueoCryptoNative({
+                              op: "decrypt",
+                              algorithm: algorithm,
+                              data:
+                                __vueoCipherData(
+                                  cipher
+                                ),
+                              key:
+                                __vueoBytesToB64(
+                                  keyWa._bytes
+                                ),
+                              iv:
+                                __vueoBytesToB64(
+                                  ivWa._bytes
+                                )
+                            });
+
+                          return new VueoWordArray(
+                            __vueoB64ToBytes(
+                              result.data
+                            )
+                          );
+                        }
+
+                        function __vueoEncrypt(
+                          algorithm,
+                          plaintext,
+                          key,
+                          options
+                        ) {
+                          options =
+                            options || {};
+
+                          var dataWa =
+                            __vueoAsWordArray(
+                              plaintext
+                            );
+
+                          var keyWa =
+                            __vueoAsWordArray(
+                              key
+                            );
+
+                          var ivWa =
+                            options.iv
+                              ? __vueoAsWordArray(
+                                  options.iv
+                                )
+                              : new VueoWordArray([]);
+
+                          var result =
+                            __vueoCryptoNative({
+                              op: "encrypt",
+                              algorithm: algorithm,
+                              data:
+                                __vueoBytesToB64(
+                                  dataWa._bytes
+                                ),
+                              key:
+                                __vueoBytesToB64(
+                                  keyWa._bytes
+                                ),
+                              iv:
+                                __vueoBytesToB64(
+                                  ivWa._bytes
+                                )
+                            });
+
+                          var ciphertext =
+                            new VueoWordArray(
+                              __vueoB64ToBytes(
+                                result.data
+                              )
+                            );
+
+                          return {
+                            ciphertext: ciphertext,
+                            toString: function () {
+                              return CryptoJS.enc.Base64
+                                .stringify(
+                                  ciphertext
+                                );
+                            }
+                          };
+                        }
+
+                        var CryptoJS = {
+                          lib: {
+                            WordArray: {
+                              create:
+                                function (
+                                  words,
+                                  sigBytes
+                                ) {
+                                  if (
+                                    words instanceof
+                                    VueoWordArray
+                                  ) {
+                                    return words.clone();
+                                  }
+
+                                  if (
+                                    words instanceof
+                                    Uint8Array
+                                  ) {
+                                    return new VueoWordArray(
+                                      Array.prototype
+                                        .slice.call(
+                                          words
+                                        )
+                                    );
+                                  }
+
+                                  return new VueoWordArray(
+                                    __vueoWordsToBytes(
+                                      words || [],
+                                      sigBytes
+                                    )
+                                  );
+                                },
+
+                              random:
+                                function (count) {
+                                  var result =
+                                    __vueoCryptoNative({
+                                      op: "random",
+                                      count:
+                                        Number(count || 0)
+                                    });
+
+                                  return new VueoWordArray(
+                                    __vueoB64ToBytes(
+                                      result.data
+                                    )
+                                  );
+                                }
+                            },
+
+                            CipherParams: {
+                              create:
+                                function (value) {
+                                  return value || {};
+                                }
+                            }
+                          },
+
+                          enc: {
+                            Utf8: {
+                              parse:
+                                function (value) {
+                                  return new VueoWordArray(
+                                    __vueoUtf8Bytes(
+                                      value
+                                    )
+                                  );
+                                },
+
+                              stringify:
+                                function (wordArray) {
+                                  return __vueoUtf8String(
+                                    __vueoAsWordArray(
+                                      wordArray
+                                    )._bytes
+                                  );
+                                }
+                            },
+
+                            Base64: {
+                              parse:
+                                function (value) {
+                                  return new VueoWordArray(
+                                    __vueoB64ToBytes(
+                                      value
+                                    )
+                                  );
+                                },
+
+                              stringify:
+                                function (wordArray) {
+                                  return __vueoBytesToB64(
+                                    __vueoAsWordArray(
+                                      wordArray
+                                    )._bytes
+                                  );
+                                }
+                            },
+
+                            Hex: {
+                              parse:
+                                function (value) {
+                                  value =
+                                    String(value)
+                                      .replace(
+                                        /[^0-9a-f]/gi,
+                                        ""
+                                      );
+
+                                  var bytes = [];
+
+                                  for (
+                                    var i = 0;
+                                    i < value.length;
+                                    i += 2
+                                  ) {
+                                    bytes.push(
+                                      parseInt(
+                                        value.slice(
+                                          i,
+                                          i + 2
+                                        ),
+                                        16
+                                      )
+                                    );
+                                  }
+
+                                  return new VueoWordArray(
+                                    bytes
+                                  );
+                                },
+
+                              stringify:
+                                function (wordArray) {
+                                  return __vueoAsWordArray(
+                                    wordArray
+                                  )._bytes
+                                    .map(
+                                      function (byte) {
+                                        return (
+                                          "0" +
+                                          (
+                                            byte & 255
+                                          ).toString(16)
+                                        ).slice(-2);
+                                      }
+                                    )
+                                    .join("");
+                                }
+                            },
+
+                            Latin1: {
+                              parse:
+                                function (value) {
+                                  var bytes = [];
+
+                                  value =
+                                    String(value);
+
+                                  for (
+                                    var i = 0;
+                                    i < value.length;
+                                    i++
+                                  ) {
+                                    bytes.push(
+                                      value.charCodeAt(i)
+                                        & 255
+                                    );
+                                  }
+
+                                  return new VueoWordArray(
+                                    bytes
+                                  );
+                                },
+
+                              stringify:
+                                function (wordArray) {
+                                  return __vueoAsWordArray(
+                                    wordArray
+                                  )._bytes
+                                    .map(
+                                      function (byte) {
+                                        return String
+                                          .fromCharCode(
+                                            byte & 255
+                                          );
+                                      }
+                                    )
+                                    .join("");
+                                }
+                            }
+                          },
+
+                          mode: {
+                            CBC: "CBC"
+                          },
+
+                          pad: {
+                            Pkcs7: "Pkcs7"
+                          },
+
+                          MD5:
+                            function (value) {
+                              return __vueoCryptoHash(
+                                "MD5",
+                                value
+                              );
+                            },
+
+                          SHA1:
+                            function (value) {
+                              return __vueoCryptoHash(
+                                "SHA1",
+                                value
+                              );
+                            },
+
+                          SHA256:
+                            function (value) {
+                              return __vueoCryptoHash(
+                                "SHA256",
+                                value
+                              );
+                            },
+
+                          SHA384:
+                            function (value) {
+                              return __vueoCryptoHash(
+                                "SHA384",
+                                value
+                              );
+                            },
+
+                          SHA512:
+                            function (value) {
+                              return __vueoCryptoHash(
+                                "SHA512",
+                                value
+                              );
+                            },
+
+                          HmacMD5:
+                            function (data, key) {
+                              return __vueoCryptoHmac(
+                                "MD5",
+                                data,
+                                key
+                              );
+                            },
+
+                          HmacSHA1:
+                            function (data, key) {
+                              return __vueoCryptoHmac(
+                                "SHA1",
+                                data,
+                                key
+                              );
+                            },
+
+                          HmacSHA256:
+                            function (data, key) {
+                              return __vueoCryptoHmac(
+                                "SHA256",
+                                data,
+                                key
+                              );
+                            },
+
+                          HmacSHA512:
+                            function (data, key) {
+                              return __vueoCryptoHmac(
+                                "SHA512",
+                                data,
+                                key
+                              );
+                            },
+
+                          AES: {
+                            decrypt:
+                              function (
+                                cipher,
+                                key,
+                                options
+                              ) {
+                                return __vueoDecrypt(
+                                  "AES",
+                                  cipher,
+                                  key,
+                                  options
+                                );
+                              },
+
+                            encrypt:
+                              function (
+                                plaintext,
+                                key,
+                                options
+                              ) {
+                                return __vueoEncrypt(
+                                  "AES",
+                                  plaintext,
+                                  key,
+                                  options
+                                );
+                              }
+                          },
+
+                          TripleDES: {
+                            decrypt:
+                              function (
+                                cipher,
+                                key,
+                                options
+                              ) {
+                                return __vueoDecrypt(
+                                  "TripleDES",
+                                  cipher,
+                                  key,
+                                  options
+                                );
+                              },
+
+                            encrypt:
+                              function (
+                                plaintext,
+                                key,
+                                options
+                              ) {
+                                return __vueoEncrypt(
+                                  "TripleDES",
+                                  plaintext,
+                                  key,
+                                  options
+                                );
+                              }
+                          }
+                        };
+
+                        function __vueoHtmlNative(
+                          request
+                        ) {
+                          var raw =
+                            __vueoHtmlOp(
+                              JSON.stringify(request)
+                            );
+
+                          var parsed =
+                            JSON.parse(raw);
+
+                          if (parsed.error) {
+                            throw new Error(
+                              parsed.error
+                            );
+                          }
+
+                          return parsed;
+                        }
+
+                        function __vueoCheerioLoad(
+                          html,
+                          options,
+                          isDocument
+                        ) {
+                          var parsed =
+                            __vueoHtmlNative({
+                              op: "parse",
+                              html:
+                                html == null
+                                  ? ""
+                                  : String(html),
+                              baseUri:
+                                options &&
+                                options.baseURI
+                                  ? String(
+                                      options.baseURI
+                                    )
+                                  : ""
+                            });
+
+                          var documentId =
+                            parsed.documentId;
+
+                          function Selection(ids) {
+                            this._ids =
+                              (ids || []).slice();
+
+                            this.length =
+                              this._ids.length;
+
+                            for (
+                              var i = 0;
+                              i < this._ids.length;
+                              i++
+                            ) {
+                              this[i] = {
+                                __vueoNodeId:
+                                  this._ids[i],
+                                __vueoDocumentId:
+                                  documentId
+                              };
+                            }
+                          }
+
+                          function idsFromResponse(
+                            response
+                          ) {
+                            return (
+                              response.ids ||
+                              []
+                            );
+                          }
+
+                          function opIds(
+                            op,
+                            ids,
+                            extra
+                          ) {
+                            var request = {
+                              op: op,
+                              documentId:
+                                documentId,
+                              ids:
+                                ids || []
+                            };
+
+                            if (extra) {
+                              Object.keys(extra)
+                                .forEach(
+                                  function (key) {
+                                    request[key] =
+                                      extra[key];
+                                  }
+                                );
+                            }
+
+                            return idsFromResponse(
+                              __vueoHtmlNative(
+                                request
+                              )
+                            );
+                          }
+
+                          Selection.prototype.eq =
+                            function (index) {
+                              index = Number(index);
+
+                              if (index < 0) {
+                                index =
+                                  this._ids.length +
+                                  index;
+                              }
+
+                              if (
+                                index < 0 ||
+                                index >=
+                                this._ids.length
+                              ) {
+                                return new Selection([]);
+                              }
+
+                              return new Selection([
+                                this._ids[index]
+                              ]);
+                            };
+
+                          Selection.prototype.first =
+                            function () {
+                              return this.eq(0);
+                            };
+
+                          Selection.prototype.last =
+                            function () {
+                              return this.eq(-1);
+                            };
+
+                          Selection.prototype.get =
+                            function (index) {
+                              if (
+                                index == null
+                              ) {
+                                return this.toArray();
+                              }
+
+                              var selected =
+                                this.eq(index);
+
+                              return selected.length
+                                ? selected[0]
+                                : undefined;
+                            };
+
+                          Selection.prototype.toArray =
+                            function () {
+                              var result = [];
+
+                              for (
+                                var i = 0;
+                                i < this._ids.length;
+                                i++
+                              ) {
+                                result.push({
+                                  __vueoNodeId:
+                                    this._ids[i],
+                                  __vueoDocumentId:
+                                    documentId
+                                });
+                              }
+
+                              return result;
+                            };
+
+                          Selection.prototype.each =
+                            function (callback) {
+                              for (
+                                var i = 0;
+                                i < this._ids.length;
+                                i++
+                              ) {
+                                callback.call(
+                                  this[i],
+                                  i,
+                                  this[i]
+                                );
+                              }
+
+                              return this;
+                            };
+
+                          Selection.prototype.map =
+                            function (callback) {
+                              var values = [];
+
+                              for (
+                                var i = 0;
+                                i < this._ids.length;
+                                i++
+                              ) {
+                                values.push(
+                                  callback.call(
+                                    this[i],
+                                    i,
+                                    this[i]
+                                  )
+                                );
+                              }
+
+                              return {
+                                get:
+                                  function (index) {
+                                    if (
+                                      index == null
+                                    ) {
+                                      return values;
+                                    }
+                                    return values[index];
+                                  },
+
+                                toArray:
+                                  function () {
+                                    return values.slice();
+                                  }
+                              };
+                            };
+
+                          Selection.prototype.filter =
+                            function (selector) {
+                              if (
+                                typeof selector ===
+                                "function"
+                              ) {
+                                var kept = [];
+
+                                for (
+                                  var i = 0;
+                                  i < this._ids.length;
+                                  i++
+                                ) {
+                                  if (
+                                    selector.call(
+                                      this[i],
+                                      i,
+                                      this[i]
+                                    )
+                                  ) {
+                                    kept.push(
+                                      this._ids[i]
+                                    );
+                                  }
+                                }
+
+                                return new Selection(
+                                  kept
+                                );
+                              }
+
+                              return new Selection(
+                                opIds(
+                                  "filter",
+                                  this._ids,
+                                  {
+                                    selector:
+                                      String(selector)
+                                  }
+                                )
+                              );
+                            };
+
+                          Selection.prototype.find =
+                            function (selector) {
+                              return new Selection(
+                                opIds(
+                                  "find",
+                                  this._ids,
+                                  {
+                                    selector:
+                                      String(selector)
+                                  }
+                                )
+                              );
+                            };
+
+                          Selection.prototype.parent =
+                            function () {
+                              return new Selection(
+                                opIds(
+                                  "parent",
+                                  this._ids
+                                )
+                              );
+                            };
+
+                          Selection.prototype.parents =
+                            function (selector) {
+                              return new Selection(
+                                opIds(
+                                  "parents",
+                                  this._ids,
+                                  {
+                                    selector:
+                                      selector == null
+                                        ? ""
+                                        : String(
+                                            selector
+                                          )
+                                  }
+                                )
+                              );
+                            };
+
+                          Selection.prototype.children =
+                            function (selector) {
+                              return new Selection(
+                                opIds(
+                                  "children",
+                                  this._ids,
+                                  {
+                                    selector:
+                                      selector == null
+                                        ? ""
+                                        : String(
+                                            selector
+                                          )
+                                  }
+                                )
+                              );
+                            };
+
+                          Selection.prototype.closest =
+                            function (selector) {
+                              return new Selection(
+                                opIds(
+                                  "closest",
+                                  this._ids,
+                                  {
+                                    selector:
+                                      String(selector)
+                                  }
+                                )
+                              );
+                            };
+
+                          Selection.prototype.next =
+                            function () {
+                              return new Selection(
+                                opIds(
+                                  "next",
+                                  this._ids
+                                )
+                              );
+                            };
+
+                          Selection.prototype.prev =
+                            function () {
+                              return new Selection(
+                                opIds(
+                                  "prev",
+                                  this._ids
+                                )
+                              );
+                            };
+
+                          Selection.prototype.siblings =
+                            function (selector) {
+                              return new Selection(
+                                opIds(
+                                  "siblings",
+                                  this._ids,
+                                  {
+                                    selector:
+                                      selector == null
+                                        ? ""
+                                        : String(
+                                            selector
+                                          )
+                                  }
+                                )
+                              );
+                            };
+
+                          Selection.prototype.text =
+                            function () {
+                              return __vueoHtmlNative({
+                                op: "text",
+                                ids: this._ids
+                              }).value || "";
+                            };
+
+                          Selection.prototype.ownText =
+                            function () {
+                              return __vueoHtmlNative({
+                                op: "ownText",
+                                ids: this._ids
+                              }).value || "";
+                            };
+
+                          Selection.prototype.html =
+                            function () {
+                              return __vueoHtmlNative({
+                                op: "html",
+                                ids: this._ids
+                              }).value || "";
+                            };
+
+                          Selection.prototype.attr =
+                            function (name) {
+                              if (name == null) {
+                                return undefined;
+                              }
+
+                              return __vueoHtmlNative({
+                                op: "attr",
+                                ids: this._ids,
+                                name: String(name)
+                              }).value || undefined;
+                            };
+
+                          Selection.prototype.data =
+                            function (name) {
+                              return this.attr(
+                                "data-" +
+                                String(name)
+                                  .replace(
+                                    /[A-Z]/g,
+                                    function (letter) {
+                                      return (
+                                        "-" +
+                                        letter.toLowerCase()
+                                      );
+                                    }
+                                  )
+                              );
+                            };
+
+                          Selection.prototype.val =
+                            function () {
+                              return this.attr("value");
+                            };
+
+                          Selection.prototype.is =
+                            function (selector) {
+                              return !!__vueoHtmlNative({
+                                op: "is",
+                                ids: this._ids,
+                                selector:
+                                  String(selector)
+                              }).bool;
+                            };
+
+                          Selection.prototype.hasClass =
+                            function (name) {
+                              return !!__vueoHtmlNative({
+                                op: "hasClass",
+                                ids: this._ids,
+                                name: String(name)
+                              }).bool;
+                            };
+
+                          Selection.prototype.remove =
+                            function () {
+                              __vueoHtmlNative({
+                                op: "remove",
+                                ids: this._ids
+                              });
+                              return this;
+                            };
+
+                          function $(input) {
+                            if (
+                              input &&
+                              input.__vueoNodeId
+                            ) {
+                              return new Selection([
+                                input.__vueoNodeId
+                              ]);
+                            }
+
+                            if (
+                              input instanceof
+                              Selection
+                            ) {
+                              return input;
+                            }
+
+                            var selector =
+                              String(input == null
+                                ? ""
+                                : input);
+
+                            if (!selector) {
+                              return new Selection([]);
+                            }
+
+                            return new Selection(
+                              idsFromResponse(
+                                __vueoHtmlNative({
+                                  op: "select",
+                                  documentId:
+                                    documentId,
+                                  selector:
+                                    selector
+                                })
+                              )
+                            );
+                          }
+
+                          $.html =
+                            function (selection) {
+                              if (
+                                selection &&
+                                selection._ids
+                              ) {
+                                return __vueoHtmlNative({
+                                  op: "outerHtml",
+                                  ids:
+                                    selection._ids
+                                }).value || "";
+                              }
+
+                              return __vueoHtmlNative({
+                                op: "html",
+                                ids: [
+                                  parsed.rootId
+                                ]
+                              }).value || "";
+                            };
+
+                          $.root =
+                            function () {
+                              return new Selection([
+                                parsed.rootId
+                              ]);
+                            };
+
+                          return $;
+                        }
+
+                        var cheerio = {
+                          load:
+                            function (
+                              html,
+                              options,
+                              isDocument
+                            ) {
+                              return __vueoCheerioLoad(
+                                html,
+                                options,
+                                isDocument
+                              );
+                            }
+                        };
+
+                        globalThis.require =
+                          function (name) {
+                            if (
+                              name === "axios"
+                            ) {
+                              return axios;
+                            }
+
+                            if (
+                              name ===
+                              "cheerio-without-node-native"
+                            ) {
+                              return cheerio;
+                            }
+
+                            if (
+                              name === "cheerio"
+                            ) {
+                              return cheerio;
+                            }
+
+                            if (
+                              name === "crypto-js"
+                            ) {
+                              return CryptoJS;
+                            }
+
+                            throw new Error(
+                              "Unsupported runtime require(): " +
+                              name
+                            );
+                          };
 
             var module = { exports: {} };
             var exports = module.exports;
