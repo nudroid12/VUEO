@@ -1,4 +1,4 @@
-# VUEO v0.6.0
+# VUEO v0.7.0
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -464,3 +464,50 @@ Common failures are translated into useful actions rather than raw player errors
 - generic playback failure
 
 The user can retry the same source or return directly to Source Picker.
+
+
+## v0.7.0 Library
+
+Library is now a real local feature rather than a placeholder.
+
+### My List
+
+- Add or remove a movie / series from Details
+- persistent across app launches
+- opens the normal VUEO Details experience
+
+### Continue Watching
+
+Playback metadata is stored alongside progress:
+
+- media identity
+- selected episode
+- Stremio video ID
+- playback position
+- duration
+- last watched time
+
+Continue Watching only shows unfinished playback with meaningful progress.
+
+Opening a series from Continue Watching restores the matching season and episode in Details before the user presses Watch.
+
+### History
+
+- records opened and watched media
+- newest activity first
+- retains completed titles even when the resume point is cleared
+- individual remove action
+- clear all history action
+
+### Progress
+
+Library progress is updated from the Media3 player when:
+
+- playback pauses
+- the periodic player save runs
+- playback ends
+- the player is closed
+
+PlaybackStore remains responsible for the actual resume timestamp. LibraryStore owns discovery-facing media history and watchlist metadata.
+
+All Library data is local to the device in this milestone.

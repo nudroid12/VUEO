@@ -379,3 +379,33 @@ ExoPlayer
 ```
 
 The player uses the existing Media3 1.11.0 playback stack. Full Library and Continue Watching surfaces remain a later milestone.
+
+
+## v0.7.0 local Library architecture
+
+```text
+Details
+   |
+   +---- Add to My List --------------------+
+   |                                        |
+   |                                  LibraryStore
+   |                                        |
+Watch                                       +--> My List
+   |                                        |
+   v                                        +--> History
+Player                                      |
+   |                                        +--> Continue Watching
+   +---- selected episode / video ID -------+
+   |
+   +---- position / duration ---------------+
+   |
+   +---- PlaybackStore --> Resume prompt
+
+Library
+   |
+   +--> Continue Watching --> Details at saved episode
+   +--> My List ----------> Details
+   +--> History ----------> Details
+```
+
+LibraryStore uses app-private SharedPreferences with compact JSON records. This milestone intentionally stays local-only.

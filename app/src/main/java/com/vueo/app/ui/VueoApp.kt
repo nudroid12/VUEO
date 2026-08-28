@@ -101,6 +101,8 @@ import com.vueo.app.core.extensions.SourceDiscoveryCache
 import com.vueo.app.core.extensions.CatalogDiscoveryCache
 import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.core.storage.PlaybackStore
+import com.vueo.app.core.storage.LibraryStore
+import com.vueo.app.core.storage.LibraryPlaybackEntry
 import com.vueo.app.core.model.SubtitleTrack
 import com.vueo.app.core.plugin.PluginStore
 import com.vueo.app.core.plugin.ProviderCodeSyncManager
@@ -153,6 +155,16 @@ fun VueoApp() {
     val pluginStore = remember {
         PluginStore(context.applicationContext)
     }
+    val libraryStore = remember {
+        LibraryStore(
+            context.applicationContext
+        )
+    }
+    val libraryStore = remember {
+        LibraryStore(
+            context.applicationContext
+        )
+    }
     val providerCodeSync = remember {
         ProviderCodeSyncManager(
             context.applicationContext
@@ -172,6 +184,14 @@ fun VueoApp() {
         mutableStateOf<List<MediaItem>>(
             emptyList()
         )
+    }
+    var libraryVersion by remember {
+        mutableIntStateOf(0)
+    }
+    var selectedLibraryEntry by remember {
+        mutableStateOf<
+            LibraryPlaybackEntry?
+        >(null)
     }
 
     LaunchedEffect(Unit) {
@@ -198,6 +218,11 @@ fun VueoApp() {
         MediaDetailsScreen(
             engine = engine,
             initialItem = selectedMedia!!,
+            initialLibraryEntry =
+                selectedLibraryEntry,
+            onLibraryChanged = {
+                libraryVersion++
+            },
             onBack = {
                 val previous =
                     mediaBackStack
@@ -205,6 +230,8 @@ fun VueoApp() {
 
                 if (previous == null) {
                     selectedMedia = null
+                    selectedLibraryEntry =
+                        null
                 } else {
                     selectedMedia =
                         previous
@@ -222,6 +249,8 @@ fun VueoApp() {
                             current
                 }
 
+                selectedLibraryEntry =
+                    null
                 selectedMedia = next
             },
         )
@@ -288,6 +317,8 @@ fun VueoApp() {
                     onMediaClick = {
                         mediaBackStack =
                             emptyList()
+                        selectedLibraryEntry =
+                            null
                         selectedMedia = it
                     },
                 )
@@ -300,13 +331,37 @@ fun VueoApp() {
                     onMediaClick = {
                         mediaBackStack =
                             emptyList()
+                        selectedLibraryEntry =
+                            null
                         selectedMedia = it
                     },
                 )
 
-                AppTab.LIBRARY -> PlaceholderScreen(
-                    title = "Library",
-                    subtitle = "Watchlist and Continue Watching will be stored here.",
+                AppTab.LIBRARY -> LibraryScreen(
+                    store =
+                        libraryStore,
+                    version =
+                        libraryVersion,
+                    onVersionChanged = {
+                        libraryVersion++
+                    },
+                    onMediaClick = {
+                        mediaBackStack =
+                            emptyList()
+                        selectedLibraryEntry =
+                            null
+                        selectedMedia = it
+                    },
+                    onPlaybackClick = {
+                        entry ->
+
+                        mediaBackStack =
+                            emptyList()
+                        selectedLibraryEntry =
+                            entry
+                        selectedMedia =
+                            entry.media
+                    },
                 )
 
                 AppTab.CONTENT_MANAGER -> when (contentPage) {
@@ -1084,6 +1139,676 @@ private fun SearchResultCard(
         }
     }
 }
+
+@Composable
+private fun LibraryScreen(
+    store: LibraryStore,
+    version: Int,
+    onVersionChanged: () -> Unit,
+    onMediaClick: (MediaItem) -> Unit,
+    onPlaybackClick:
+        (LibraryPlaybackEntry) -> Unit,
+) {
+    var continueWatching by remember(
+        version
+    ) {
+        mutableStateOf(
+            store.continueWatching()
+        )
+    }
+
+    var watchlist by remember(
+        version
+    ) {
+        mutableStateOf(
+            store.watchlist()
+        )
+    }
+
+    var history by remember(
+        version
+    ) {
+        mutableStateOf(
+            store.history()
+        )
+    }
+
+    fun refresh() {
+        continueWatching =
+            store.continueWatching()
+
+        watchlist =
+            store.watchlist()
+
+        history =
+            store.history()
+    }
+
+    LazyColumn(
+        modifier =
+            Modifier.fillMaxSize(),
+        contentPadding =
+            PaddingValues(
+                bottom = 30.dp
+            ),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                20.dp
+            ),
+    ) {
+        item {
+            Column(
+                modifier =
+                    Modifier.padding(
+                        horizontal = 20.dp,
+                        vertical = 18.dp,
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        5.dp
+                    ),
+            ) {
+                Text(
+                    "Library",
+                    fontSize = 30.sp,
+                    fontWeight =
+                        FontWeight.Black,
+                )
+
+                Text(
+                    "Your local VUEO watch activity.",
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurface
+                            .copy(alpha = .58f),
+                    fontSize = 12.sp,
+                )
+            }
+        }
+
+        if (
+            continueWatching
+                .isNotEmpty()
+        ) {
+            item {
+                LibrarySectionHeader(
+                    title =
+                        "Continue Watching",
+                    count =
+                        continueWatching.size,
+                    actionLabel =
+                        "Clear",
+                    onAction = {
+                        store
+                            .clearContinueWatching()
+                        refresh()
+                        onVersionChanged()
+                    },
+                )
+            }
+
+            item {
+                LazyRow(
+                    contentPadding =
+                        PaddingValues(
+                            horizontal = 20.dp
+                        ),
+                    horizontalArrangement =
+                        Arrangement.spacedBy(
+                            12.dp
+                        ),
+                ) {
+                    items(
+                        continueWatching,
+                        key = {
+                            it.mediaKey
+                        },
+                    ) { entry ->
+                        ContinueWatchingCard(
+                            entry = entry,
+                            onClick = {
+                                onPlaybackClick(
+                                    entry
+                                )
+                            },
+                            onRemove = {
+                                store.removeHistory(
+                                    entry.mediaKey
+                                )
+                                refresh()
+                                onVersionChanged()
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        if (
+            watchlist.isNotEmpty()
+        ) {
+            item {
+                LibrarySectionHeader(
+                    title = "My List",
+                    count =
+                        watchlist.size,
+                )
+            }
+
+            item {
+                LazyRow(
+                    contentPadding =
+                        PaddingValues(
+                            horizontal = 20.dp
+                        ),
+                    horizontalArrangement =
+                        Arrangement.spacedBy(
+                            12.dp
+                        ),
+                ) {
+                    items(
+                        watchlist,
+                        key = {
+                            "${it.type}:${it.id}"
+                        },
+                    ) { media ->
+                        LibraryPosterCard(
+                            media = media,
+                            onClick = {
+                                onMediaClick(
+                                    media
+                                )
+                            },
+                            onRemove = {
+                                store
+                                    .removeWatchlist(
+                                        media
+                                    )
+                                refresh()
+                                onVersionChanged()
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        if (
+            history.isNotEmpty()
+        ) {
+            item {
+                LibrarySectionHeader(
+                    title = "History",
+                    count =
+                        history.size,
+                    actionLabel =
+                        "Clear",
+                    onAction = {
+                        store.clearHistory()
+                        refresh()
+                        onVersionChanged()
+                    },
+                )
+            }
+
+            items(
+                history.take(60),
+                key = {
+                    "history:" +
+                        it.mediaKey
+                },
+            ) { entry ->
+                HistoryRow(
+                    entry = entry,
+                    onClick = {
+                        onPlaybackClick(
+                            entry
+                        )
+                    },
+                    onRemove = {
+                        store.removeHistory(
+                            entry.mediaKey
+                        )
+                        refresh()
+                        onVersionChanged()
+                    },
+                )
+            }
+        }
+
+        if (
+            continueWatching
+                .isEmpty() &&
+            watchlist.isEmpty() &&
+            history.isEmpty()
+        ) {
+            item {
+                ElevatedCard(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                horizontal =
+                                    20.dp
+                            ),
+                ) {
+                    Column(
+                        modifier =
+                            Modifier.padding(
+                                22.dp
+                            ),
+                        verticalArrangement =
+                            Arrangement.spacedBy(
+                                8.dp
+                            ),
+                    ) {
+                        Icon(
+                            Icons.Default
+                                .VideoLibrary,
+                            contentDescription =
+                                null,
+                            tint =
+                                MaterialTheme
+                                    .colorScheme
+                                    .primary,
+                        )
+
+                        Text(
+                            "Your Library is ready",
+                            fontSize = 19.sp,
+                            fontWeight =
+                                FontWeight.Black,
+                        )
+
+                        Text(
+                            "Add titles to My List or start watching something. VUEO will keep Continue Watching and History here automatically.",
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurface
+                                    .copy(
+                                        alpha = .62f
+                                    ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibrarySectionHeader(
+    title: String,
+    count: Int,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = 20.dp
+            ),
+        verticalAlignment =
+            Alignment.CenterVertically,
+    ) {
+        Text(
+            "$title • $count",
+            modifier =
+                Modifier.weight(1f),
+            fontSize = 20.sp,
+            fontWeight =
+                FontWeight.Black,
+        )
+
+        if (
+            actionLabel != null &&
+            onAction != null
+        ) {
+            TextButton(
+                onClick = onAction,
+            ) {
+                Text(actionLabel)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContinueWatchingCard(
+    entry: LibraryPlaybackEntry,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier
+            .width(250.dp)
+            .clickable(
+                onClick = onClick
+            ),
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(138.dp),
+            ) {
+                NetworkImage(
+                    url =
+                        entry.media
+                            .background
+                            ?: entry.media
+                                .poster,
+                    contentDescription =
+                        entry.media.name,
+                    modifier =
+                        Modifier.fillMaxSize(),
+                    contentScale =
+                        ContentScale.Crop,
+                    fallbackText =
+                        entry.media.name,
+                )
+
+                Box(
+                    modifier =
+                        Modifier
+                            .matchParentSize()
+                            .background(
+                                Color.Black
+                                    .copy(
+                                        alpha = .24f
+                                    )
+                            ),
+                )
+
+                FilledIconButton(
+                    onClick = onClick,
+                    modifier =
+                        Modifier.align(
+                            Alignment.Center
+                        ),
+                ) {
+                    Icon(
+                        Icons.Default
+                            .PlayArrow,
+                        contentDescription =
+                            "Continue",
+                    )
+                }
+
+                IconButton(
+                    onClick = onRemove,
+                    modifier =
+                        Modifier.align(
+                            Alignment.TopEnd
+                        ),
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription =
+                            "Remove",
+                        tint = Color.White,
+                    )
+                }
+            }
+
+            LinearProgressIndicator(
+                progress = {
+                    entry.progressFraction
+                },
+                modifier =
+                    Modifier.fillMaxWidth(),
+            )
+
+            Column(
+                modifier =
+                    Modifier.padding(
+                        12.dp
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        4.dp
+                    ),
+            ) {
+                Text(
+                    entry.media.name,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                    fontWeight =
+                        FontWeight.Bold,
+                )
+
+                Text(
+                    playbackEntrySubtitle(
+                        entry
+                    ),
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurface
+                            .copy(alpha = .58f),
+                    fontSize = 11.sp,
+                )
+
+                Text(
+                    "${formatPlaybackTime(entry.positionMs)} of " +
+                        if (
+                            entry.durationMs >
+                                0L
+                        ) {
+                            formatPlaybackTime(
+                                entry.durationMs
+                            )
+                        } else {
+                            "unknown"
+                        },
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .primary,
+                    fontSize = 11.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryPosterCard(
+    media: MediaItem,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Box(
+        modifier =
+            Modifier.width(
+                132.dp
+            ),
+    ) {
+        MediaPoster(
+            item = media,
+            onClick = onClick,
+        )
+
+        FilledIconButton(
+            onClick = onRemove,
+            modifier =
+                Modifier
+                    .align(
+                        Alignment.TopEnd
+                    )
+                    .padding(4.dp)
+                    .size(30.dp),
+        ) {
+            Icon(
+                Icons.Default.Delete,
+                contentDescription =
+                    "Remove from My List",
+                modifier =
+                    Modifier.size(16.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun HistoryRow(
+    entry: LibraryPlaybackEntry,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = 20.dp
+            )
+            .clickable(
+                onClick = onClick
+            ),
+    ) {
+        Row(
+            modifier =
+                Modifier.padding(
+                    10.dp
+                ),
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            NetworkImage(
+                url =
+                    entry.media.poster
+                        ?: entry.media
+                            .background,
+                contentDescription =
+                    entry.media.name,
+                modifier = Modifier
+                    .width(66.dp)
+                    .height(92.dp)
+                    .clip(
+                        RoundedCornerShape(
+                            9.dp
+                        )
+                    ),
+                contentScale =
+                    ContentScale.Crop,
+                fallbackText =
+                    entry.media.name,
+            )
+
+            Spacer(
+                Modifier.width(12.dp)
+            )
+
+            Column(
+                modifier =
+                    Modifier.weight(1f),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        4.dp
+                    ),
+            ) {
+                Text(
+                    entry.media.name,
+                    fontWeight =
+                        FontWeight.Bold,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                )
+
+                Text(
+                    playbackEntrySubtitle(
+                        entry
+                    ),
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurface
+                            .copy(alpha = .58f),
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                )
+
+                Text(
+                    when {
+                        entry.isCompleted ->
+                            "Completed"
+
+                        entry.positionMs >
+                            5_000L ->
+                            "Stopped at " +
+                                formatPlaybackTime(
+                                    entry.positionMs
+                                )
+
+                        else ->
+                            "Opened"
+                    },
+                    color =
+                        if (
+                            entry.isCompleted
+                        ) {
+                            MaterialTheme
+                                .colorScheme
+                                .primary
+                        } else {
+                            MaterialTheme
+                                .colorScheme
+                                .onSurface
+                                .copy(
+                                    alpha = .5f
+                                )
+                        },
+                    fontSize = 11.sp,
+                )
+            }
+
+            IconButton(
+                onClick = onRemove,
+            ) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription =
+                        "Remove from History",
+                )
+            }
+        }
+    }
+}
+
+private fun playbackEntrySubtitle(
+    entry: LibraryPlaybackEntry,
+): String =
+    when {
+        entry.season != null &&
+            entry.episode != null ->
+            "S${entry.season} E${entry.episode}" +
+                entry.episodeTitle
+                    ?.takeIf {
+                        it.isNotBlank()
+                    }
+                    ?.let {
+                        " • $it"
+                    }
+                    .orEmpty()
+
+        else ->
+            entry.media.type
+                .replaceFirstChar {
+                    it.uppercase()
+                }
+    }
 
 @Composable
 private fun ContentManagerScreen(
@@ -2519,6 +3244,9 @@ private fun ProviderHealthRow(
 private fun MediaDetailsScreen(
     engine: UnifiedMediaEngine,
     initialItem: MediaItem,
+    initialLibraryEntry:
+        LibraryPlaybackEntry?,
+    onLibraryChanged: () -> Unit,
     onBack: () -> Unit,
     onMediaClick: (MediaItem) -> Unit,
 ) {
@@ -2546,6 +3274,17 @@ private fun MediaDetailsScreen(
         mutableStateOf<
             List<MediaItem>
         >(emptyList())
+    }
+    var inWatchlist by remember(
+        initialItem.id,
+        initialItem.type,
+    ) {
+        mutableStateOf(
+            libraryStore
+                .isWatchlisted(
+                    initialItem
+                )
+        )
     }
 
     var selectedSeason by remember { mutableStateOf<Int?>(null) }
@@ -2586,17 +3325,61 @@ private fun MediaDetailsScreen(
         loadingMeta = true
         item = engine.loadMeta(initialItem)
 
-        if (item.type == "series" && item.episodes.isNotEmpty()) {
-            val firstSeason = item.episodes
-                .map { it.season }
-                .distinct()
-                .sorted()
-                .firstOrNull()
+        if (
+            item.type == "series" &&
+            item.episodes.isNotEmpty()
+        ) {
+            val requestedSeason =
+                initialLibraryEntry
+                    ?.season
 
-            selectedSeason = firstSeason
-            selectedEpisode = item.episodes
-                .firstOrNull { it.season == firstSeason }
+            val requestedEpisode =
+                initialLibraryEntry
+                    ?.episode
+
+            val matched =
+                if (
+                    requestedSeason != null &&
+                    requestedEpisode != null
+                ) {
+                    item.episodes
+                        .firstOrNull {
+                            it.season ==
+                                requestedSeason &&
+                                it.episode ==
+                                requestedEpisode
+                        }
+                } else {
+                    null
+                }
+
+            val firstSeason =
+                matched?.season
+                    ?: item.episodes
+                        .map {
+                            it.season
+                        }
+                        .distinct()
+                        .sorted()
+                        .firstOrNull()
+
+            selectedSeason =
+                firstSeason
+
+            selectedEpisode =
+                matched
+                    ?: item.episodes
+                        .firstOrNull {
+                            it.season ==
+                                firstSeason
+                        }
         }
+
+        inWatchlist =
+            libraryStore
+                .isWatchlisted(
+                    item
+                )
 
         relatedItems =
             CatalogDiscoveryCache
@@ -2614,9 +3397,18 @@ private fun MediaDetailsScreen(
                 media = item,
                 episode = selectedEpisode,
             ),
-            mediaKey = "${item.type}:${item.id}:$playbackVideoId",
+            mediaKey =
+                "${item.type}:${item.id}:$playbackVideoId",
+            media = item,
+            videoId =
+                playbackVideoId,
+            episode =
+                selectedEpisode,
             source = playbackSource,
-            subtitles = sourcePickerSubtitles,
+            subtitles =
+                sourcePickerSubtitles,
+            onLibraryChanged =
+                onLibraryChanged,
             onBack = {
                 selectedPlaybackSource = null
                 selectedPlaybackVideoId = null
@@ -3190,6 +3982,42 @@ onClick = {
                             "Finding Sources…"
                         } else {
                             "Watch"
+                        }
+                    )
+                }
+
+                OutlinedButton(
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    onClick = {
+                        inWatchlist =
+                            libraryStore
+                                .toggleWatchlist(
+                                    item
+                                )
+
+                        onLibraryChanged()
+                    },
+                ) {
+                    Icon(
+                        if (inWatchlist) {
+                            Icons.Default.VideoLibrary
+                        } else {
+                            Icons.Default.Add
+                        },
+                        contentDescription =
+                            null,
+                    )
+
+                    Spacer(
+                        Modifier.width(8.dp)
+                    )
+
+                    Text(
+                        if (inWatchlist) {
+                            "In My List"
+                        } else {
+                            "Add to My List"
                         }
                     )
                 }
@@ -3792,8 +4620,12 @@ private fun StreamSourceCard(
 private fun PlayerScreen(
     title: String,
     mediaKey: String,
+    media: MediaItem,
+    videoId: String,
+    episode: EpisodeItem?,
     source: StreamSource,
     subtitles: List<SubtitleTrack>,
+    onLibraryChanged: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context =
@@ -3802,6 +4634,13 @@ private fun PlayerScreen(
     val playbackStore =
         remember {
             PlaybackStore(
+                context.applicationContext
+            )
+        }
+
+    val libraryStore =
+        remember {
+            LibraryStore(
                 context.applicationContext
             )
         }
@@ -3898,6 +4737,44 @@ private fun PlayerScreen(
             }
     }
 
+    fun recordLibraryProgress() {
+        libraryStore.recordPlayback(
+            media = media,
+            videoId = videoId,
+            episodeTitle =
+                episode?.title,
+            season =
+                episode?.season,
+            episode =
+                episode?.episode,
+            positionMs =
+                player.currentPosition,
+            durationMs =
+                player.duration,
+        )
+    }
+
+    LaunchedEffect(
+        mediaKey,
+    ) {
+        libraryStore.recordPlayback(
+            media = media,
+            videoId = videoId,
+            episodeTitle =
+                episode?.title,
+            season =
+                episode?.season,
+            episode =
+                episode?.episode,
+            positionMs =
+                savedPositionMs,
+            durationMs =
+                playbackStore.durationMs(
+                    mediaKey
+                ),
+        )
+    }
+
     fun refreshTrackChoices(
         tracks: Tracks =
             player.currentTracks,
@@ -3965,6 +4842,31 @@ private fun PlayerScreen(
                             .clearPosition(
                                 mediaKey
                             )
+
+                        libraryStore
+                            .recordPlayback(
+                                media = media,
+                                videoId =
+                                    videoId,
+                                episodeTitle =
+                                    episode?.title,
+                                season =
+                                    episode?.season,
+                                episode =
+                                    episode?.episode,
+                                positionMs =
+                                    player.duration
+                                        .coerceAtLeast(
+                                            0L
+                                        ),
+                                durationMs =
+                                    player.duration
+                                        .coerceAtLeast(
+                                            0L
+                                        ),
+                            )
+
+                        onLibraryChanged()
                     }
                 }
 
@@ -3982,6 +4884,8 @@ private fun PlayerScreen(
                                 durationMs =
                                     player.duration,
                             )
+
+                        recordLibraryProgress()
                     }
                 }
             }
@@ -4008,6 +4912,9 @@ private fun PlayerScreen(
                         player.duration,
                 )
 
+            recordLibraryProgress()
+            onLibraryChanged()
+
             player.release()
         }
     }
@@ -4028,6 +4935,8 @@ private fun PlayerScreen(
                     durationMs =
                         player.duration,
                 )
+
+            recordLibraryProgress()
         }
     }
 
