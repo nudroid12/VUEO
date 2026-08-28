@@ -36,6 +36,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -86,6 +87,7 @@ import com.vueo.app.core.extensions.UnifiedMediaEngine
 import com.vueo.app.core.extensions.SourceRanker
 import com.vueo.app.core.extensions.SourceCleaner
 import com.vueo.app.core.extensions.SourceDiscoveryCache
+import com.vueo.app.core.extensions.CatalogDiscoveryCache
 import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.core.storage.PlaybackStore
 import com.vueo.app.core.model.SubtitleTrack
@@ -105,6 +107,7 @@ import com.vueo.app.core.model.StreamSource
 import com.vueo.app.core.storage.AddonStore
 import com.vueo.app.ui.components.NetworkImage
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
@@ -119,6 +122,14 @@ private enum class ContentPage {
     ROOT,
     ADDONS,
     PLUGINS,
+}
+
+private enum class HomeMediaFilter(
+    val label: String,
+) {
+    ALL("All"),
+    MOVIES("Movies"),
+    SERIES("Series"),
 }
 
 @Composable
@@ -140,8 +151,17 @@ fun VueoApp() {
     var selectedTab by remember { mutableStateOf(AppTab.HOME) }
     var contentPage by remember { mutableStateOf(ContentPage.ROOT) }
     var contentVersion by remember { mutableIntStateOf(0) }
-    var booting by remember { mutableStateOf(true) }
-    var selectedMedia by remember { mutableStateOf<MediaItem?>(null) }
+    var booting by remember {
+        mutableStateOf(true)
+    }
+    var selectedMedia by remember {
+        mutableStateOf<MediaItem?>(null)
+    }
+    var mediaBackStack by remember {
+        mutableStateOf<List<MediaItem>>(
+            emptyList()
+        )
+    }
 
     LaunchedEffect(Unit) {
         store.seedDevelopmentDefaultsIfNeeded()
@@ -167,7 +187,32 @@ fun VueoApp() {
         MediaDetailsScreen(
             engine = engine,
             initialItem = selectedMedia!!,
-            onBack = { selectedMedia = null },
+            onBack = {
+                val previous =
+                    mediaBackStack
+                        .lastOrNull()
+
+                if (previous == null) {
+                    selectedMedia = null
+                } else {
+                    selectedMedia =
+                        previous
+                    mediaBackStack =
+                        mediaBackStack
+                            .dropLast(1)
+                }
+            },
+            onMediaClick = { next ->
+                selectedMedia?.let {
+                    current ->
+
+                    mediaBackStack =
+                        mediaBackStack +
+                            current
+                }
+
+                selectedMedia = next
+            },
         )
         return
     }
@@ -220,15 +265,32 @@ fun VueoApp() {
                     contentVersion = contentVersion,
                     booting = booting,
                     onOpenContentManager = {
-                        selectedTab = AppTab.CONTENT_MANAGER
-                        contentPage = ContentPage.ROOT
+                        selectedTab =
+                            AppTab.CONTENT_MANAGER
+                        contentPage =
+                            ContentPage.ROOT
                     },
-                    onMediaClick = { selectedMedia = it },
+                    onSearch = {
+                        selectedTab =
+                            AppTab.SEARCH
+                    },
+                    onMediaClick = {
+                        mediaBackStack =
+                            emptyList()
+                        selectedMedia = it
+                    },
                 )
 
-                AppTab.SEARCH -> PlaceholderScreen(
-                    title = "Search",
-                    subtitle = "Universal search is the next discovery milestone.",
+                AppTab.SEARCH -> SearchScreen(
+                    engine = engine,
+                    contentVersion =
+                        contentVersion,
+                    booting = booting,
+                    onMediaClick = {
+                        mediaBackStack =
+                            emptyList()
+                        selectedMedia = it
+                    },
                 )
 
                 AppTab.LIBRARY -> PlaceholderScreen(
@@ -282,16 +344,34 @@ private fun HomeScreen(
     contentVersion: Int,
     booting: Boolean,
     onOpenContentManager: () -> Unit,
+    onSearch: () -> Unit,
     onMediaClick: (MediaItem) -> Unit,
 ) {
-    var rows by remember { mutableStateOf<List<CatalogRow>>(emptyList()) }
-    var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var rows by remember {
+        mutableStateOf(
+            CatalogDiscoveryCache
+                .home(
+                    allowStale = true
+                )
+                .orEmpty()
+        )
+    }
+    var loading by remember {
+        mutableStateOf(false)
+    }
+    var error by remember {
+        mutableStateOf<String?>(null)
+    }
+    var mediaFilter by remember {
+        mutableStateOf(
+            HomeMediaFilter.ALL
+        )
+    }
 
     LaunchedEffect(contentVersion) {
         if (booting) return@LaunchedEffect
 
-        loading = true
+        loading = rows.isEmpty()
         error = null
 
         runCatching {
@@ -312,7 +392,21 @@ private fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(22.dp),
     ) {
         item {
-            VueoHeader()
+            VueoHeader(
+                onSearch = onSearch
+            )
+        }
+
+        if (rows.isNotEmpty()) {
+            item {
+                HomeFilterRow(
+                    selected =
+                        mediaFilter,
+                    onSelect = {
+                        mediaFilter = it
+                    },
+                )
+            }
         }
 
         if (booting || loading) {
@@ -336,20 +430,69 @@ private fun HomeScreen(
         }
 
         if (rows.isNotEmpty()) {
-            val hero = rows.first().items.firstOrNull()
+            val filteredRows =
+                rows.mapNotNull { row ->
+                    val filteredItems =
+                        row.items.filter {
+                            item ->
+
+                            when (mediaFilter) {
+                                HomeMediaFilter.ALL ->
+                                    true
+
+                                HomeMediaFilter.MOVIES ->
+                                    item.type == "movie"
+
+                                HomeMediaFilter.SERIES ->
+                                    item.type == "series"
+                            }
+                        }
+
+                    if (
+                        filteredItems.isEmpty()
+                    ) {
+                        null
+                    } else {
+                        row.copy(
+                            items =
+                                filteredItems
+                        )
+                    }
+                }
+
+            val hero =
+                filteredRows
+                    .asSequence()
+                    .flatMap {
+                        it.items.asSequence()
+                    }
+                    .firstOrNull {
+                        !it.background.isNullOrBlank()
+                    }
+                    ?: filteredRows
+                        .firstOrNull()
+                        ?.items
+                        ?.firstOrNull()
+
             if (hero != null) {
                 item {
                     HeroMediaCard(
                         item = hero,
-                        onClick = { onMediaClick(hero) },
+                        onClick = {
+                            onMediaClick(hero)
+                        },
                     )
                 }
             }
 
-            items(rows, key = { it.id }) { row ->
+            items(
+                filteredRows,
+                key = { it.id },
+            ) { row ->
                 CatalogSection(
                     row = row,
-                    onMediaClick = onMediaClick,
+                    onMediaClick =
+                        onMediaClick,
                 )
             }
         }
@@ -357,7 +500,9 @@ private fun HomeScreen(
 }
 
 @Composable
-private fun VueoHeader() {
+private fun VueoHeader(
+    onSearch: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -388,7 +533,44 @@ private fun VueoHeader() {
             )
         }
 
-        Icon(Icons.Default.Search, contentDescription = "Search")
+        IconButton(
+            onClick = onSearch,
+        ) {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = "Search",
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeFilterRow(
+    selected: HomeMediaFilter,
+    onSelect: (HomeMediaFilter) -> Unit,
+) {
+    LazyRow(
+        contentPadding =
+            PaddingValues(
+                horizontal = 20.dp
+            ),
+        horizontalArrangement =
+            Arrangement.spacedBy(8.dp),
+    ) {
+        items(
+            HomeMediaFilter.entries
+        ) { filter ->
+            FilterChip(
+                selected =
+                    selected == filter,
+                onClick = {
+                    onSelect(filter)
+                },
+                label = {
+                    Text(filter.label)
+                },
+            )
+        }
     }
 }
 
@@ -585,6 +767,309 @@ private fun MediaPoster(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f),
                 fontSize = 11.sp,
             )
+        }
+    }
+}
+
+
+@Composable
+private fun SearchScreen(
+    engine: UnifiedMediaEngine,
+    contentVersion: Int,
+    booting: Boolean,
+    onMediaClick: (MediaItem) -> Unit,
+) {
+    var query by remember {
+        mutableStateOf("")
+    }
+    var results by remember {
+        mutableStateOf<
+            List<MediaItem>
+        >(emptyList())
+    }
+    var searching by remember {
+        mutableStateOf(false)
+    }
+    var status by remember {
+        mutableStateOf(
+            "Search movies and series across compatible catalogs."
+        )
+    }
+
+    LaunchedEffect(
+        query,
+        contentVersion,
+        booting,
+    ) {
+        val normalized =
+            query.trim()
+
+        if (
+            booting ||
+            normalized.length < 2
+        ) {
+            searching = false
+            results =
+                if (
+                    normalized.length >= 2
+                ) {
+                    CatalogDiscoveryCache
+                        .searchLocal(
+                            normalized
+                        )
+                } else {
+                    emptyList()
+                }
+
+            status =
+                if (
+                    normalized.isBlank()
+                ) {
+                    "Search movies and series across compatible catalogs."
+                } else {
+                    "Type at least 2 characters."
+                }
+
+            return@LaunchedEffect
+        }
+
+        results =
+            CatalogDiscoveryCache
+                .searchLocal(
+                    normalized
+                )
+
+        status =
+            if (results.isEmpty()) {
+                "Searching connected catalogs…"
+            } else {
+                "${results.size} cached matches • checking connected catalogs…"
+            }
+
+        searching = true
+
+        delay(450)
+
+        val remote =
+            runCatching {
+                engine.search(
+                    normalized
+                )
+            }.getOrElse {
+                emptyList()
+            }
+
+        results =
+            if (remote.isNotEmpty()) {
+                remote
+            } else {
+                results
+            }
+
+        searching = false
+
+        status =
+            when {
+                results.isEmpty() ->
+                    "No results for \"$normalized\"."
+
+                else ->
+                    "${results.size} results"
+            }
+    }
+
+    LazyColumn(
+        modifier =
+            Modifier.fillMaxSize(),
+        contentPadding =
+            PaddingValues(
+                bottom = 28.dp
+            ),
+        verticalArrangement =
+            Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Column(
+                modifier =
+                    Modifier.padding(
+                        horizontal = 20.dp,
+                        vertical = 18.dp,
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    "Search",
+                    fontSize = 30.sp,
+                    fontWeight =
+                        FontWeight.Black,
+                )
+
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = {
+                        query = it
+                    },
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    label = {
+                        Text(
+                            "Movies or series"
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription =
+                                null,
+                        )
+                    },
+                    singleLine = true,
+                )
+
+                if (searching) {
+                    LinearProgressIndicator(
+                        modifier =
+                            Modifier.fillMaxWidth()
+                    )
+                }
+
+                Text(
+                    status,
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurface
+                            .copy(alpha = .58f),
+                    fontSize = 12.sp,
+                )
+            }
+        }
+
+        items(
+            results,
+            key = {
+                "${it.sourceExtensionId}:" +
+                    "${it.type}:${it.id}"
+            },
+        ) { item ->
+            SearchResultCard(
+                item = item,
+                onClick = {
+                    onMediaClick(item)
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchResultCard(
+    item: MediaItem,
+    onClick: () -> Unit,
+) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = 20.dp
+            )
+            .clickable(
+                onClick = onClick
+            ),
+    ) {
+        Row(
+            modifier =
+                Modifier.padding(12.dp),
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            NetworkImage(
+                url = item.poster,
+                contentDescription =
+                    item.name,
+                modifier = Modifier
+                    .width(76.dp)
+                    .height(112.dp)
+                    .clip(
+                        RoundedCornerShape(
+                            10.dp
+                        )
+                    ),
+                fallbackText =
+                    item.name,
+            )
+
+            Spacer(
+                Modifier.width(14.dp)
+            )
+
+            Column(
+                modifier =
+                    Modifier.weight(1f),
+                verticalArrangement =
+                    Arrangement.spacedBy(5.dp),
+            ) {
+                Text(
+                    item.name,
+                    fontSize = 18.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                    maxLines = 2,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                )
+
+                Text(
+                    listOfNotNull(
+                        item.type
+                            .replaceFirstChar {
+                                it.uppercase()
+                            },
+                        item.releaseInfo,
+                    ).joinToString(" • "),
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .primary,
+                    fontSize = 12.sp,
+                )
+
+                if (
+                    item.genres.isNotEmpty()
+                ) {
+                    Text(
+                        item.genres
+                            .take(3)
+                            .joinToString(" • "),
+                        color =
+                            MaterialTheme
+                                .colorScheme
+                                .onSurface
+                                .copy(alpha = .58f),
+                        fontSize = 11.sp,
+                    )
+                }
+
+                item.description
+                    ?.takeIf {
+                        it.isNotBlank()
+                    }
+                    ?.let {
+                        Text(
+                            it,
+                            maxLines = 2,
+                            overflow =
+                                TextOverflow.Ellipsis,
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurface
+                                    .copy(alpha = .62f),
+                            fontSize = 12.sp,
+                        )
+                    }
+            }
         }
     }
 }
@@ -2024,6 +2509,7 @@ private fun MediaDetailsScreen(
     engine: UnifiedMediaEngine,
     initialItem: MediaItem,
     onBack: () -> Unit,
+    onMediaClick: (MediaItem) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -2039,8 +2525,17 @@ private fun MediaDetailsScreen(
 
     var item by remember(initialItem) { mutableStateOf(initialItem) }
     var loadingMeta by remember { mutableStateOf(true) }
-    var loadingStreams by remember { mutableStateOf(false) }
-    var sourceStatus by remember { mutableStateOf<String?>(null) }
+    var loadingStreams by remember {
+        mutableStateOf(false)
+    }
+    var sourceStatus by remember {
+        mutableStateOf<String?>(null)
+    }
+    var relatedItems by remember {
+        mutableStateOf<
+            List<MediaItem>
+        >(emptyList())
+    }
 
     var selectedSeason by remember { mutableStateOf<Int?>(null) }
     var selectedEpisode by remember { mutableStateOf<EpisodeItem?>(null) }
@@ -2091,6 +2586,10 @@ private fun MediaDetailsScreen(
             selectedEpisode = item.episodes
                 .firstOrNull { it.season == firstSeason }
         }
+
+        relatedItems =
+            CatalogDiscoveryCache
+                .related(item)
 
         loadingMeta = false
     }
@@ -2218,13 +2717,76 @@ private fun MediaDetailsScreen(
             }
         }
 
-        item {
-            item.description?.let {
-                Text(
-                    it,
-                    modifier = Modifier.padding(horizontal = 20.dp),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .76f),
-                )
+        if (
+            item.genres.isNotEmpty()
+        ) {
+            item {
+                LazyRow(
+                    contentPadding =
+                        PaddingValues(
+                            horizontal = 20.dp
+                        ),
+                    horizontalArrangement =
+                        Arrangement.spacedBy(8.dp),
+                ) {
+                    items(
+                        item.genres.take(8)
+                    ) { genre ->
+                        Surface(
+                            shape =
+                                RoundedCornerShape(
+                                    50
+                                ),
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .surfaceVariant,
+                        ) {
+                            Text(
+                                genre,
+                                modifier =
+                                    Modifier.padding(
+                                        horizontal =
+                                            11.dp,
+                                        vertical =
+                                            6.dp,
+                                    ),
+                                fontSize = 11.sp,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        item.description?.let {
+            description ->
+
+            item {
+                Column(
+                    modifier =
+                        Modifier.padding(
+                            horizontal = 20.dp
+                        ),
+                    verticalArrangement =
+                        Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        "Overview",
+                        fontSize = 20.sp,
+                        fontWeight =
+                            FontWeight.Black,
+                    )
+
+                    Text(
+                        description,
+                        color =
+                            MaterialTheme
+                                .colorScheme
+                                .onSurface
+                                .copy(alpha = .76f),
+                    )
+                }
             }
         }
 
@@ -2614,12 +3176,22 @@ onClick = {
                     Spacer(Modifier.width(8.dp))
                     Text(
                         if (loadingStreams) {
-                            "Finding Sources..."
+                            "Finding Sources…"
                         } else {
-                            "Find Sources"
+                            "Watch"
                         }
                     )
                 }
+
+                Text(
+                    "VUEO will find and rank the best available sources.",
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurface
+                            .copy(alpha = .5f),
+                    fontSize = 11.sp,
+                )
 
                 sourceStatus?.let {
                     Text(
@@ -2634,6 +3206,56 @@ onClick = {
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f),
                         fontSize = 12.sp,
                     )
+                }
+            }
+        }
+
+        if (
+            relatedItems.isNotEmpty()
+        ) {
+            item {
+                Column(
+                    verticalArrangement =
+                        Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        "More Like This",
+                        modifier =
+                            Modifier.padding(
+                                horizontal = 20.dp
+                            ),
+                        fontSize = 20.sp,
+                        fontWeight =
+                            FontWeight.Black,
+                    )
+
+                    LazyRow(
+                        contentPadding =
+                            PaddingValues(
+                                horizontal = 20.dp
+                            ),
+                        horizontalArrangement =
+                            Arrangement.spacedBy(
+                                12.dp
+                            ),
+                    ) {
+                        items(
+                            relatedItems,
+                            key = {
+                                "${it.type}:${it.id}"
+                            },
+                        ) { related ->
+                            MediaPoster(
+                                item =
+                                    related,
+                                onClick = {
+                                    onMediaClick(
+                                        related
+                                    )
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }

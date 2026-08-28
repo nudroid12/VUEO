@@ -1,4 +1,4 @@
-# VUEO v0.4.0
+# VUEO v0.5.0
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -367,3 +367,41 @@ The Source Picker now shows:
 - final source count
 
 This milestone focuses on VUEO feeling fast and responsive instead of only reducing raw execution time.
+
+
+## v0.5.0 Discovery Experience
+
+This milestone turns VUEO's content frontend into a functional discovery experience.
+
+### Home
+
+- 10-minute in-memory catalog cache
+- cached Home restores instantly when switching tabs
+- All / Movies / Series filtering
+- clickable Search action in the VUEO header
+- hero selection prefers titles with backdrops
+- catalog rows keep provider attribution
+
+### Universal Search
+
+Search is no longer a placeholder.
+
+VUEO now:
+
+- debounces typing
+- shows cached local matches immediately
+- queries Stremio catalogs that advertise the `search` extra
+- skips catalogs that require unsupported extras
+- merges and deduplicates remote + cached results
+- caches successful queries for five minutes
+- opens the same unified Details experience from search results
+
+### Details
+
+- genre chips
+- structured Overview section
+- primary action renamed to Watch
+- More Like This from the discovery cache
+- details-to-details navigation keeps a back stack
+
+This patch intentionally keeps Library work for the later Library milestone.

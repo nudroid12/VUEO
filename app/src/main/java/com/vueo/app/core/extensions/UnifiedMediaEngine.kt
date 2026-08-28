@@ -31,31 +31,172 @@ class UnifiedMediaEngine {
     fun extension(id: String?): MediaExtension? =
         id?.let { target -> extensions.firstOrNull { it.descriptor.id == target } }
 
-    suspend fun loadCatalogRows(maxRows: Int = 10): List<CatalogRow> = coroutineScope {
-        stremioAddons()
-            .flatMap { extension ->
-                extension.descriptor.catalogs
-                    .filter { it.canLoadWithoutExtras }
-                    .map { catalog -> extension to catalog }
-            }
-            .take(maxRows)
-            .map { (extension, catalog) ->
-                async {
-                    runCatching {
-                        val page = extension.catalog(catalog.type, catalog.id)
-                        CatalogRow(
-                            id = "${extension.descriptor.id}:${catalog.type}:${catalog.id}",
-                            title = catalog.name
-                                ?: "${extension.descriptor.name} ${catalog.type.replaceFirstChar { it.uppercase() }}",
-                            providerName = extension.descriptor.name,
-                            items = page.items,
-                        )
-                    }.getOrNull()
+    suspend fun loadCatalogRows(
+        maxRows: Int = 10,
+        forceRefresh: Boolean = false,
+    ): List<CatalogRow> = coroutineScope {
+        if (!forceRefresh) {
+            CatalogDiscoveryCache
+                .home()
+                ?.let {
+                    return@coroutineScope
+                        it.take(maxRows)
                 }
+        }
+
+        val rows =
+            stremioAddons()
+                .flatMap { extension ->
+                    extension.descriptor.catalogs
+                        .filter {
+                            it.canLoadWithoutExtras
+                        }
+                        .map { catalog ->
+                            extension to catalog
+                        }
+                }
+                .take(maxRows)
+                .map {
+                    (extension, catalog) ->
+
+                    async {
+                        runCatching {
+                            val page =
+                                extension.catalog(
+                                    catalog.type,
+                                    catalog.id,
+                                )
+
+                            CatalogRow(
+                                id =
+                                    "${extension.descriptor.id}:" +
+                                    "${catalog.type}:" +
+                                    catalog.id,
+                                title =
+                                    catalog.name
+                                        ?: "${extension.descriptor.name} " +
+                                        catalog.type
+                                            .replaceFirstChar {
+                                                it.uppercase()
+                                            },
+                                providerName =
+                                    extension
+                                        .descriptor
+                                        .name,
+                                items =
+                                    page.items,
+                            )
+                        }.getOrNull()
+                    }
+                }
+                .awaitAll()
+                .filterNotNull()
+                .filter {
+                    it.items.isNotEmpty()
+                }
+
+        CatalogDiscoveryCache.putHome(
+            rows
+        )
+
+        rows
+    }
+
+    suspend fun search(
+        query: String,
+        maxCatalogs: Int = 12,
+        maxResults: Int = 80,
+    ): List<MediaItem> = coroutineScope {
+        val normalized = query.trim()
+
+        if (normalized.length < 2) {
+            return@coroutineScope emptyList()
+        }
+
+        CatalogDiscoveryCache
+            .search(normalized)
+            ?.let {
+                return@coroutineScope
+                    it.take(maxResults)
             }
-            .awaitAll()
-            .filterNotNull()
-            .filter { it.items.isNotEmpty() }
+
+        val searchableCatalogs =
+            stremioAddons()
+                .flatMap { extension ->
+                    extension.descriptor.catalogs
+                        .filter { catalog ->
+                            val hasSearch =
+                                catalog.extras.any {
+                                    it.name == "search"
+                                }
+
+                            val requiredSupported =
+                                catalog.extras
+                                    .filter {
+                                        it.isRequired
+                                    }
+                                    .all {
+                                        it.name == "search"
+                                    }
+
+                            hasSearch &&
+                                requiredSupported
+                        }
+                        .map { catalog ->
+                            extension to catalog
+                        }
+                }
+                .take(maxCatalogs)
+
+        val remote =
+            searchableCatalogs
+                .map {
+                    (extension, catalog) ->
+
+                    async {
+                        runCatching {
+                            extension.catalog(
+                                type =
+                                    catalog.type,
+                                catalogId =
+                                    catalog.id,
+                                extras =
+                                    mapOf(
+                                        "search" to
+                                            normalized
+                                    ),
+                            ).items
+                        }.getOrDefault(
+                            emptyList()
+                        )
+                    }
+                }
+                .awaitAll()
+                .flatten()
+
+        val local =
+            CatalogDiscoveryCache
+                .searchLocal(
+                    normalized,
+                    limit = maxResults,
+                )
+
+        val combined =
+            (
+                remote +
+                    local
+            )
+                .distinctBy {
+                    "${it.type}:${it.id}"
+                }
+                .take(maxResults)
+
+        CatalogDiscoveryCache.putSearch(
+            normalized,
+            combined,
+        )
+
+        combined
     }
 
     suspend fun loadMeta(item: MediaItem): MediaItem =

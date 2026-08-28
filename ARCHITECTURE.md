@@ -308,3 +308,39 @@ Source Picker opens immediately
 ```
 
 Leaving the Source Picker cancels the active discovery job.
+
+
+## v0.5.0 discovery architecture
+
+```text
+Installed Stremio Addons
+        |
+        +------ Home catalogs ------+
+        |                           |
+        |                     Catalog cache
+        |                           |
+        |                +----------+----------+
+        |                |                     |
+        |              Home               Local search
+        |                                      |
+        +------ search-capable catalogs -------+
+                                               |
+                                         Remote search
+                                               |
+                                               v
+                                      Merge + deduplicate
+                                               |
+                                               v
+                                        Search results
+                                               |
+                                               v
+                                          Details
+                                               |
+                           +-------------------+------------------+
+                           |                                      |
+                         Watch                              More Like This
+                           |                                      |
+                    Fast Source Engine                    Cached discovery
+```
+
+Home and search caches are intentionally short-lived and memory-only during this development phase.
