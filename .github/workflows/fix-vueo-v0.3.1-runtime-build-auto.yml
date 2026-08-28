@@ -1,0 +1,210 @@
+name: Fix VUEO v0.3.1 Runtime Build Auto
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/fix-vueo-v0.3.1-runtime-build-auto.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fix PluginRuntime coroutine return
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path(
+              "app/src/main/java/com/vueo/app/core/plugin/PluginRuntime.kt"
+          )
+
+          if not path.exists():
+              raise SystemExit(
+                  "PluginRuntime.kt not found. Confirm v0.3.1 was applied first."
+              )
+
+          text = path.read_text(encoding="utf-8")
+
+          old = """            if (!store.pluginsEnabled()) {
+                return@coroutineScope
+                    PluginDiscoveryResult(
+                        streams = emptyList(),
+                        attemptedProviders = 0,
+                        successfulProviders = 0,
+                        failedProviders = 0,
+                    )
+            }
+"""
+
+          new = """            if (!store.pluginsEnabled()) {
+                return@coroutineScope PluginDiscoveryResult(
+                    streams = emptyList(),
+                    attemptedProviders = 0,
+                    successfulProviders = 0,
+                    failedProviders = 0,
+                )
+            }
+"""
+
+          if old in text:
+              path.write_text(
+                  text.replace(old, new, 1),
+                  encoding="utf-8",
+              )
+              print("Fixed PluginRuntime coroutine return.")
+          elif new in text:
+              print("Hotfix already applied.")
+          else:
+              print("Expected block was not found.")
+              print("Showing nearby coroutineScope lines:")
+              for number, line in enumerate(
+                  text.splitlines(),
+                  start=1,
+              ):
+                  if "coroutineScope" in line:
+                      print(f"{number}: {line}")
+              raise SystemExit(1)
+          PY
+
+      - name: Verify hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          grep -n -A8 -B2 \
+            'return@coroutineScope PluginDiscoveryResult' \
+            app/src/main/java/com/vueo/app/core/plugin/PluginRuntime.kt
+
+      - name: Commit hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email \
+              "41898282+github-actions[bot]@users.noreply.github.com"
+
+            git add \
+              app/src/main/java/com/vueo/app/core/plugin/PluginRuntime.kt
+
+            git commit -m \
+              "Fix v0.3.1 provider runtime build"
+
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          else
+            echo "Hotfix already present. Continuing to build."
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Verify Gradle wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f ./gradlew
+          test -f ./gradle/wrapper/gradle-wrapper.properties
+          chmod +x ./gradlew
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SDKMANAGER="$(command -v sdkmanager || true)"
+
+          if [ -z "$SDKMANAGER" ]; then
+            if [ -n "${ANDROID_HOME:-}" ] && \
+               [ -x "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" ]; then
+              SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+            else
+              echo "::error::sdkmanager was not found."
+              exit 1
+            fi
+          fi
+
+          yes 2>/dev/null | \
+            "$SDKMANAGER" --licenses \
+            >/dev/null 2>&1 || true
+
+          "$SDKMANAGER" --channel=0 \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
+
+      - name: Build VUEO v0.3.1 APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./gradlew \
+            :app:assembleDebug \
+            --stacktrace \
+            --no-daemon
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK_DIR="app/build/outputs/apk/debug"
+
+          find "$APK_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -name "*.apk" \
+            -print || true
+
+          if ! find "$APK_DIR" \
+              -maxdepth 1 \
+              -type f \
+              -name "*.apk" \
+              -print -quit | grep -q .; then
+            echo "::error::No APK was generated."
+            exit 1
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VUEO-v0.3.1-fixed-${{ github.run_number }}
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## VUEO v0.3.1 Runtime Hotfix"
+            echo
+            echo "- Coroutine return fixed"
+            echo "- APK rebuilt"
+            echo "- Artifact uploaded"
+          } >> "$GITHUB_STEP_SUMMARY"
