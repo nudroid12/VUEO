@@ -70,8 +70,7 @@ class UnifiedMediaEngine {
                                         catalog.id,
                                     )
                                 }
-                                    ?: return@runCatching
-                                        null
+                                    ?: return@runCatching null
 
                             CatalogRow(
                                 id =

@@ -115,8 +115,7 @@ object CatalogDiscoveryCache {
                     KEY_HOME,
                     null,
                 )
-                    ?: return@withContext
-                        emptyList()
+                    ?: return@withContext emptyList<CatalogRow>()
 
             val decoded =
                 runCatching {
@@ -145,10 +144,7 @@ object CatalogDiscoveryCache {
                             )
                             .apply()
 
-                        return@runCatching
-                            emptyList<
-                                CatalogRow
-                            >()
+                        return@runCatching emptyList<CatalogRow>()
                     }
 
                     val rows =
@@ -174,7 +170,8 @@ object CatalogDiscoveryCache {
                         .remove(KEY_HOME)
                         .apply()
 
-                    emptyList()
+
+                    emptyList<CatalogRow>()
                 }
 
             decoded
