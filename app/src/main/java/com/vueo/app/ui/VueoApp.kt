@@ -537,11 +537,11 @@ fun VueoApp() {
                         SettingsPage.ROOT
                 }
 
-                BottomTab(
+                ProfileBottomTab(
                     tab = AppTab.SETTINGS,
                     selected = selectedTab,
-                    icon = Icons.Default.Settings,
-                    label = "Settings",
+                    profile =
+                        profileStore.activeProfile(),
                 ) {
                     selectedCatalogRow =
                         null
@@ -571,12 +571,6 @@ fun VueoApp() {
                     libraryVersion = libraryVersion,
                     onLibraryChanged = {
                         libraryVersion++
-                    },
-                    onProfileClick = {
-                        profilePickerOpenedFromApp =
-                            true
-                        showProfilePicker =
-                            true
                     },
                     onOpenContentManager = {
                         selectedTab =
@@ -939,6 +933,160 @@ private fun RowScope.BottomTab(
 }
 
 @Composable
+private fun RowScope.ProfileBottomTab(
+    tab: AppTab,
+    selected: AppTab,
+    profile: VueoProfile,
+    onSelect: (AppTab) -> Unit,
+) {
+    val context =
+        LocalContext.current
+
+    val avatarDrawable =
+        remember(
+            profile.avatar,
+            context,
+        ) {
+            if (
+                profile.avatar
+                    .startsWith(
+                        "avatar_"
+                    )
+            ) {
+                context.resources
+                    .getIdentifier(
+                        profile.avatar,
+                        "drawable",
+                        context.packageName,
+                    )
+                    .takeIf {
+                        it != 0
+                    }
+            } else {
+                null
+            }
+        }
+
+    NavigationBarItem(
+        selected = selected == tab,
+        onClick = {
+            onSelect(tab)
+        },
+        icon = {
+            Surface(
+                modifier =
+                    Modifier.size(
+                        if (
+                            selected == tab
+                        ) {
+                            30.dp
+                        } else {
+                            28.dp
+                        }
+                    ),
+                shape = CircleShape,
+                color =
+                    VueoPalette.SurfaceStrong,
+                border =
+                    androidx.compose
+                        .foundation
+                        .BorderStroke(
+                            width =
+                                if (
+                                    selected == tab
+                                ) {
+                                    2.dp
+                                } else {
+                                    1.dp
+                                },
+                            color =
+                                if (
+                                    selected == tab
+                                ) {
+                                    VueoPalette.Accent
+                                } else {
+                                    VueoPalette.Stroke
+                                },
+                        ),
+            ) {
+                Box(
+                    contentAlignment =
+                        Alignment.Center,
+                ) {
+                    if (
+                        avatarDrawable != null
+                    ) {
+                        Image(
+                            painter =
+                                painterResource(
+                                    avatarDrawable
+                                ),
+                            contentDescription =
+                                "Profile",
+                            contentScale =
+                                ContentScale.Crop,
+                            modifier =
+                                Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        Text(
+                            text =
+                                profile.name
+                                    .trim()
+                                    .firstOrNull()
+                                    ?.uppercase()
+                                    ?: "P",
+                            color =
+                                if (
+                                    selected == tab
+                                ) {
+                                    VueoPalette.Accent
+                                } else {
+                                    VueoPalette.Muted
+                                },
+                            fontWeight =
+                                FontWeight.Bold,
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+            }
+        },
+        label = {
+            Text(
+                text = "Profile",
+                fontSize = 11.sp,
+                fontWeight =
+                    if (
+                        selected == tab
+                    ) {
+                        FontWeight.Bold
+                    } else {
+                        FontWeight.Medium
+                    },
+            )
+        },
+        colors =
+            NavigationBarItemDefaults
+                .colors(
+                    selectedIconColor =
+                        VueoPalette.Accent,
+                    selectedTextColor =
+                        Color.White,
+                    indicatorColor =
+                        VueoPalette.Accent
+                            .copy(
+                                alpha = .12f
+                            ),
+                    unselectedIconColor =
+                        VueoPalette.Muted,
+                    unselectedTextColor =
+                        VueoPalette.Muted,
+                ),
+    )
+}
+
+@Composable
 private fun HomeScreen(
     engine: UnifiedMediaEngine,
     contentVersion: Int,
@@ -947,7 +1095,6 @@ private fun HomeScreen(
     libraryStore: LibraryStore,
     libraryVersion: Int,
     onLibraryChanged: () -> Unit,
-    onProfileClick: () -> Unit,
     onOpenContentManager: () -> Unit,
     onMediaClick: (MediaItem) -> Unit,
     onPlaybackClick: (LibraryPlaybackEntry) -> Unit,
@@ -1069,7 +1216,7 @@ private fun HomeScreen(
             ),
         verticalArrangement =
             Arrangement.spacedBy(
-                24.dp
+                18.dp
             ),
     ) {
         if (hero != null) {
@@ -1078,11 +1225,8 @@ private fun HomeScreen(
             ) {
                 HomeCinematicHero(
                     item = hero,
-                    profile = activeProfile,
                     isWatchlisted =
                         heroWatchlisted,
-                    onProfileClick =
-                        onProfileClick,
                     onWatch = {
                         onMediaClick(hero)
                     },
@@ -1093,16 +1237,6 @@ private fun HomeScreen(
                             )
                         onLibraryChanged()
                     },
-                )
-            }
-        } else {
-            item(
-                key = "home_header"
-            ) {
-                HomeStandaloneHeader(
-                    profile = activeProfile,
-                    onProfileClick =
-                        onProfileClick,
                 )
             }
         }
@@ -1176,9 +1310,7 @@ private fun HomeScreen(
 @Composable
 private fun HomeCinematicHero(
     item: MediaItem,
-    profile: VueoProfile,
     isWatchlisted: Boolean,
-    onProfileClick: () -> Unit,
     onWatch: () -> Unit,
     onToggleMyList: () -> Unit,
 ) {
@@ -1186,7 +1318,7 @@ private fun HomeCinematicHero(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(456.dp),
+                .height(414.dp),
     ) {
         NetworkImage(
             url =
@@ -1248,18 +1380,6 @@ private fun HomeCinematicHero(
                     ),
         )
 
-        HomeHeroHeader(
-            profile = profile,
-            onProfileClick =
-                onProfileClick,
-            modifier =
-                Modifier
-                    .align(
-                        Alignment.TopCenter
-                    )
-                    .statusBarsPadding(),
-        )
-
         Column(
             modifier =
                 Modifier
@@ -1270,19 +1390,19 @@ private fun HomeCinematicHero(
                     .padding(
                         start = 20.dp,
                         end = 20.dp,
-                        bottom = 28.dp,
+                        bottom = 22.dp,
                     ),
             verticalArrangement =
                 Arrangement.spacedBy(
-                    11.dp
+                    9.dp
                 ),
         ) {
             Text(
                 text =
                     item.name.uppercase(),
                 color = Color.White,
-                fontSize = 29.sp,
-                lineHeight = 31.sp,
+                fontSize = 27.sp,
+                lineHeight = 29.sp,
                 fontWeight =
                     FontWeight.Black,
                 maxLines = 2,
@@ -1337,8 +1457,8 @@ private fun HomeCinematicHero(
                                 .copy(
                                     alpha = .76f
                                 ),
-                        fontSize = 12.sp,
-                        lineHeight = 18.sp,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
                         maxLines = 3,
                         overflow =
                             TextOverflow.Ellipsis,
@@ -1361,7 +1481,7 @@ private fun HomeCinematicHero(
                     modifier =
                         Modifier
                             .weight(1f)
-                            .height(50.dp),
+                            .height(46.dp),
                     shape =
                         RoundedCornerShape(
                             14.dp
@@ -1464,191 +1584,6 @@ private fun HomeCinematicHero(
 }
 
 @Composable
-private fun HomeHeroHeader(
-    profile: VueoProfile,
-    onProfileClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal = 20.dp,
-                    vertical = 14.dp,
-                ),
-        verticalAlignment =
-            Alignment.CenterVertically,
-    ) {
-        VueoBrandLockup(
-            modifier =
-                Modifier.weight(1f),
-        )
-
-        HomeProfileButton(
-            profile = profile,
-            onClick =
-                onProfileClick,
-        )
-    }
-}
-
-@Composable
-private fun HomeStandaloneHeader(
-    profile: VueoProfile,
-    onProfileClick: () -> Unit,
-) {
-    HomeHeroHeader(
-        profile = profile,
-        onProfileClick =
-            onProfileClick,
-        modifier =
-            Modifier
-                .statusBarsPadding()
-                .padding(
-                    top = 2.dp
-                ),
-    )
-}
-
-@Composable
-private fun HomeProfileButton(
-    profile: VueoProfile,
-    onClick: () -> Unit,
-) {
-    val context =
-        LocalContext.current
-
-    val avatarDrawable =
-        remember(
-            profile.avatar,
-            context,
-        ) {
-            if (
-                profile.avatar
-                    .startsWith(
-                        "avatar_"
-                    )
-            ) {
-                context.resources
-                    .getIdentifier(
-                        profile.avatar,
-                        "drawable",
-                        context.packageName,
-                    )
-                    .takeIf {
-                        it != 0
-                    }
-            } else {
-                null
-            }
-        }
-
-    Surface(
-        modifier =
-            Modifier
-                .size(42.dp)
-                .clickable(
-                    onClick = onClick
-                ),
-        shape =
-            RoundedCornerShape(50),
-        color =
-            Color.Black.copy(
-                alpha = .42f
-            ),
-        border =
-            androidx.compose
-                .foundation
-                .BorderStroke(
-                    width = 1.dp,
-                    color =
-                        Color.White.copy(
-                            alpha = .18f
-                        ),
-                ),
-    ) {
-        Box(
-            contentAlignment =
-                Alignment.Center,
-        ) {
-            if (
-                avatarDrawable != null
-            ) {
-                Image(
-                    painter =
-                        painterResource(
-                            avatarDrawable
-                        ),
-                    contentDescription =
-                        "${profile.name} profile",
-                    contentScale =
-                        ContentScale.Crop,
-                    modifier =
-                        Modifier.fillMaxSize(),
-                )
-            } else {
-                Text(
-                    text =
-                        profile.name
-                            .trim()
-                            .firstOrNull()
-                            ?.uppercase()
-                            ?: "P",
-                    color = Color.White,
-                    fontWeight =
-                        FontWeight.Bold,
-                    fontSize = 15.sp,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun HomeRoundIconButton(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-) {
-    Surface(
-        modifier =
-            Modifier.size(42.dp),
-        shape =
-            RoundedCornerShape(50),
-        color =
-            Color.Black.copy(
-                alpha = .42f
-            ),
-        border =
-            androidx.compose
-                .foundation
-                .BorderStroke(
-                    width = 1.dp,
-                    color =
-                        Color.White.copy(
-                            alpha = .16f
-                        ),
-                ),
-    ) {
-        IconButton(
-            onClick = onClick,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription =
-                    contentDescription,
-                tint = Color.White,
-                modifier =
-                    Modifier.size(
-                        22.dp
-                    ),
-            )
-        }
-    }
-}
-
-@Composable
 private fun HomeContinueWatchingSection(
     entries: List<LibraryPlaybackEntry>,
     onPlaybackClick:
@@ -1657,7 +1592,7 @@ private fun HomeContinueWatchingSection(
     Column(
         verticalArrangement =
             Arrangement.spacedBy(
-                11.dp
+                9.dp
             ),
     ) {
         HomeSectionHeader(
@@ -1705,7 +1640,7 @@ private fun HomeContinueWatchingCard(
     Surface(
         modifier =
             Modifier
-                .width(204.dp)
+                .width(190.dp)
                 .clickable(
                     onClick = onClick
                 ),
@@ -1721,7 +1656,7 @@ private fun HomeContinueWatchingCard(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .height(112.dp),
+                        .height(102.dp),
             ) {
                 NetworkImage(
                     url =
@@ -1760,7 +1695,7 @@ private fun HomeContinueWatchingCard(
                             .align(
                                 Alignment.Center
                             )
-                            .size(38.dp),
+                            .size(34.dp),
                     shape =
                         RoundedCornerShape(50),
                     color =
@@ -1789,8 +1724,8 @@ private fun HomeContinueWatchingCard(
                     Modifier.padding(
                         start = 10.dp,
                         end = 10.dp,
-                        top = 7.dp,
-                        bottom = 7.dp,
+                        top = 6.dp,
+                        bottom = 6.dp,
                     ),
                 verticalArrangement =
                     Arrangement.spacedBy(
