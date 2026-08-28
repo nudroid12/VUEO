@@ -344,3 +344,38 @@ Installed Stremio Addons
 ```
 
 Home and search caches are intentionally short-lived and memory-only during this development phase.
+
+
+## v0.6.0 playback architecture
+
+```text
+Source Picker
+     |
+     v
+StreamSource + headers + subtitles
+     |
+     v
+Media3 MediaItem
+     |
+     v
+ExoPlayer
+     |
+     +---- currentTracks ----> Audio selector
+     |
+     +---- currentTracks ----> Subtitle selector
+     |
+     +---- Player.Listener --> Buffering / errors
+     |
+     +---- position ----------> PlaybackStore
+     |                             |
+     |                             +--> periodic save
+     |                             +--> pause save
+     |                             +--> exit save
+     |
+     +---- error
+              |
+              +--> Retry
+              +--> Other Source
+```
+
+The player uses the existing Media3 1.11.0 playback stack. Full Library and Continue Watching surfaces remain a later milestone.

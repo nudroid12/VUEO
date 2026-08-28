@@ -1,6 +1,11 @@
 package com.vueo.app.ui
 
+import android.app.Activity
 import android.net.Uri
+import android.os.Build
+import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -46,6 +51,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -76,7 +82,12 @@ import androidx.media3.ui.PlayerView
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.C
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.MediaItem as Media3MediaItem
 import com.vueo.app.core.extensions.AddonCategory
 import com.vueo.app.core.extensions.ExtensionInstaller
@@ -3785,9 +3796,57 @@ private fun PlayerScreen(
     subtitles: List<SubtitleTrack>,
     onBack: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val playbackStore = remember {
-        PlaybackStore(context.applicationContext)
+    val context =
+        LocalContext.current
+
+    val playbackStore =
+        remember {
+            PlaybackStore(
+                context.applicationContext
+            )
+        }
+
+    val savedPositionMs =
+        remember(mediaKey) {
+            playbackStore.positionMs(
+                mediaKey
+            )
+        }
+
+    var resumePromptVisible by remember(
+        mediaKey
+    ) {
+        mutableStateOf(
+            savedPositionMs > 5_000L
+        )
+    }
+
+    var playbackError by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var isBuffering by remember {
+        mutableStateOf(false)
+    }
+
+    var audioTracks by remember {
+        mutableStateOf<
+            List<PlayerTrackChoice>
+        >(emptyList())
+    }
+
+    var textTracks by remember {
+        mutableStateOf<
+            List<PlayerTrackChoice>
+        >(emptyList())
+    }
+
+    var showAudioDialog by remember {
+        mutableStateOf(false)
+    }
+
+    var showSubtitleDialog by remember {
+        mutableStateOf(false)
     }
 
     val player = remember(
@@ -3797,7 +3856,9 @@ private fun PlayerScreen(
     ) {
         val httpFactory =
             DefaultHttpDataSource.Factory()
-                .setUserAgent("VUEO/0.3.1")
+                .setUserAgent(
+                    "VUEO/0.6.0"
+                )
                 .setAllowCrossProtocolRedirects(
                     true
                 )
@@ -3806,10 +3867,11 @@ private fun PlayerScreen(
                 )
 
         val mediaSourceFactory =
-            DefaultMediaSourceFactory(context)
-                .setDataSourceFactory(
-                    httpFactory
-                )
+            DefaultMediaSourceFactory(
+                context
+            ).setDataSourceFactory(
+                httpFactory
+            )
 
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(
@@ -3817,92 +3879,1028 @@ private fun PlayerScreen(
             )
             .build()
             .apply {
-            val mediaItem = buildPlayerMediaItem(
-                sourceUrl = requireNotNull(source.url),
-                subtitles = subtitles,
-            )
+                val mediaItem =
+                    buildPlayerMediaItem(
+                        sourceUrl =
+                            requireNotNull(
+                                source.url
+                            ),
+                        subtitles =
+                            subtitles,
+                    )
 
-            setMediaItem(mediaItem)
+                setMediaItem(mediaItem)
+                prepare()
 
-            val resumePosition = playbackStore.positionMs(mediaKey)
-            if (resumePosition > 0L) {
-                seekTo(resumePosition)
+                playWhenReady =
+                    savedPositionMs <=
+                        5_000L
             }
-
-            prepare()
-            playWhenReady = true
-        }
     }
 
-    DisposableEffect(player, mediaKey) {
-        onDispose {
-            playbackStore.savePositionMs(
-                mediaKey = mediaKey,
-                positionMs = player.currentPosition,
-                durationMs = player.duration,
+    fun refreshTrackChoices(
+        tracks: Tracks =
+            player.currentTracks,
+    ) {
+        audioTracks =
+            playerTrackChoices(
+                tracks = tracks,
+                trackType =
+                    C.TRACK_TYPE_AUDIO,
             )
+
+        textTracks =
+            playerTrackChoices(
+                tracks = tracks,
+                trackType =
+                    C.TRACK_TYPE_TEXT,
+            )
+    }
+
+    DisposableEffect(
+        player,
+        mediaKey,
+    ) {
+        val listener =
+            object : Player.Listener {
+                override fun onPlayerError(
+                    error:
+                        PlaybackException,
+                ) {
+                    playbackError =
+                        friendlyPlaybackError(
+                            error
+                        )
+
+                    isBuffering = false
+                }
+
+                override fun onTracksChanged(
+                    tracks: Tracks,
+                ) {
+                    refreshTrackChoices(
+                        tracks
+                    )
+                }
+
+                override fun onPlaybackStateChanged(
+                    playbackState: Int,
+                ) {
+                    isBuffering =
+                        playbackState ==
+                            Player.STATE_BUFFERING
+
+                    if (
+                        playbackState ==
+                        Player.STATE_READY
+                    ) {
+                        playbackError = null
+                    }
+
+                    if (
+                        playbackState ==
+                        Player.STATE_ENDED
+                    ) {
+                        playbackStore
+                            .clearPosition(
+                                mediaKey
+                            )
+                    }
+                }
+
+                override fun onIsPlayingChanged(
+                    isPlaying: Boolean,
+                ) {
+                    if (!isPlaying) {
+                        playbackStore
+                            .savePositionMs(
+                                mediaKey =
+                                    mediaKey,
+                                positionMs =
+                                    player
+                                        .currentPosition,
+                                durationMs =
+                                    player.duration,
+                            )
+                    }
+                }
+            }
+
+        player.addListener(
+            listener
+        )
+
+        refreshTrackChoices()
+
+        onDispose {
+            player.removeListener(
+                listener
+            )
+
+            playbackStore
+                .savePositionMs(
+                    mediaKey =
+                        mediaKey,
+                    positionMs =
+                        player
+                            .currentPosition,
+                    durationMs =
+                        player.duration,
+                )
+
             player.release()
         }
     }
 
-    Column(
+    LaunchedEffect(
+        player,
+        mediaKey,
+    ) {
+        while (true) {
+            delay(10_000L)
+
+            playbackStore
+                .savePositionMs(
+                    mediaKey =
+                        mediaKey,
+                    positionMs =
+                        player.currentPosition,
+                    durationMs =
+                        player.duration,
+                )
+        }
+    }
+
+    PlayerFullscreenEffect(
+        context = context,
+    )
+
+    if (resumePromptVisible) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = {
+                Text("Resume playback?")
+            },
+            text = {
+                Text(
+                    "Continue from " +
+                        formatPlaybackTime(
+                            savedPositionMs
+                        ) +
+                        " or start from the beginning."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        player.seekTo(
+                            savedPositionMs
+                        )
+                        player.playWhenReady =
+                            true
+                        resumePromptVisible =
+                            false
+                    },
+                ) {
+                    Text(
+                        "Resume " +
+                            formatPlaybackTime(
+                                savedPositionMs
+                            )
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        playbackStore
+                            .clearPosition(
+                                mediaKey
+                            )
+                        player.seekTo(0L)
+                        player.playWhenReady =
+                            true
+                        resumePromptVisible =
+                            false
+                    },
+                ) {
+                    Text("Start Over")
+                }
+            },
+        )
+    }
+
+    if (showAudioDialog) {
+        PlayerTrackDialog(
+            title = "Audio",
+            tracks = audioTracks,
+            automaticLabel = "Auto",
+            offLabel = null,
+            onAutomatic = {
+                clearTrackOverride(
+                    player =
+                        player,
+                    trackType =
+                        C.TRACK_TYPE_AUDIO,
+                    disable = false,
+                )
+                showAudioDialog = false
+            },
+            onOff = null,
+            onSelect = {
+                choice ->
+
+                applyTrackChoice(
+                    player =
+                        player,
+                    trackType =
+                        C.TRACK_TYPE_AUDIO,
+                    choice =
+                        choice,
+                )
+                showAudioDialog = false
+            },
+            onDismiss = {
+                showAudioDialog = false
+            },
+        )
+    }
+
+    if (showSubtitleDialog) {
+        PlayerTrackDialog(
+            title = "Subtitles",
+            tracks = textTracks,
+            automaticLabel = "Auto",
+            offLabel = "Off",
+            onAutomatic = {
+                clearTrackOverride(
+                    player =
+                        player,
+                    trackType =
+                        C.TRACK_TYPE_TEXT,
+                    disable = false,
+                )
+                showSubtitleDialog = false
+            },
+            onOff = {
+                clearTrackOverride(
+                    player =
+                        player,
+                    trackType =
+                        C.TRACK_TYPE_TEXT,
+                    disable = true,
+                )
+                showSubtitleDialog = false
+            },
+            onSelect = {
+                choice ->
+
+                applyTrackChoice(
+                    player =
+                        player,
+                    trackType =
+                        C.TRACK_TYPE_TEXT,
+                    choice =
+                        choice,
+                )
+                showSubtitleDialog = false
+            },
+            onDismiss = {
+                showSubtitleDialog = false
+            },
+        )
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    Icons.Default.ArrowBack,
-                    contentDescription = "Back",
-                    tint = Color.White,
-                )
-            }
-
-            Text(
-                title,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-
         AndroidView(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            factory = { playerContext ->
-                PlayerView(playerContext).apply {
-                    this.player = player
+            modifier =
+                Modifier.fillMaxSize(),
+            factory = {
+                playerContext ->
+
+                PlayerView(
+                    playerContext
+                ).apply {
+                    this.player =
+                        player
                     useController = true
                     keepScreenOn = true
                 }
             },
-            update = { view ->
+            update = {
+                view ->
+
                 view.player = player
             },
         )
 
-        Text(
-            buildString {
-                append(source.quality ?: "Direct stream")
-                append(" • ")
-                append(source.providerName)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(
+                    Alignment.TopCenter
+                )
+                .background(
+                    Color.Black.copy(
+                        alpha = .58f
+                    )
+                )
+                .padding(
+                    horizontal = 8.dp,
+                    vertical = 6.dp,
+                ),
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            IconButton(
+                onClick = onBack,
+            ) {
+                Icon(
+                    Icons.Default.ArrowBack,
+                    contentDescription =
+                        "Back",
+                    tint = Color.White,
+                )
+            }
 
-                if (subtitles.isNotEmpty()) {
-                    append(" • ")
-                    append("${subtitles.size} subtitle tracks")
+            Column(
+                modifier =
+                    Modifier.weight(1f),
+            ) {
+                Text(
+                    title,
+                    color = Color.White,
+                    fontWeight =
+                        FontWeight.Bold,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                )
+
+                Text(
+                    source.providerName +
+                        " • " +
+                        (
+                            source.quality
+                                ?: "Auto"
+                        ),
+                    color =
+                        Color.White.copy(
+                            alpha = .62f
+                        ),
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                )
+            }
+
+            if (isBuffering) {
+                Text(
+                    "BUFFERING",
+                    color =
+                        Color.White.copy(
+                            alpha = .72f
+                        ),
+                    fontSize = 10.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(
+                    Alignment.BottomCenter
+                )
+                .background(
+                    Color.Black.copy(
+                        alpha = .62f
+                    )
+                )
+                .padding(12.dp),
+            verticalArrangement =
+                Arrangement.spacedBy(8.dp),
+        ) {
+            playbackError?.let {
+                error ->
+
+                ElevatedCard(
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier =
+                            Modifier.padding(
+                                14.dp
+                            ),
+                        verticalArrangement =
+                            Arrangement.spacedBy(
+                                8.dp
+                            ),
+                    ) {
+                        Text(
+                            "Playback problem",
+                            fontWeight =
+                                FontWeight.Black,
+                        )
+
+                        Text(
+                            error,
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurface
+                                    .copy(
+                                        alpha = .72f
+                                    ),
+                            fontSize = 12.sp,
+                        )
+
+                        Row(
+                            horizontalArrangement =
+                                Arrangement.spacedBy(
+                                    8.dp
+                                ),
+                        ) {
+                            Button(
+                                onClick = {
+                                    playbackError =
+                                        null
+                                    player.prepare()
+                                    player.playWhenReady =
+                                        true
+                                },
+                            ) {
+                                Text("Retry")
+                            }
+
+                            OutlinedButton(
+                                onClick = onBack,
+                            ) {
+                                Text(
+                                    "Other Source"
+                                )
+                            }
+                        }
+                    }
                 }
-            },
-            modifier = Modifier.padding(12.dp),
-            color = Color.White.copy(alpha = .62f),
-            fontSize = 12.sp,
+            }
+
+            Row(
+                modifier =
+                    Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.spacedBy(
+                        8.dp
+                    ),
+            ) {
+                OutlinedButton(
+                    modifier =
+                        Modifier.weight(1f),
+                    enabled =
+                        audioTracks
+                            .isNotEmpty(),
+                    onClick = {
+                        showAudioDialog =
+                            true
+                    },
+                ) {
+                    Text(
+                        if (
+                            audioTracks
+                                .isEmpty()
+                        ) {
+                            "Audio"
+                        } else {
+                            "Audio " +
+                                audioTracks.size
+                        }
+                    )
+                }
+
+                OutlinedButton(
+                    modifier =
+                        Modifier.weight(1f),
+                    enabled =
+                        textTracks
+                            .isNotEmpty() ||
+                        subtitles
+                            .isNotEmpty(),
+                    onClick = {
+                        showSubtitleDialog =
+                            true
+                    },
+                ) {
+                    Text(
+                        "Subtitles " +
+                            maxOf(
+                                textTracks.size,
+                                subtitles.size,
+                            )
+                    )
+                }
+            }
+
+            Text(
+                buildString {
+                    append(
+                        source.quality
+                            ?: "Direct stream"
+                    )
+
+                    source.codec
+                        ?.takeIf {
+                            it.isNotBlank()
+                        }
+                        ?.let {
+                            append(" • ")
+                            append(it)
+                        }
+
+                    source.hdr
+                        ?.takeIf {
+                            it.isNotBlank()
+                        }
+                        ?.let {
+                            append(" • ")
+                            append(it)
+                        }
+
+                    append(" • ")
+                    append(
+                        source.providerName
+                    )
+                },
+                color =
+                    Color.White.copy(
+                        alpha = .62f
+                    ),
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow =
+                    TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlayerFullscreenEffect(
+    context: android.content.Context,
+) {
+    DisposableEffect(context) {
+        val activity =
+            context as? Activity
+
+        val window =
+            activity?.window
+
+        val decor =
+            window?.decorView
+
+        val previousFlags =
+            decor?.systemUiVisibility
+                ?: 0
+
+        if (
+            Build.VERSION.SDK_INT >= 30
+        ) {
+            window
+                ?.insetsController
+                ?.apply {
+                    hide(
+                        WindowInsets.Type
+                            .systemBars()
+                    )
+
+                    systemBarsBehavior =
+                        WindowInsetsController
+                            .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                }
+        } else {
+            decor?.systemUiVisibility =
+                View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        }
+
+        onDispose {
+            if (
+                Build.VERSION.SDK_INT >= 30
+            ) {
+                window
+                    ?.insetsController
+                    ?.show(
+                        WindowInsets.Type
+                            .systemBars()
+                    )
+            } else {
+                decor?.systemUiVisibility =
+                    previousFlags
+            }
+        }
+    }
+}
+
+private data class PlayerTrackChoice(
+    val key: String,
+    val label: String,
+    val override:
+        TrackSelectionOverride,
+    val selected: Boolean,
+)
+
+private fun playerTrackChoices(
+    tracks: Tracks,
+    trackType: Int,
+): List<PlayerTrackChoice> {
+    val result =
+        mutableListOf<
+            PlayerTrackChoice
+        >()
+
+    tracks.groups.forEachIndexed {
+        groupIndex,
+        group ->
+
+        if (
+            group.type !=
+            trackType
+        ) {
+            return@forEachIndexed
+        }
+
+        for (
+            trackIndex in
+            0 until group.length
+        ) {
+            if (
+                !group.isTrackSupported(
+                    trackIndex
+                )
+            ) {
+                continue
+            }
+
+            val format =
+                group.getTrackFormat(
+                    trackIndex
+                )
+
+            val label =
+                buildTrackLabel(
+                    trackType =
+                        trackType,
+                    formatLabel =
+                        format.label,
+                    language =
+                        format.language,
+                    channelCount =
+                        format.channelCount,
+                    sampleMimeType =
+                        format.sampleMimeType,
+                    fallbackIndex =
+                        result.size + 1,
+                )
+
+            result +=
+                PlayerTrackChoice(
+                    key =
+                        "$groupIndex:" +
+                            trackIndex,
+                    label = label,
+                    override =
+                        TrackSelectionOverride(
+                            group.mediaTrackGroup,
+                            trackIndex,
+                        ),
+                    selected =
+                        group
+                            .isTrackSelected(
+                                trackIndex
+                            ),
+                )
+        }
+    }
+
+    return result
+}
+
+private fun buildTrackLabel(
+    trackType: Int,
+    formatLabel: String?,
+    language: String?,
+    channelCount: Int,
+    sampleMimeType: String?,
+    fallbackIndex: Int,
+): String {
+    val primary =
+        formatLabel
+            ?.takeIf {
+                it.isNotBlank()
+            }
+            ?: language
+                ?.takeIf {
+                    it.isNotBlank()
+                }
+                ?.uppercase()
+            ?: if (
+                trackType ==
+                C.TRACK_TYPE_AUDIO
+            ) {
+                "Audio $fallbackIndex"
+            } else {
+                "Subtitle $fallbackIndex"
+            }
+
+    val details =
+        buildList {
+            if (
+                trackType ==
+                    C.TRACK_TYPE_AUDIO &&
+                channelCount > 0
+            ) {
+                add(
+                    "${channelCount}ch"
+                )
+            }
+
+            sampleMimeType
+                ?.substringAfterLast(
+                    "/"
+                )
+                ?.takeIf {
+                    it.isNotBlank()
+                }
+                ?.let {
+                    add(
+                        it.uppercase()
+                    )
+                }
+        }
+
+    return if (
+        details.isEmpty()
+    ) {
+        primary
+    } else {
+        "$primary • " +
+            details.joinToString(" • ")
+    }
+}
+
+@Composable
+private fun PlayerTrackDialog(
+    title: String,
+    tracks: List<PlayerTrackChoice>,
+    automaticLabel: String,
+    offLabel: String?,
+    onAutomatic: () -> Unit,
+    onOff: (() -> Unit)?,
+    onSelect:
+        (PlayerTrackChoice) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest =
+            onDismiss,
+        title = {
+            Text(title)
+        },
+        text = {
+            LazyColumn(
+                modifier =
+                    Modifier.height(
+                        360.dp
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        4.dp
+                    ),
+            ) {
+                item {
+                    PlayerTrackDialogRow(
+                        label =
+                            automaticLabel,
+                        selected =
+                            tracks.none {
+                                it.selected
+                            },
+                        onClick =
+                            onAutomatic,
+                    )
+                }
+
+                if (
+                    offLabel != null &&
+                    onOff != null
+                ) {
+                    item {
+                        PlayerTrackDialogRow(
+                            label =
+                                offLabel,
+                            selected = false,
+                            onClick =
+                                onOff,
+                        )
+                    }
+                }
+
+                items(
+                    tracks,
+                    key = {
+                        it.key
+                    },
+                ) { track ->
+                    PlayerTrackDialogRow(
+                        label =
+                            track.label,
+                        selected =
+                            track.selected,
+                        onClick = {
+                            onSelect(track)
+                        },
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+            ) {
+                Text("Close")
+            }
+        },
+    )
+}
+
+@Composable
+private fun PlayerTrackDialogRow(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                onClick = onClick
+            )
+            .padding(
+                vertical = 6.dp
+            ),
+        verticalAlignment =
+            Alignment.CenterVertically,
+    ) {
+        RadioButton(
+            selected = selected,
+            onClick = onClick,
+        )
+
+        Spacer(
+            Modifier.width(8.dp)
+        )
+
+        Text(
+            label,
+            maxLines = 2,
+            overflow =
+                TextOverflow.Ellipsis,
+        )
+    }
+}
+
+private fun applyTrackChoice(
+    player: ExoPlayer,
+    trackType: Int,
+    choice: PlayerTrackChoice,
+) {
+    player.trackSelectionParameters =
+        player
+            .trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(
+                trackType,
+                false,
+            )
+            .clearOverridesOfType(
+                trackType
+            )
+            .setOverrideForType(
+                choice.override
+            )
+            .build()
+}
+
+private fun clearTrackOverride(
+    player: ExoPlayer,
+    trackType: Int,
+    disable: Boolean,
+) {
+    player.trackSelectionParameters =
+        player
+            .trackSelectionParameters
+            .buildUpon()
+            .clearOverridesOfType(
+                trackType
+            )
+            .setTrackTypeDisabled(
+                trackType,
+                disable,
+            )
+            .build()
+}
+
+private fun friendlyPlaybackError(
+    error: PlaybackException,
+): String {
+    val message =
+        error.message
+            ?.takeIf {
+                it.isNotBlank()
+            }
+
+    return when {
+        message
+            ?.contains(
+                "403",
+                ignoreCase = true,
+            ) == true ->
+            "The stream server rejected this request. Try another source."
+
+        message
+            ?.contains(
+                "404",
+                ignoreCase = true,
+            ) == true ->
+            "This stream is no longer available. Try another source."
+
+        message
+            ?.contains(
+                "timeout",
+                ignoreCase = true,
+            ) == true ->
+            "The stream took too long to respond. Retry or choose another source."
+
+        message
+            ?.contains(
+                "decoder",
+                ignoreCase = true,
+            ) == true ||
+            message
+                ?.contains(
+                    "codec",
+                    ignoreCase = true,
+                ) == true ->
+            "This device may not support the stream codec. Try another source."
+
+        else ->
+            message
+                ?: "Playback failed. Retry or choose another source."
+    }
+}
+
+private fun formatPlaybackTime(
+    positionMs: Long,
+): String {
+    val totalSeconds =
+        (
+            positionMs /
+                1_000L
+        ).coerceAtLeast(0L)
+
+    val hours =
+        totalSeconds / 3_600L
+
+    val minutes =
+        (
+            totalSeconds %
+                3_600L
+        ) / 60L
+
+    val seconds =
+        totalSeconds % 60L
+
+    return if (hours > 0L) {
+        "%d:%02d:%02d".format(
+            hours,
+            minutes,
+            seconds,
+        )
+    } else {
+        "%d:%02d".format(
+            minutes,
+            seconds,
         )
     }
 }
@@ -3911,36 +4909,78 @@ private fun buildPlayerMediaItem(
     sourceUrl: String,
     subtitles: List<SubtitleTrack>,
 ): Media3MediaItem {
-    val subtitleConfigurations = subtitles
-        .filter {
-            it.url.startsWith("https://")
-        }
-        .map { subtitle ->
-            Media3MediaItem.SubtitleConfiguration.Builder(
-                Uri.parse(subtitle.url)
-            )
-                .setId(subtitle.id)
-                .setLanguage(subtitle.language)
-                .setMimeType(subtitleMimeType(subtitle.url))
-                .build()
-        }
+    val subtitleConfigurations =
+        subtitles
+            .filter {
+                it.url.startsWith(
+                    "https://"
+                )
+            }
+            .distinctBy {
+                it.url
+            }
+            .map {
+                subtitle ->
 
-    return Media3MediaItem.Builder()
-        .setUri(Uri.parse(sourceUrl))
-        .setSubtitleConfigurations(subtitleConfigurations)
+                Media3MediaItem
+                    .SubtitleConfiguration
+                    .Builder(
+                        Uri.parse(
+                            subtitle.url
+                        )
+                    )
+                    .setId(
+                        subtitle.id
+                    )
+                    .setLabel(
+                        subtitle.language
+                    )
+                    .setLanguage(
+                        subtitle.language
+                    )
+                    .setMimeType(
+                        subtitleMimeType(
+                            subtitle.url
+                        )
+                    )
+                    .build()
+            }
+
+    return Media3MediaItem
+        .Builder()
+        .setUri(
+            Uri.parse(sourceUrl)
+        )
+        .setSubtitleConfigurations(
+            subtitleConfigurations
+        )
         .build()
 }
 
-private fun subtitleMimeType(url: String): String =
+private fun subtitleMimeType(
+    url: String,
+): String =
     when (
         url.substringBefore("?")
-            .substringAfterLast(".", "")
+            .substringAfterLast(
+                ".",
+                "",
+            )
             .lowercase()
     ) {
-        "vtt" -> MimeTypes.TEXT_VTT
-        "ssa", "ass" -> MimeTypes.TEXT_SSA
-        "ttml", "xml" -> MimeTypes.APPLICATION_TTML
-        else -> MimeTypes.APPLICATION_SUBRIP
+        "vtt" ->
+            MimeTypes.TEXT_VTT
+
+        "ssa",
+        "ass" ->
+            MimeTypes.TEXT_SSA
+
+        "ttml",
+        "xml" ->
+            MimeTypes.APPLICATION_TTML
+
+        else ->
+            MimeTypes.APPLICATION_SUBRIP
     }
 
 private fun selectedVideoId(

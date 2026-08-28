@@ -1,4 +1,4 @@
-# VUEO v0.5.0
+# VUEO v0.6.0
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -405,3 +405,62 @@ VUEO now:
 - details-to-details navigation keeps a back stack
 
 This patch intentionally keeps Library work for the later Library milestone.
+
+
+## v0.6.0 Player Completion
+
+This milestone focuses on the viewing experience.
+
+### Player
+
+- immersive system-bar fullscreen while playback is open
+- PlayerView remains the playback surface
+- source name, quality, codec and HDR stay visible in the playback chrome
+- buffering state is surfaced without replacing the video
+- playback errors show Retry and Other Source actions
+
+### Resume
+
+VUEO no longer silently jumps to an old playback position.
+
+If a saved position exists, the player pauses and asks:
+
+- Resume from the saved timestamp
+- Start Over
+
+Playback position is saved:
+
+- every 10 seconds
+- when playback pauses
+- when leaving the player
+
+Near-complete titles still clear their resume point.
+
+### Audio and subtitles
+
+VUEO now reads Media3 `currentTracks` and exposes explicit selectors for:
+
+- audio tracks
+- embedded subtitle tracks
+- external subtitle tracks added to the MediaItem
+
+Track choices are applied using Media3 track-selection overrides.
+
+Subtitle formats currently recognized:
+
+- SRT
+- WebVTT
+- SSA / ASS
+- TTML / XML
+
+### Error recovery
+
+Common failures are translated into useful actions rather than raw player errors:
+
+- HTTP 403
+- HTTP 404
+- timeout
+- decoder / codec failure
+- generic playback failure
+
+The user can retry the same source or return directly to Source Picker.

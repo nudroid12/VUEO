@@ -9,7 +9,25 @@ class PlaybackStore(context: Context) {
     )
 
     fun positionMs(mediaKey: String): Long =
-        prefs.getLong(positionKey(mediaKey), 0L)
+        prefs.getLong(
+            positionKey(mediaKey),
+            0L,
+        )
+
+    fun durationMs(mediaKey: String): Long =
+        prefs.getLong(
+            durationKey(mediaKey),
+            0L,
+        )
+
+    fun clearPosition(
+        mediaKey: String,
+    ) {
+        prefs.edit()
+            .remove(positionKey(mediaKey))
+            .remove(durationKey(mediaKey))
+            .apply()
+    }
 
     fun savePositionMs(
         mediaKey: String,
@@ -17,22 +35,40 @@ class PlaybackStore(context: Context) {
         durationMs: Long,
     ) {
         if (positionMs <= 5_000L) {
-            prefs.edit().remove(positionKey(mediaKey)).apply()
+            clearPosition(mediaKey)
             return
         }
 
-        if (durationMs > 0L && positionMs >= durationMs - 20_000L) {
-            prefs.edit().remove(positionKey(mediaKey)).apply()
+        if (
+            durationMs > 0L &&
+            positionMs >=
+                durationMs - 20_000L
+        ) {
+            clearPosition(mediaKey)
             return
         }
 
         prefs.edit()
-            .putLong(positionKey(mediaKey), positionMs)
+            .putLong(
+                positionKey(mediaKey),
+                positionMs,
+            )
+            .putLong(
+                durationKey(mediaKey),
+                durationMs.coerceAtLeast(0L),
+            )
             .apply()
     }
 
-    private fun positionKey(mediaKey: String): String =
+    private fun positionKey(
+        mediaKey: String,
+    ): String =
         "position:$mediaKey"
+
+    private fun durationKey(
+        mediaKey: String,
+    ): String =
+        "duration:$mediaKey"
 
     companion object {
         private const val PREFS_NAME = "vueo_playback"
