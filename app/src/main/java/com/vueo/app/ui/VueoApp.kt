@@ -13,6 +13,7 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -35,6 +36,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -92,6 +96,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -254,6 +259,9 @@ fun VueoApp() {
     var selectedMedia by remember {
         mutableStateOf<MediaItem?>(null)
     }
+    var selectedCatalogRow by remember {
+        mutableStateOf<CatalogRow?>(null)
+    }
     var mediaBackStack by remember {
         mutableStateOf<List<MediaItem>>(
             emptyList()
@@ -348,6 +356,17 @@ fun VueoApp() {
             !booting &&
                 !showProfilePicker &&
                 selectedMedia == null &&
+                selectedCatalogRow != null,
+    ) {
+        selectedCatalogRow = null
+    }
+
+    BackHandler(
+        enabled =
+            !booting &&
+                !showProfilePicker &&
+                selectedMedia == null &&
+                selectedCatalogRow == null &&
                 (
                     selectedTab != AppTab.HOME ||
                         settingsPage != SettingsPage.ROOT
@@ -378,6 +397,7 @@ fun VueoApp() {
                 profileVersion,
             onProfileSelected = {
                 selectedMedia = null
+                selectedCatalogRow = null
                 selectedLibraryEntry =
                     null
                 mediaBackStack =
@@ -396,6 +416,29 @@ fun VueoApp() {
             onProfilesChanged = {
                 profileVersion++
                 libraryVersion++
+            },
+        )
+        return
+    }
+
+    if (
+        selectedCatalogRow != null &&
+        selectedMedia == null
+    ) {
+        CatalogSeeAllScreen(
+            row =
+                selectedCatalogRow!!,
+            onBack = {
+                selectedCatalogRow =
+                    null
+            },
+            onMediaClick = {
+                item ->
+                selectedLibraryEntry =
+                    null
+                mediaBackStack =
+                    emptyList()
+                selectedMedia = item
             },
         )
         return
@@ -460,6 +503,8 @@ fun VueoApp() {
                     icon = Icons.Default.Home,
                     label = "Home",
                 ) {
+                    selectedCatalogRow =
+                        null
                     selectedTab = it
                     settingsPage =
                         SettingsPage.ROOT
@@ -471,6 +516,8 @@ fun VueoApp() {
                     icon = Icons.Default.Search,
                     label = "Search",
                 ) {
+                    selectedCatalogRow =
+                        null
                     selectedTab = it
                     settingsPage =
                         SettingsPage.ROOT
@@ -482,6 +529,8 @@ fun VueoApp() {
                     icon = Icons.Default.VideoLibrary,
                     label = "Library",
                 ) {
+                    selectedCatalogRow =
+                        null
                     selectedTab = it
                     settingsPage =
                         SettingsPage.ROOT
@@ -493,6 +542,8 @@ fun VueoApp() {
                     icon = Icons.Default.Settings,
                     label = "Settings",
                 ) {
+                    selectedCatalogRow =
+                        null
                     selectedTab = it
                     settingsPage =
                         SettingsPage.ROOT
@@ -533,10 +584,6 @@ fun VueoApp() {
                             SettingsPage
                                 .CONTENT_MANAGER
                     },
-                    onSearch = {
-                        selectedTab =
-                            AppTab.SEARCH
-                    },
                     onMediaClick = {
                         mediaBackStack =
                             emptyList()
@@ -552,6 +599,11 @@ fun VueoApp() {
                             entry
                         selectedMedia =
                             entry.media
+                    },
+                    onSeeAll = {
+                        row ->
+                        selectedCatalogRow =
+                            row
                     },
                 )
 
@@ -896,9 +948,9 @@ private fun HomeScreen(
     onLibraryChanged: () -> Unit,
     onProfileClick: () -> Unit,
     onOpenContentManager: () -> Unit,
-    onSearch: () -> Unit,
     onMediaClick: (MediaItem) -> Unit,
     onPlaybackClick: (LibraryPlaybackEntry) -> Unit,
+    onSeeAll: (CatalogRow) -> Unit,
 ) {
     val context = LocalContext.current
     val listState = rememberLazyListState()
@@ -1012,7 +1064,7 @@ private fun HomeScreen(
                 ),
         contentPadding =
             PaddingValues(
-                bottom = 28.dp
+                bottom = 40.dp
             ),
         verticalArrangement =
             Arrangement.spacedBy(
@@ -1030,7 +1082,6 @@ private fun HomeScreen(
                         heroWatchlisted,
                     onProfileClick =
                         onProfileClick,
-                    onSearch = onSearch,
                     onWatch = {
                         onMediaClick(hero)
                     },
@@ -1051,7 +1102,6 @@ private fun HomeScreen(
                     profile = activeProfile,
                     onProfileClick =
                         onProfileClick,
-                    onSearch = onSearch,
                 )
             }
         }
@@ -1114,6 +1164,9 @@ private fun HomeScreen(
                 row = row,
                 onMediaClick =
                     onMediaClick,
+                onSeeAll = {
+                    onSeeAll(row)
+                },
             )
         }
     }
@@ -1125,7 +1178,6 @@ private fun HomeCinematicHero(
     profile: VueoProfile,
     isWatchlisted: Boolean,
     onProfileClick: () -> Unit,
-    onSearch: () -> Unit,
     onWatch: () -> Unit,
     onToggleMyList: () -> Unit,
 ) {
@@ -1133,7 +1185,7 @@ private fun HomeCinematicHero(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(440.dp),
+                .height(456.dp),
     ) {
         NetworkImage(
             url =
@@ -1199,7 +1251,6 @@ private fun HomeCinematicHero(
             profile = profile,
             onProfileClick =
                 onProfileClick,
-            onSearch = onSearch,
             modifier =
                 Modifier
                     .align(
@@ -1218,18 +1269,18 @@ private fun HomeCinematicHero(
                     .padding(
                         start = 20.dp,
                         end = 20.dp,
-                        bottom = 24.dp,
+                        bottom = 28.dp,
                     ),
             verticalArrangement =
                 Arrangement.spacedBy(
-                    10.dp
+                    11.dp
                 ),
         ) {
             Text(
                 text =
                     item.name.uppercase(),
                 color = Color.White,
-                fontSize = 30.sp,
+                fontSize = 29.sp,
                 lineHeight = 31.sp,
                 fontWeight =
                     FontWeight.Black,
@@ -1286,14 +1337,14 @@ private fun HomeCinematicHero(
                                     alpha = .76f
                                 ),
                         fontSize = 12.sp,
-                        lineHeight = 17.sp,
-                        maxLines = 2,
+                        lineHeight = 18.sp,
+                        maxLines = 3,
                         overflow =
                             TextOverflow.Ellipsis,
                         modifier =
                             Modifier
                                 .fillMaxWidth(
-                                    .78f
+                                    .94f
                                 ),
                     )
                 }
@@ -1333,6 +1384,9 @@ private fun HomeCinematicHero(
                         text = "Watch Now",
                         fontWeight =
                             FontWeight.Bold,
+                        fontSize = 15.sp,
+                        maxLines = 1,
+                        softWrap = false,
                     )
                 }
 
@@ -1412,7 +1466,6 @@ private fun HomeCinematicHero(
 private fun HomeHeroHeader(
     profile: VueoProfile,
     onProfileClick: () -> Unit,
-    onSearch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -1436,19 +1489,6 @@ private fun HomeHeroHeader(
             onClick =
                 onProfileClick,
         )
-
-        Spacer(
-            Modifier.width(8.dp)
-        )
-
-        HomeRoundIconButton(
-            icon =
-                Icons.Default.Search,
-            contentDescription =
-                "Search",
-            onClick =
-                onSearch,
-        )
     }
 }
 
@@ -1456,13 +1496,11 @@ private fun HomeHeroHeader(
 private fun HomeStandaloneHeader(
     profile: VueoProfile,
     onProfileClick: () -> Unit,
-    onSearch: () -> Unit,
 ) {
     HomeHeroHeader(
         profile = profile,
         onProfileClick =
             onProfileClick,
-        onSearch = onSearch,
         modifier =
             Modifier
                 .statusBarsPadding()
@@ -1477,6 +1515,34 @@ private fun HomeProfileButton(
     profile: VueoProfile,
     onClick: () -> Unit,
 ) {
+    val context =
+        LocalContext.current
+
+    val avatarDrawable =
+        remember(
+            profile.avatar,
+            context,
+        ) {
+            if (
+                profile.avatar
+                    .startsWith(
+                        "avatar_"
+                    )
+            ) {
+                context.resources
+                    .getIdentifier(
+                        profile.avatar,
+                        "drawable",
+                        context.packageName,
+                    )
+                    .takeIf {
+                        it != 0
+                    }
+            } else {
+                null
+            }
+        }
+
     Surface(
         modifier =
             Modifier
@@ -1497,7 +1563,7 @@ private fun HomeProfileButton(
                     width = 1.dp,
                     color =
                         Color.White.copy(
-                            alpha = .16f
+                            alpha = .18f
                         ),
                 ),
     ) {
@@ -1505,18 +1571,35 @@ private fun HomeProfileButton(
             contentAlignment =
                 Alignment.Center,
         ) {
-            Text(
-                text =
-                    profile.name
-                        .trim()
-                        .firstOrNull()
-                        ?.uppercase()
-                        ?: "P",
-                color = Color.White,
-                fontWeight =
-                    FontWeight.Bold,
-                fontSize = 15.sp,
-            )
+            if (
+                avatarDrawable != null
+            ) {
+                Image(
+                    painter =
+                        painterResource(
+                            avatarDrawable
+                        ),
+                    contentDescription =
+                        "${profile.name} profile",
+                    contentScale =
+                        ContentScale.Crop,
+                    modifier =
+                        Modifier.fillMaxSize(),
+                )
+            } else {
+                Text(
+                    text =
+                        profile.name
+                            .trim()
+                            .firstOrNull()
+                            ?.uppercase()
+                            ?: "P",
+                    color = Color.White,
+                    fontWeight =
+                        FontWeight.Bold,
+                    fontSize = 15.sp,
+                )
+            }
         }
     }
 }
@@ -1621,7 +1704,7 @@ private fun HomeContinueWatchingCard(
     Surface(
         modifier =
             Modifier
-                .width(218.dp)
+                .width(204.dp)
                 .clickable(
                     onClick = onClick
                 ),
@@ -1637,7 +1720,7 @@ private fun HomeContinueWatchingCard(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .height(122.dp),
+                        .height(112.dp),
             ) {
                 NetworkImage(
                     url =
@@ -1705,8 +1788,8 @@ private fun HomeContinueWatchingCard(
                     Modifier.padding(
                         start = 10.dp,
                         end = 10.dp,
-                        top = 8.dp,
-                        bottom = 9.dp,
+                        top = 7.dp,
+                        bottom = 7.dp,
                     ),
                 verticalArrangement =
                     Arrangement.spacedBy(
@@ -1845,6 +1928,7 @@ private fun homePlaybackSubtitle(
 private fun HomeSectionHeader(
     title: String,
     subtitle: String? = null,
+    onTrailingClick: (() -> Unit)? = null,
 ) {
     Row(
         modifier =
@@ -1874,12 +1958,59 @@ private fun HomeSectionHeader(
                 it.isNotBlank()
             }
             ?.let {
+                trailing ->
                 Text(
-                    text = it,
+                    text = trailing,
                     color =
-                        VueoPalette.Muted,
-                    fontSize = 10.sp,
+                        if (
+                            trailing ==
+                                "See All"
+                        ) {
+                            VueoPalette.Accent
+                        } else {
+                            VueoPalette.Muted
+                        },
+                    fontSize =
+                        if (
+                            trailing ==
+                                "See All"
+                        ) {
+                            12.sp
+                        } else {
+                            10.sp
+                        },
+                    fontWeight =
+                        if (
+                            trailing ==
+                                "See All"
+                        ) {
+                            FontWeight.SemiBold
+                        } else {
+                            FontWeight.Normal
+                        },
                     maxLines = 1,
+                    modifier =
+                        if (
+                            onTrailingClick !=
+                                null
+                        ) {
+                            Modifier
+                                .clip(
+                                    RoundedCornerShape(
+                                        50
+                                    )
+                                )
+                                .clickable(
+                                    onClick =
+                                        onTrailingClick
+                                )
+                                .padding(
+                                    horizontal = 8.dp,
+                                    vertical = 6.dp,
+                                )
+                        } else {
+                            Modifier
+                        },
                 )
             }
     }
@@ -2047,6 +2178,7 @@ private fun CatalogSection(
     row: CatalogRow,
     onMediaClick:
         (MediaItem) -> Unit,
+    onSeeAll: () -> Unit,
 ) {
     Column(
         verticalArrangement =
@@ -2056,11 +2188,9 @@ private fun CatalogSection(
     ) {
         HomeSectionHeader(
             title = row.title,
-            subtitle =
-                row.providerName
-                    .takeIf {
-                        it.isNotBlank()
-                    },
+            subtitle = "See All",
+            onTrailingClick =
+                onSeeAll,
         )
 
         LazyRow(
@@ -2090,6 +2220,196 @@ private fun CatalogSection(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun CatalogSeeAllScreen(
+    row: CatalogRow,
+    onBack: () -> Unit,
+    onMediaClick:
+        (MediaItem) -> Unit,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(
+                    VueoPalette.Background
+                )
+                .statusBarsPadding(),
+    ) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = 10.dp,
+                        vertical = 8.dp,
+                    ),
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            IconButton(
+                onClick = onBack,
+            ) {
+                Icon(
+                    imageVector =
+                        Icons.Default
+                            .ArrowBack,
+                    contentDescription =
+                        "Back",
+                    tint = Color.White,
+                )
+            }
+
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1f),
+            ) {
+                Text(
+                    text = row.title,
+                    color = Color.White,
+                    fontWeight =
+                        FontWeight.Bold,
+                    fontSize = 22.sp,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                )
+
+                Text(
+                    text =
+                        "${row.items.size} titles",
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+
+        LazyVerticalGrid(
+            columns =
+                GridCells.Adaptive(
+                    minSize = 112.dp
+                ),
+            modifier =
+                Modifier
+                    .fillMaxSize(),
+            contentPadding =
+                PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 8.dp,
+                    bottom = 28.dp,
+                ),
+            horizontalArrangement =
+                Arrangement.spacedBy(
+                    10.dp
+                ),
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    16.dp
+                ),
+        ) {
+            gridItems(
+                items = row.items,
+                key = {
+                    "${row.id}:${it.id}"
+                },
+            ) {
+                item ->
+                CatalogGridPoster(
+                    item = item,
+                    onClick = {
+                        onMediaClick(
+                            item
+                        )
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CatalogGridPoster(
+    item: MediaItem,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(
+                    onClick = onClick
+                ),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                7.dp
+            ),
+    ) {
+        Surface(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(
+                        2f / 3f
+                    ),
+            shape =
+                RoundedCornerShape(
+                    14.dp
+                ),
+            color =
+                VueoPalette.Surface,
+        ) {
+            NetworkImage(
+                url = item.poster,
+                contentDescription =
+                    item.name,
+                modifier =
+                    Modifier.fillMaxSize(),
+                contentScale =
+                    ContentScale.Crop,
+                fallbackText =
+                    item.name,
+            )
+        }
+
+        Text(
+            text = item.name,
+            color = Color.White,
+            maxLines = 1,
+            overflow =
+                TextOverflow.Ellipsis,
+            fontWeight =
+                FontWeight.SemiBold,
+            fontSize = 12.sp,
+        )
+
+        Text(
+            text =
+                listOfNotNull(
+                    item.releaseInfo,
+                    item.type
+                        .takeIf {
+                            it.isNotBlank()
+                        }
+                        ?.replaceFirstChar {
+                            it.uppercase()
+                        },
+                )
+                    .joinToString(
+                        " • "
+                    ),
+            color =
+                VueoPalette.Muted,
+            fontSize = 9.sp,
+            maxLines = 1,
+            overflow =
+                TextOverflow.Ellipsis,
+        )
     }
 }
 
