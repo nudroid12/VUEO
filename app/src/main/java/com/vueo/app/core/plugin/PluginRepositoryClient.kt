@@ -1,6 +1,5 @@
 package com.vueo.app.core.plugin
 
-import com.vueo.app.core.stremio.SimpleHttp
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
@@ -12,7 +11,7 @@ object PluginRepositoryClient {
             "VUEO requires an HTTPS plugin repository URL."
         }
 
-        val json = JSONObject(SimpleHttp.getResilient(manifestUrl))
+        val json = JSONObject(PluginHttp.getText(manifestUrl))
         val providersArray = json.optJSONArray("scrapers")
             ?: json.optJSONArray("providers")
             ?: JSONArray()

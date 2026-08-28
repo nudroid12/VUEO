@@ -5,7 +5,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class PluginStore(context: Context) {
-    private val prefs = context.getSharedPreferences(
+    private val appContext = context.applicationContext
+    private val codeStore = ProviderCodeStore(appContext)
+
+    private val prefs = appContext.getSharedPreferences(
         PREFS_NAME,
         Context.MODE_PRIVATE,
     )
@@ -91,6 +94,7 @@ class PluginStore(context: Context) {
                 it.manifestUrl == manifestUrl
             }
         )
+        codeStore.removeRepository(manifestUrl)
     }
 
     fun isProviderEnabled(

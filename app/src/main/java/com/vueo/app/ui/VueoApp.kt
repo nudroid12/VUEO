@@ -88,6 +88,8 @@ import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.core.storage.PlaybackStore
 import com.vueo.app.core.model.SubtitleTrack
 import com.vueo.app.core.plugin.PluginStore
+import com.vueo.app.core.plugin.ProviderCodeSyncManager
+import com.vueo.app.core.plugin.ProviderCodeStore
 import com.vueo.app.core.plugin.ProviderHealthStatus
 import com.vueo.app.core.plugin.ProviderHealthRecord
 import com.vueo.app.core.plugin.PluginHealthStore
@@ -125,6 +127,11 @@ fun VueoApp() {
     val pluginStore = remember {
         PluginStore(context.applicationContext)
     }
+    val providerCodeSync = remember {
+        ProviderCodeSyncManager(
+            context.applicationContext
+        )
+    }
 
     var selectedTab by remember { mutableStateOf(AppTab.HOME) }
     var contentPage by remember { mutableStateOf(ContentPage.ROOT) }
@@ -135,6 +142,12 @@ fun VueoApp() {
     LaunchedEffect(Unit) {
         store.seedDevelopmentDefaultsIfNeeded()
         pluginStore.seedDevelopmentDefaultsIfNeeded()
+
+        launch {
+            providerCodeSync.syncMissing(
+                pluginStore.repositories()
+            )
+        }
 
         store.manifestUrls().forEach { manifestUrl ->
             runCatching {
@@ -1064,7 +1077,18 @@ private fun PluginsScreen(
     val healthStore = remember {
         PluginHealthStore(context.applicationContext)
     }
+    val codeStore = remember {
+        ProviderCodeStore(context.applicationContext)
+    }
+    val codeSync = remember {
+        ProviderCodeSyncManager(
+            context.applicationContext
+        )
+    }
     var healthRevision by remember {
+        mutableIntStateOf(0)
+    }
+    var codeRevision by remember {
         mutableIntStateOf(0)
     }
 
@@ -1106,6 +1130,11 @@ private fun PluginsScreen(
         store.seedDevelopmentDefaultsIfNeeded()
         repositories =
             store.repositories()
+
+        codeSync.syncMissing(
+            repositories
+        )
+        codeRevision++
     }
 
     Column(
@@ -1374,6 +1403,8 @@ private fun PluginsScreen(
                     store = store,
                     healthStore = healthStore,
                     healthRevision = healthRevision,
+                    codeStore = codeStore,
+                    codeRevision = codeRevision,
                     isDevelopmentDefault =
                         store.isDevelopmentDefault(
                             repository.manifestUrl
@@ -1399,8 +1430,23 @@ private fun PluginsScreen(
                                 store.upsert(
                                     refreshed
                                 )
+
+                                val syncResult =
+                                    codeSync.syncRepository(
+                                        repository =
+                                            refreshed,
+                                        force =
+                                            true,
+                                    )
+
                                 repositories =
                                     store.repositories()
+                                codeRevision++
+
+                                message =
+                                    "Provider code ready " +
+                                    "${syncResult.readyProviders}/" +
+                                    "${refreshed.providers.size}"
                             }.onFailure {
                                 message =
                                     it.message
@@ -1448,9 +1494,9 @@ private fun PluginsScreen(
                         )
                         Text(
                             "Provider runtime ACTIVE. " +
-                                "VUEO executes enabled provider bundles " +
-                                "inside an isolated WebView and exposes " +
-                                "only a restricted native HTTPS fetch bridge.",
+                                "VUEO executes locally stored provider code " +
+                                "inside QuickJS. Plugin fetch() uses native OkHttp " +
+                                "with system DNS plus DNS-over-HTTPS fallback.",
                             color =
                                 MaterialTheme
                                     .colorScheme
@@ -1544,10 +1590,26 @@ private fun PluginsScreen(
                                 store.upsert(
                                     repository
                                 )
+
+                                val syncResult =
+                                    codeSync.syncRepository(
+                                        repository =
+                                            repository,
+                                        force =
+                                            true,
+                                    )
+
                                 repositories =
                                     store.repositories()
+                                codeRevision++
                                 repositoryUrl = ""
                                 showAddDialog = false
+
+                                message =
+                                    "Installed ${repository.name}. " +
+                                    "Provider code ready " +
+                                    "${syncResult.readyProviders}/" +
+                                    "${repository.providers.size}"
                             }.onFailure {
                                 message =
                                     it.message
@@ -1582,6 +1644,8 @@ private fun PluginRepositoryCard(
     store: PluginStore,
     healthStore: PluginHealthStore,
     healthRevision: Int,
+    codeStore: ProviderCodeStore,
+    codeRevision: Int,
     isDevelopmentDefault: Boolean,
     refreshing: Boolean,
     onRefresh: () -> Unit,
@@ -1697,6 +1761,37 @@ private fun PluginRepositoryCard(
                                 .onSurface
                                 .copy(alpha = .55f),
                         fontSize = 12.sp,
+                    )
+
+                    val readyProviderCode =
+                        remember(
+                            repository.manifestUrl,
+                            repository.version,
+                            codeRevision,
+                        ) {
+                            codeStore.readyCount(
+                                repository
+                            )
+                        }
+
+                    Text(
+                        "Provider code $readyProviderCode/" +
+                            "${repository.providers.size} ready locally",
+                        color =
+                            if (
+                                readyProviderCode ==
+                                repository.providers.size
+                            ) {
+                                MaterialTheme
+                                    .colorScheme
+                                    .primary
+                            } else {
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurface
+                                    .copy(alpha = .55f)
+                            },
+                        fontSize = 11.sp,
                     )
                 }
 

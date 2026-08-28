@@ -1,4 +1,4 @@
-# VUEO v0.3.3
+# VUEO v0.3.4
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -202,3 +202,34 @@ This patch addresses provider-wide failures caused before JavaScript execution w
 - Repeated source discovery reuses cached provider scripts instead of downloading dozens of files again.
 - Repository refresh uses the same resilient transport.
 - Provider Health continues to report the final transport/runtime error when all candidates fail.
+
+
+## v0.3.4 Nuvio-compatible plugin core
+
+This release replaces the WebView provider runtime.
+
+### Provider code lifecycle
+
+Repository install / refresh now downloads provider JavaScript and stores it under the app's private `nuvio_plugin_scrapers` directory. `Find Sources` reads only local provider code, so source discovery no longer downloads JavaScript from GitHub or jsDelivr.
+
+Existing repositories are migrated in the background and missing provider code is synchronized automatically.
+
+### Runtime
+
+- QuickJS via `quickjs-kt`
+- provider evaluation timeout
+- native async `fetch()` bridge
+- native OkHttp transport
+- system DNS first
+- Cloudflare DNS-over-HTTPS fallback when system DNS fails
+- console diagnostics retained
+- basic axios compatibility
+- basic Buffer/base64 helpers
+- setTimeout compatibility
+- URLSearchParams compatibility
+- provider health retained
+- provider playback headers retained
+
+### Remaining compatibility work
+
+Some Nuvio providers use additional modules such as `crypto-js` or `cheerio-without-node-native`. v0.3.4 reports those as explicit unsupported module errors so later compatibility patches can target the modules actually used by failing providers.

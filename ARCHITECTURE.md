@@ -165,3 +165,46 @@ Raw GitHub URL detected
 
 The provider version is part of the cache key, so a manifest provider-version update
 naturally causes a fresh script download.
+
+
+## v0.3.4 provider core
+
+```text
+Install / Refresh Repository
+          |
+          v
+Manifest + provider filenames
+          |
+          v
+Native OkHttp
+(system DNS -> DoH fallback)
+          |
+          v
+Private provider code store
+filesDir/nuvio_plugin_scrapers
+          |
+          +-------------------------+
+                                    |
+                              Find Sources
+                                    |
+                                    v
+                                 QuickJS
+                                    |
+                         native async fetch()
+                                    |
+                                    v
+                                  OkHttp
+                                    |
+                                    v
+                             StreamSource[]
+                                    |
+                     +--------------+--------------+
+                     |                             |
+               Plugin sources               Stremio sources
+                     |                             |
+                     +--------------+--------------+
+                                    |
+                             Source Picker
+```
+
+`Find Sources` never downloads provider JavaScript. Network access during discovery is only the provider's own `fetch()` traffic.
