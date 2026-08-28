@@ -1,0 +1,151 @@
+name: Add Official VUEO Providers Repo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vueo-add-official-provider-repo
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout VUEO
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add VUEO Providers as official default
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path(
+              "app/src/main/java/com/vueo/app/core/plugin/PluginStore.kt"
+          )
+
+          if not path.exists():
+              raise SystemExit(
+                  f"Missing expected VUEO file: {path}"
+              )
+
+          text = path.read_text(encoding="utf-8")
+
+          vueo_manifest = (
+              "https://raw.githubusercontent.com/"
+              "Luckez12/VUEO-Providers/refs/heads/main/manifest.json"
+          )
+
+          # Add the official VUEO repository to the existing default set.
+          if vueo_manifest not in text:
+              marker = (
+                  "val DEVELOPMENT_DEFAULT_MANIFESTS = setOf("
+              )
+
+              if marker not in text:
+                  raise SystemExit(
+                      "Could not find DEVELOPMENT_DEFAULT_MANIFESTS "
+                      "in PluginStore.kt"
+                  )
+
+              text = text.replace(
+                  marker,
+                  marker
+                  + "\n            \""
+                  + vueo_manifest
+                  + "\",",
+                  1,
+              )
+
+          # Existing installs have already consumed revision 1.
+          # Bump the seed revision so the VUEO repo is inserted on upgrade.
+          revision_pattern = re.compile(
+              r"(DEV_DEFAULTS_REVISION\s*=\s*)(\d+)"
+          )
+
+          match = revision_pattern.search(text)
+          if not match:
+              raise SystemExit(
+                  "Could not find DEV_DEFAULTS_REVISION in PluginStore.kt"
+              )
+
+          current_revision = int(match.group(2))
+          next_revision = max(current_revision, 2)
+
+          text = revision_pattern.sub(
+              lambda m: m.group(1) + str(next_revision),
+              text,
+              count=1,
+          )
+
+          path.write_text(text, encoding="utf-8")
+
+          print(f"Updated: {path}")
+          print(f"Official manifest: {vueo_manifest}")
+          print(f"Development defaults revision: {next_revision}")
+          PY
+
+      - name: Sanity checks
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FILE="app/src/main/java/com/vueo/app/core/plugin/PluginStore.kt"
+
+          grep -Fq             'Luckez12/VUEO-Providers/refs/heads/main/manifest.json'             "$FILE"
+
+          grep -Eq             'DEV_DEFAULTS_REVISION[[:space:]]*=[[:space:]]*[2-9][0-9]*'             "$FILE"
+
+          COUNT="$(
+            grep -Fo               'Luckez12/VUEO-Providers/refs/heads/main/manifest.json'               "$FILE" | wc -l
+          )"
+
+          if [ "$COUNT" -ne 1 ]; then
+            echo "::error::Expected exactly one VUEO-Providers default entry, found $COUNT."
+            exit 1
+          fi
+
+          echo "VUEO official provider repository patch looks valid."
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet; then
+            echo "No changes required."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email             "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add             app/src/main/java/com/vueo/app/core/plugin/PluginStore.kt
+
+          git commit             -m "Add official VUEO Providers repository"
+
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Official VUEO Providers repository"
+            echo
+            echo "- Manifest:"
+            echo '  `https://raw.githubusercontent.com/Luckez12/VUEO-Providers/refs/heads/main/manifest.json`'
+            echo
+            echo "- Content Manager will seed this repository on the next app run."
+            echo "- Existing Nuvio-compatible repositories are left unchanged."
+          } >> "$GITHUB_STEP_SUMMARY"
