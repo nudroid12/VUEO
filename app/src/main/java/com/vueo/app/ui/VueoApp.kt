@@ -6,6 +6,7 @@ import android.os.Build
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -163,6 +164,25 @@ private enum class SettingsPage {
     ABOUT,
 }
 
+private fun parentSettingsPage(
+    page: SettingsPage,
+): SettingsPage =
+    when (page) {
+        SettingsPage.ADDONS,
+        SettingsPage.PLUGINS ->
+            SettingsPage.CONTENT_MANAGER
+
+        SettingsPage.TMDB,
+        SettingsPage.MDBLIST ->
+            SettingsPage.ENHANCEMENTS
+
+        SettingsPage.ROOT ->
+            SettingsPage.ROOT
+
+        else ->
+            SettingsPage.ROOT
+    }
+
 private enum class HomeMediaFilter(
     val label: String,
 ) {
@@ -234,6 +254,9 @@ fun VueoApp() {
                 .shouldShowPickerOnStartup()
         )
     }
+    var profilePickerOpenedFromApp by remember {
+        mutableStateOf(false)
+    }
     var selectedLibraryEntry by remember {
         mutableStateOf<
             LibraryPlaybackEntry?
@@ -249,6 +272,7 @@ fun VueoApp() {
         showProfilePicker =
             profileStore
                 .shouldShowPickerOnStartup()
+        profilePickerOpenedFromApp = false
         profileVersion++
 
         CatalogDiscoveryCache
@@ -292,6 +316,40 @@ fun VueoApp() {
         contentVersion++
     }
 
+    BackHandler(
+        enabled =
+            !booting &&
+                showProfilePicker &&
+                profilePickerOpenedFromApp,
+    ) {
+        showProfilePicker = false
+        profilePickerOpenedFromApp = false
+    }
+
+    BackHandler(
+        enabled =
+            !booting &&
+                !showProfilePicker &&
+                selectedMedia == null &&
+                (
+                    selectedTab != AppTab.HOME ||
+                        settingsPage != SettingsPage.ROOT
+                ),
+    ) {
+        if (
+            selectedTab == AppTab.SETTINGS &&
+            settingsPage != SettingsPage.ROOT
+        ) {
+            settingsPage =
+                parentSettingsPage(
+                    settingsPage
+                )
+        } else {
+            selectedTab = AppTab.HOME
+            settingsPage = SettingsPage.ROOT
+        }
+    }
+
     if (
         !booting &&
         showProfilePicker
@@ -314,6 +372,8 @@ fun VueoApp() {
                 libraryVersion++
                 profileVersion++
                 showProfilePicker =
+                    false
+                profilePickerOpenedFromApp =
                     false
             },
             onProfilesChanged = {
@@ -382,21 +442,33 @@ fun VueoApp() {
                     selected = selectedTab,
                     icon = Icons.Default.Home,
                     label = "Home",
-                ) { selectedTab = it }
+                ) {
+                    selectedTab = it
+                    settingsPage =
+                        SettingsPage.ROOT
+                }
 
                 BottomTab(
                     tab = AppTab.SEARCH,
                     selected = selectedTab,
                     icon = Icons.Default.Search,
                     label = "Search",
-                ) { selectedTab = it }
+                ) {
+                    selectedTab = it
+                    settingsPage =
+                        SettingsPage.ROOT
+                }
 
                 BottomTab(
                     tab = AppTab.LIBRARY,
                     selected = selectedTab,
                     icon = Icons.Default.VideoLibrary,
                     label = "Library",
-                ) { selectedTab = it }
+                ) {
+                    selectedTab = it
+                    settingsPage =
+                        SettingsPage.ROOT
+                }
 
                 BottomTab(
                     tab = AppTab.SETTINGS,
@@ -432,6 +504,8 @@ fun VueoApp() {
                         libraryVersion++
                     },
                     onProfileClick = {
+                        profilePickerOpenedFromApp =
+                            true
                         showProfilePicker =
                             true
                     },
@@ -4382,6 +4456,17 @@ private fun MediaDetailsScreen(
     val playbackSource = selectedPlaybackSource
     val playbackVideoId = selectedPlaybackVideoId
 
+    BackHandler(
+        enabled =
+            playbackSource == null &&
+                sourcePickerStreams == null,
+    ) {
+        sourceDiscoveryJob?.cancel()
+        sourceDiscoveryJob = null
+        loadingStreams = false
+        onBack()
+    }
+
     if (playbackSource != null && playbackVideoId != null) {
         PlayerScreen(
             settingsStore =
@@ -5510,6 +5595,10 @@ private fun SourcePickerScreen(
     onBack: () -> Unit,
     onPlay: (StreamSource) -> Unit,
 ) {
+    BackHandler {
+        onBack()
+    }
+
     val playable = streams.filter { it.isDirectPlayable }
     val best = playable.firstOrNull()
 
@@ -6113,6 +6202,19 @@ private fun PlayerScreen(
         mutableStateOf(false)
     }
 
+    BackHandler {
+        when {
+            showAudioDialog ->
+                showAudioDialog = false
+
+            showSubtitleDialog ->
+                showSubtitleDialog = false
+
+            else ->
+                onBack()
+        }
+    }
+
     val player = remember(
         source.url,
         source.headers,
@@ -6409,7 +6511,7 @@ private fun PlayerScreen(
 
     if (resumePromptVisible) {
         AlertDialog(
-            onDismissRequest = {},
+            onDismissRequest = onBack,
             title = {
                 Text("Resume playback?")
             },
