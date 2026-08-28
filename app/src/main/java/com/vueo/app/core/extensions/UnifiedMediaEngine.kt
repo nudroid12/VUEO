@@ -39,8 +39,7 @@ class UnifiedMediaEngine {
             CatalogDiscoveryCache
                 .home()
                 ?.let {
-                    return@coroutineScope
-                        it.take(maxRows)
+                    return@coroutineScope it.take(maxRows)
                 }
         }
 
@@ -110,14 +109,13 @@ class UnifiedMediaEngine {
         val normalized = query.trim()
 
         if (normalized.length < 2) {
-            return@coroutineScope emptyList()
+            return@coroutineScope emptyList<MediaItem>()
         }
 
         CatalogDiscoveryCache
             .search(normalized)
             ?.let {
-                return@coroutineScope
-                    it.take(maxResults)
+                return@coroutineScope it.take(maxResults)
             }
 
         val searchableCatalogs =
