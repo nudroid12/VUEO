@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -494,61 +495,109 @@ fun VueoApp() {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            NavigationBar(
-                containerColor =
-                    VueoPalette.Nav,
-                tonalElevation = 0.dp,
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(
+                            start = 18.dp,
+                            end = 18.dp,
+                            top = 6.dp,
+                            bottom = 10.dp,
+                        ),
             ) {
-                BottomTab(
-                    tab = AppTab.HOME,
-                    selected = selectedTab,
-                    icon = Icons.Default.Home,
-                    label = "Home",
+                Surface(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(76.dp),
+                    shape =
+                        RoundedCornerShape(
+                            34.dp
+                        ),
+                    color =
+                        VueoPalette.Nav
+                            .copy(
+                                alpha = .97f
+                            ),
+                    border =
+                        androidx.compose
+                            .foundation
+                            .BorderStroke(
+                                width = 1.dp,
+                                color =
+                                    VueoPalette.Stroke
+                                        .copy(
+                                            alpha = .55f
+                                        ),
+                            ),
+                    shadowElevation =
+                        14.dp,
                 ) {
-                    selectedCatalogRow =
-                        null
-                    selectedTab = it
-                    settingsPage =
-                        SettingsPage.ROOT
-                }
+                    Row(
+                        modifier =
+                            Modifier.fillMaxSize(),
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                    ) {
+                        BottomTab(
+                            tab = AppTab.HOME,
+                            selected = selectedTab,
+                            icon =
+                                Icons.Default.Home,
+                            label = "Home",
+                        ) {
+                            selectedCatalogRow =
+                                null
+                            selectedTab = it
+                            settingsPage =
+                                SettingsPage.ROOT
+                        }
 
-                BottomTab(
-                    tab = AppTab.SEARCH,
-                    selected = selectedTab,
-                    icon = Icons.Default.Search,
-                    label = "Search",
-                ) {
-                    selectedCatalogRow =
-                        null
-                    selectedTab = it
-                    settingsPage =
-                        SettingsPage.ROOT
-                }
+                        BottomTab(
+                            tab = AppTab.SEARCH,
+                            selected = selectedTab,
+                            icon =
+                                Icons.Default.Search,
+                            label = "Search",
+                        ) {
+                            selectedCatalogRow =
+                                null
+                            selectedTab = it
+                            settingsPage =
+                                SettingsPage.ROOT
+                        }
 
-                BottomTab(
-                    tab = AppTab.LIBRARY,
-                    selected = selectedTab,
-                    icon = Icons.Default.VideoLibrary,
-                    label = "Library",
-                ) {
-                    selectedCatalogRow =
-                        null
-                    selectedTab = it
-                    settingsPage =
-                        SettingsPage.ROOT
-                }
+                        BottomTab(
+                            tab = AppTab.LIBRARY,
+                            selected = selectedTab,
+                            icon =
+                                Icons.Default
+                                    .VideoLibrary,
+                            label = "Library",
+                        ) {
+                            selectedCatalogRow =
+                                null
+                            selectedTab = it
+                            settingsPage =
+                                SettingsPage.ROOT
+                        }
 
-                ProfileBottomTab(
-                    tab = AppTab.SETTINGS,
-                    selected = selectedTab,
-                    profile =
-                        profileStore.activeProfile(),
-                ) {
-                    selectedCatalogRow =
-                        null
-                    selectedTab = it
-                    settingsPage =
-                        SettingsPage.ROOT
+                        ProfileBottomTab(
+                            tab = AppTab.SETTINGS,
+                            selected = selectedTab,
+                            profile =
+                                profileStore
+                                    .activeProfile(),
+                        ) {
+                            selectedCatalogRow =
+                                null
+                            selectedTab = it
+                            settingsPage =
+                                SettingsPage.ROOT
+                        }
+                    }
                 }
             }
         },
@@ -566,8 +615,6 @@ fun VueoApp() {
                     engine = engine,
                     contentVersion = contentVersion,
                     booting = booting,
-                    activeProfile =
-                        profileStore.activeProfile(),
                     libraryStore = libraryStore,
                     libraryVersion = libraryVersion,
                     onLibraryChanged = {
@@ -894,15 +941,19 @@ private fun RowScope.BottomTab(
         },
         icon = {
             Icon(
-                icon,
+                imageVector = icon,
                 contentDescription =
                     label,
+                modifier =
+                    Modifier.size(
+                        24.dp
+                    ),
             )
         },
         label = {
             Text(
                 label,
-                fontSize = 11.sp,
+                fontSize = 10.sp,
                 fontWeight =
                     if (
                         selected == tab
@@ -923,7 +974,7 @@ private fun RowScope.BottomTab(
                     indicatorColor =
                         VueoPalette.Accent
                             .copy(
-                                alpha = .12f
+                                alpha = .16f
                             ),
                     unselectedIconColor =
                         VueoPalette.Muted,
@@ -1047,7 +1098,7 @@ private fun RowScope.ProfileBottomTab(
                                 },
                             fontWeight =
                                 FontWeight.Bold,
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                         )
                     }
                 }
@@ -1092,22 +1143,27 @@ private fun HomeScreen(
     engine: UnifiedMediaEngine,
     contentVersion: Int,
     booting: Boolean,
-    activeProfile: VueoProfile,
     libraryStore: LibraryStore,
     libraryVersion: Int,
     onLibraryChanged: () -> Unit,
     onOpenContentManager: () -> Unit,
     onMediaClick: (MediaItem) -> Unit,
-    onPlaybackClick: (LibraryPlaybackEntry) -> Unit,
+    onPlaybackClick:
+        (LibraryPlaybackEntry) -> Unit,
     onSeeAll: (CatalogRow) -> Unit,
 ) {
-    val context = LocalContext.current
-    val listState = rememberLazyListState()
+    val context =
+        LocalContext.current
+
+    val listState =
+        rememberLazyListState()
 
     var rows by remember {
         mutableStateOf(
             CatalogDiscoveryCache
-                .home(allowStale = true)
+                .home(
+                    allowStale = true
+                )
                 .orEmpty()
         )
     }
@@ -1117,12 +1173,18 @@ private fun HomeScreen(
     }
 
     var error by remember {
-        mutableStateOf<String?>(null)
+        mutableStateOf<String?>(
+            null
+        )
     }
 
-    LaunchedEffect(contentVersion) {
+    LaunchedEffect(
+        contentVersion
+    ) {
         CatalogDiscoveryCache
-            .home(allowStale = true)
+            .home(
+                allowStale = true
+            )
             ?.takeIf {
                 it.isNotEmpty()
             }
@@ -1135,32 +1197,43 @@ private fun HomeScreen(
             return@LaunchedEffect
         }
 
-        loading = rows.isEmpty()
+        loading =
+            rows.isEmpty()
         error = null
 
         runCatching {
             engine.loadCatalogRows(
-                forceRefresh = rows.isNotEmpty(),
+                forceRefresh =
+                    rows.isNotEmpty(),
             )
         }.onSuccess {
             fresh ->
-            if (fresh.isNotEmpty()) {
+            if (
+                fresh.isNotEmpty()
+            ) {
                 rows = fresh
-                CatalogDiscoveryCache.persistHome(
-                    context =
-                        context.applicationContext,
-                    rows = fresh,
-                )
+
+                CatalogDiscoveryCache
+                    .persistHome(
+                        context =
+                            context
+                                .applicationContext,
+                        rows = fresh,
+                    )
             }
         }.onFailure {
             failure ->
-            error = failure.message
+            error =
+                failure.message
 
-            if (rows.isEmpty()) {
+            if (
+                rows.isEmpty()
+            ) {
                 rows =
                     CatalogDiscoveryCache
                         .home(
-                            allowStale = true
+                            allowStale =
+                                true
                         )
                         .orEmpty()
             }
@@ -1169,29 +1242,46 @@ private fun HomeScreen(
         loading = false
     }
 
-    val hero =
-        rows
-            .asSequence()
-            .flatMap {
-                it.items.asSequence()
-            }
-            .firstOrNull {
-                !it.background.isNullOrBlank()
-            }
-            ?: rows
-                .firstOrNull()
-                ?.items
-                ?.firstOrNull()
+    val featuredItems =
+        remember(rows) {
+            val allItems =
+                rows
+                    .asSequence()
+                    .flatMap {
+                        it.items
+                            .asSequence()
+                    }
+                    .distinctBy {
+                        "${it.type}:${it.id}"
+                    }
 
-    val heroWatchlisted =
-        remember(
-            hero?.id,
-            hero?.type,
-            libraryVersion,
-        ) {
-            hero?.let(
-                libraryStore::isWatchlisted
-            ) ?: false
+            val withBackdrop =
+                allItems
+                    .filter {
+                        !it.background
+                            .isNullOrBlank()
+                    }
+                    .take(7)
+                    .toList()
+
+            if (
+                withBackdrop
+                    .isNotEmpty()
+            ) {
+                withBackdrop
+            } else {
+                rows
+                    .asSequence()
+                    .flatMap {
+                        it.items
+                            .asSequence()
+                    }
+                    .distinctBy {
+                        "${it.type}:${it.id}"
+                    }
+                    .take(7)
+                    .toList()
+            }
         }
 
     val continueWatching =
@@ -1213,31 +1303,26 @@ private fun HomeScreen(
                 ),
         contentPadding =
             PaddingValues(
-                bottom = 40.dp
+                bottom = 24.dp
             ),
         verticalArrangement =
             Arrangement.spacedBy(
-                18.dp
+                20.dp
             ),
     ) {
-        if (hero != null) {
+        if (
+            featuredItems
+                .isNotEmpty()
+        ) {
             item(
-                key = "home_hero"
+                key =
+                    "home_featured"
             ) {
-                HomeCinematicHero(
-                    item = hero,
-                    isWatchlisted =
-                        heroWatchlisted,
-                    onWatch = {
-                        onMediaClick(hero)
-                    },
-                    onToggleMyList = {
-                        libraryStore
-                            .toggleWatchlist(
-                                hero
-                            )
-                        onLibraryChanged()
-                    },
+                HomeFeaturedCarousel(
+                    items =
+                        featuredItems,
+                    onViewDetails =
+                        onMediaClick,
                 )
             }
         }
@@ -1247,7 +1332,8 @@ private fun HomeScreen(
             rows.isEmpty()
         ) {
             item(
-                key = "home_loading"
+                key =
+                    "home_loading"
             ) {
                 HomeLoadingState()
             }
@@ -1259,7 +1345,8 @@ private fun HomeScreen(
             rows.isEmpty()
         ) {
             item(
-                key = "home_empty"
+                key =
+                    "home_empty"
             ) {
                 EmptyHomeCard(
                     hasAddons =
@@ -1278,7 +1365,8 @@ private fun HomeScreen(
                 .isNotEmpty()
         ) {
             item(
-                key = "continue_watching"
+                key =
+                    "continue_watching"
             ) {
                 HomeContinueWatchingSection(
                     entries =
@@ -1309,276 +1397,293 @@ private fun HomeScreen(
 }
 
 @Composable
-private fun HomeCinematicHero(
-    item: MediaItem,
-    isWatchlisted: Boolean,
-    onWatch: () -> Unit,
-    onToggleMyList: () -> Unit,
+private fun HomeFeaturedCarousel(
+    items: List<MediaItem>,
+    onViewDetails:
+        (MediaItem) -> Unit,
 ) {
-    Box(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .height(414.dp),
+    var selectedIndex by remember(
+        items
     ) {
-        NetworkImage(
-            url =
-                item.background
-                    ?: item.poster,
-            contentDescription =
-                item.name,
-            modifier =
-                Modifier.fillMaxSize(),
-            contentScale =
-                ContentScale.Crop,
-            fallbackText =
-                item.name,
-        )
+        mutableIntStateOf(0)
+    }
 
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colorStops =
-                                arrayOf(
-                                    0.00f to
-                                        Color.Black.copy(
-                                            alpha = .18f
-                                        ),
-                                    0.40f to
-                                        Color.Black.copy(
-                                            alpha = .10f
-                                        ),
-                                    0.70f to
-                                        Color.Black.copy(
-                                            alpha = .58f
-                                        ),
-                                    1.00f to
-                                        VueoPalette
-                                            .Background,
-                                )
-                        )
-                    ),
-        )
-
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            colors =
-                                listOf(
-                                    Color.Black.copy(
-                                        alpha = .64f
-                                    ),
-                                    Color.Transparent,
-                                    Color.Transparent,
-                                )
-                        )
-                    ),
-        )
-
-        Column(
-            modifier =
-                Modifier
-                    .align(
-                        Alignment.BottomStart
+    LaunchedEffect(
+        items.size
+    ) {
+        selectedIndex =
+            selectedIndex
+                .coerceIn(
+                    0,
+                    (
+                        items.size - 1
                     )
-                    .fillMaxWidth()
-                    .padding(
-                        start = 20.dp,
-                        end = 20.dp,
-                        bottom = 22.dp,
-                    ),
-            verticalArrangement =
-                Arrangement.spacedBy(
-                    9.dp
-                ),
+                        .coerceAtLeast(
+                            0
+                        ),
+                )
+
+        if (
+            items.size <= 1
         ) {
-            Text(
-                text =
-                    item.name.uppercase(),
-                color = Color.White,
-                fontSize = 27.sp,
-                lineHeight = 29.sp,
-                fontWeight =
-                    FontWeight.Black,
-                maxLines = 2,
-                overflow =
-                    TextOverflow.Ellipsis,
+            return@LaunchedEffect
+        }
+
+        while (true) {
+            delay(6500L)
+
+            selectedIndex =
+                (
+                    selectedIndex +
+                        1
+                ) % items.size
+        }
+    }
+
+    val item =
+        items[
+            selectedIndex
+                .coerceIn(
+                    0,
+                    items.lastIndex
+                )
+        ]
+
+    Column(
+        verticalArrangement =
+            Arrangement.spacedBy(
+                10.dp
+            ),
+    ) {
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(
+                        16f / 10f
+                    )
+                    .clickable {
+                        onViewDetails(
+                            item
+                        )
+                    },
+        ) {
+            NetworkImage(
+                url =
+                    item.background
+                        ?: item.poster,
+                contentDescription =
+                    item.name,
+                modifier =
+                    Modifier.fillMaxSize(),
+                contentScale =
+                    ContentScale.Crop,
+                fallbackText =
+                    item.name,
             )
 
-            val metadata =
-                buildList {
-                    item.releaseInfo
-                        ?.takeIf {
-                            it.isNotBlank()
-                        }
-                        ?.let(::add)
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colorStops =
+                                    arrayOf(
+                                        0.00f to
+                                            Color.Black
+                                                .copy(
+                                                    alpha = .08f
+                                                ),
+                                        0.48f to
+                                            Color.Black
+                                                .copy(
+                                                    alpha = .08f
+                                                ),
+                                        0.78f to
+                                            Color.Black
+                                                .copy(
+                                                    alpha = .58f
+                                                ),
+                                        1.00f to
+                                            VueoPalette
+                                                .Background,
+                                    )
+                            )
+                        ),
+            )
 
-                    item.genres
-                        .take(3)
-                        .forEach(::add)
-                }
-                    .joinToString(
-                        "  •  "
-                    )
-
-            if (
-                metadata.isNotBlank()
+            Column(
+                modifier =
+                    Modifier
+                        .align(
+                            Alignment
+                                .BottomCenter
+                        )
+                        .fillMaxWidth()
+                        .padding(
+                            start = 22.dp,
+                            end = 22.dp,
+                            bottom = 20.dp,
+                        ),
+                horizontalAlignment =
+                    Alignment.CenterHorizontally,
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        9.dp
+                    ),
             ) {
                 Text(
-                    text = metadata,
+                    text = item.name,
                     color =
-                        Color.White
-                            .copy(
-                                alpha = .82f
-                            ),
-                    fontSize = 12.sp,
-                    maxLines = 1,
+                        Color.White,
+                    fontSize = 28.sp,
+                    lineHeight =
+                        30.sp,
+                    fontWeight =
+                        FontWeight.Black,
+                    maxLines = 2,
                     overflow =
                         TextOverflow.Ellipsis,
                 )
-            }
 
-            item.description
-                ?.takeIf {
-                    it.isNotBlank()
-                }
-                ?.let {
-                    description ->
+                val metadata =
+                    buildList {
+                        item.type
+                            .takeIf {
+                                it.isNotBlank()
+                            }
+                            ?.replaceFirstChar {
+                                it.uppercase()
+                            }
+                            ?.let(::add)
+
+                        item.genres
+                            .firstOrNull()
+                            ?.takeIf {
+                                it.isNotBlank()
+                            }
+                            ?.let(::add)
+
+                        item.releaseInfo
+                            ?.takeIf {
+                                it.isNotBlank()
+                            }
+                            ?.let(::add)
+                    }
+                        .joinToString(
+                            "  •  "
+                        )
+
+                if (
+                    metadata.isNotBlank()
+                ) {
                     Text(
                         text =
-                            description,
+                            metadata,
                         color =
                             Color.White
                                 .copy(
-                                    alpha = .76f
+                                    alpha = .88f
                                 ),
-                        fontSize = 11.sp,
-                        lineHeight = 16.sp,
-                        maxLines = 3,
+                        fontSize = 12.sp,
+                        fontWeight =
+                            FontWeight.Medium,
+                        maxLines = 1,
                         overflow =
                             TextOverflow.Ellipsis,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth(
-                                    .94f
-                                ),
                     )
                 }
 
-            Row(
-                horizontalArrangement =
-                    Arrangement.spacedBy(
-                        10.dp
-                    ),
-            ) {
                 Button(
-                    onClick = onWatch,
+                    onClick = {
+                        onViewDetails(
+                            item
+                        )
+                    },
                     modifier =
                         Modifier
-                            .weight(1f)
-                            .height(46.dp),
+                            .width(176.dp)
+                            .height(44.dp),
                     shape =
                         RoundedCornerShape(
-                            14.dp
+                            22.dp
                         ),
                 ) {
-                    Icon(
-                        imageVector =
-                            Icons.Default
-                                .PlayArrow,
-                        contentDescription =
-                            null,
-                    )
-
-                    Spacer(
-                        Modifier.width(
-                            7.dp
-                        )
-                    )
-
                     Text(
-                        text = "Watch Now",
+                        text =
+                            "View Details",
+                        fontSize = 14.sp,
                         fontWeight =
                             FontWeight.Bold,
-                        fontSize = 15.sp,
-                        maxLines = 1,
-                        softWrap = false,
                     )
                 }
+            }
+        }
 
-                Surface(
-                    modifier =
-                        Modifier
-                            .weight(1f)
-                            .height(50.dp)
-                            .clickable(
-                                onClick =
-                                    onToggleMyList
-                            ),
-                    shape =
-                        RoundedCornerShape(
-                            14.dp
-                        ),
-                    color =
-                        Color.Black.copy(
-                            alpha = .46f
-                        ),
-                    border =
-                        androidx.compose
-                            .foundation
-                            .BorderStroke(
-                                width = 1.dp,
-                                color =
-                                    Color.White
-                                        .copy(
-                                            alpha = .20f
-                                        ),
-                            ),
-                ) {
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxSize(),
-                        verticalAlignment =
-                            Alignment.CenterVertically,
-                        horizontalArrangement =
-                            Arrangement.Center,
-                    ) {
-                        Icon(
-                            imageVector =
-                                Icons.Default.Add,
-                            contentDescription =
-                                null,
-                            tint = Color.White,
-                        )
+        if (
+            items.size > 1
+        ) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.Center,
+                verticalAlignment =
+                    Alignment.CenterVertically,
+            ) {
+                items.indices
+                    .forEach {
+                        index ->
+                        val selected =
+                            index ==
+                                selectedIndex
 
-                        Spacer(
-                            Modifier.width(
-                                7.dp
-                            )
-                        )
-
-                        Text(
-                            text =
-                                if (
-                                    isWatchlisted
-                                ) {
-                                    "In My List"
-                                } else {
-                                    "My List"
-                                },
-                            color = Color.White,
-                            fontWeight =
-                                FontWeight.SemiBold,
+                        Box(
+                            modifier =
+                                Modifier
+                                    .padding(
+                                        horizontal =
+                                            3.dp
+                                    )
+                                    .clip(
+                                        RoundedCornerShape(
+                                            50
+                                        )
+                                    )
+                                    .background(
+                                        if (
+                                            selected
+                                        ) {
+                                            VueoPalette
+                                                .Accent
+                                        } else {
+                                            Color.White
+                                                .copy(
+                                                    alpha =
+                                                        .42f
+                                                )
+                                        }
+                                    )
+                                    .size(
+                                        width =
+                                            if (
+                                                selected
+                                            ) {
+                                                26.dp
+                                            } else {
+                                                7.dp
+                                            },
+                                        height =
+                                            7.dp,
+                                    )
+                                    .clickable {
+                                        selectedIndex =
+                                            index
+                                    },
                         )
                     }
-                }
             }
         }
     }
@@ -1586,27 +1691,26 @@ private fun HomeCinematicHero(
 
 @Composable
 private fun HomeContinueWatchingSection(
-    entries: List<LibraryPlaybackEntry>,
+    entries:
+        List<LibraryPlaybackEntry>,
     onPlaybackClick:
         (LibraryPlaybackEntry) -> Unit,
 ) {
     Column(
         verticalArrangement =
             Arrangement.spacedBy(
-                9.dp
+                10.dp
             ),
     ) {
         HomeSectionHeader(
             title =
                 "Continue Watching",
-            subtitle =
-                "${entries.size} in progress",
         )
 
         LazyRow(
             contentPadding =
                 PaddingValues(
-                    horizontal = 20.dp
+                    horizontal = 16.dp
                 ),
             horizontalArrangement =
                 Arrangement.spacedBy(
@@ -1638,125 +1742,189 @@ private fun HomeContinueWatchingCard(
     entry: LibraryPlaybackEntry,
     onClick: () -> Unit,
 ) {
+    val remainingLabel =
+        homeRemainingTimeLabel(
+            entry
+        )
+
     Surface(
         modifier =
             Modifier
-                .width(190.dp)
+                .width(218.dp)
+                .aspectRatio(
+                    16f / 9f
+                )
                 .clickable(
                     onClick = onClick
                 ),
         shape =
             RoundedCornerShape(
-                16.dp
+                15.dp
             ),
         color =
             VueoPalette.Surface,
     ) {
-        Column {
+        Box {
+            NetworkImage(
+                url =
+                    entry.media.background
+                        ?: entry.media.poster,
+                contentDescription =
+                    entry.media.name,
+                modifier =
+                    Modifier.fillMaxSize(),
+                contentScale =
+                    ContentScale.Crop,
+                fallbackText =
+                    entry.media.name,
+            )
+
             Box(
                 modifier =
                     Modifier
-                        .fillMaxWidth()
-                        .height(102.dp),
-            ) {
-                NetworkImage(
-                    url =
-                        entry.media.background
-                            ?: entry.media.poster,
-                    contentDescription =
-                        entry.media.name,
-                    modifier =
-                        Modifier.fillMaxSize(),
-                    contentScale =
-                        ContentScale.Crop,
-                    fallbackText =
-                        entry.media.name,
-                )
-
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors =
-                                        listOf(
-                                            Color.Transparent,
-                                            Color.Black.copy(
-                                                alpha = .70f
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors =
+                                    listOf(
+                                        Color.Black
+                                            .copy(
+                                                alpha = .04f
                                             ),
-                                        )
-                                )
-                            ),
-                )
-
-                Surface(
-                    modifier =
-                        Modifier
-                            .align(
-                                Alignment.Center
+                                        Color.Black
+                                            .copy(
+                                                alpha = .18f
+                                            ),
+                                        Color.Black
+                                            .copy(
+                                                alpha = .84f
+                                            ),
+                                    )
                             )
-                            .size(34.dp),
-                    shape =
-                        RoundedCornerShape(50),
-                    color =
-                        Color.Black.copy(
-                            alpha = .62f
                         ),
-                ) {
-                    Box(
-                        contentAlignment =
-                            Alignment.Center,
+            )
+
+            remainingLabel
+                ?.let {
+                    remaining ->
+                    Surface(
+                        modifier =
+                            Modifier
+                                .align(
+                                    Alignment.TopEnd
+                                )
+                                .padding(
+                                    8.dp
+                                ),
+                        shape =
+                            RoundedCornerShape(
+                                10.dp
+                            ),
+                        color =
+                            Color.Black
+                                .copy(
+                                    alpha = .72f
+                                ),
                     ) {
-                        Icon(
-                            imageVector =
-                                Icons.Default
-                                    .PlayArrow,
-                            contentDescription =
-                                null,
-                            tint = Color.White,
+                        Text(
+                            text =
+                                remaining,
+                            modifier =
+                                Modifier.padding(
+                                    horizontal =
+                                        8.dp,
+                                    vertical =
+                                        5.dp,
+                                ),
+                            color =
+                                Color.White,
+                            fontSize =
+                                9.sp,
+                            fontWeight =
+                                FontWeight
+                                    .SemiBold,
                         )
                     }
                 }
-            }
 
             Column(
                 modifier =
-                    Modifier.padding(
-                        start = 10.dp,
-                        end = 10.dp,
-                        top = 6.dp,
-                        bottom = 6.dp,
-                    ),
+                    Modifier
+                        .align(
+                            Alignment
+                                .BottomStart
+                        )
+                        .fillMaxWidth()
+                        .padding(
+                            start = 10.dp,
+                            end = 10.dp,
+                            bottom = 8.dp,
+                        ),
                 verticalArrangement =
                     Arrangement.spacedBy(
-                        4.dp
+                        3.dp
                     ),
             ) {
-                Text(
-                    text =
-                        entry.media.name,
-                    color = Color.White,
-                    fontWeight =
-                        FontWeight.SemiBold,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow =
-                        TextOverflow.Ellipsis,
+                homeEpisodeLabel(
+                    entry
                 )
+                    ?.let {
+                        episode ->
+                        Text(
+                            text =
+                                episode,
+                            color =
+                                Color.White
+                                    .copy(
+                                        alpha =
+                                            .88f
+                                    ),
+                            fontSize =
+                                9.sp,
+                            fontWeight =
+                                FontWeight
+                                    .Medium,
+                            maxLines = 1,
+                        )
+                    }
 
                 Text(
                     text =
-                        homePlaybackSubtitle(
-                            entry
-                        ),
+                        entry.media.name,
                     color =
-                        VueoPalette.Muted,
-                    fontSize = 10.sp,
+                        Color.White,
+                    fontWeight =
+                        FontWeight.Bold,
+                    fontSize = 13.sp,
                     maxLines = 1,
                     overflow =
-                        TextOverflow.Ellipsis,
+                        TextOverflow
+                            .Ellipsis,
                 )
+
+                entry.episodeTitle
+                    ?.takeIf {
+                        it.isNotBlank()
+                    }
+                    ?.let {
+                        episodeTitle ->
+                        Text(
+                            text =
+                                episodeTitle,
+                            color =
+                                Color.White
+                                    .copy(
+                                        alpha =
+                                            .68f
+                                    ),
+                            fontSize =
+                                9.sp,
+                            maxLines = 1,
+                            overflow =
+                                TextOverflow
+                                    .Ellipsis,
+                        )
+                    }
 
                 LinearProgressIndicator(
                     progress = {
@@ -1779,27 +1947,36 @@ private fun HomeContinueWatchingCard(
                     color =
                         VueoPalette.Accent,
                     trackColor =
-                        Color.White.copy(
-                            alpha = .12f
-                        ),
+                        Color.White
+                            .copy(
+                                alpha = .24f
+                            ),
                 )
             }
         }
     }
 }
 
-private fun homePlaybackSubtitle(
+private fun homeEpisodeLabel(
     entry: LibraryPlaybackEntry,
-): String {
-    val episodeLabel =
-        if (
-            entry.season != null &&
-            entry.episode != null
-        ) {
-            "S${entry.season} E${entry.episode}"
-        } else {
-            null
-        }
+): String? =
+    if (
+        entry.season != null &&
+        entry.episode != null
+    ) {
+        "S${entry.season} E${entry.episode}"
+    } else {
+        null
+    }
+
+private fun homeRemainingTimeLabel(
+    entry: LibraryPlaybackEntry,
+): String? {
+    if (
+        entry.durationMs <= 0L
+    ) {
+        return null
+    }
 
     val remainingMs =
         (
@@ -1808,81 +1985,52 @@ private fun homePlaybackSubtitle(
         )
             .coerceAtLeast(0L)
 
-    val remainingLabel =
-        when {
-            entry.durationMs <= 0L ->
-                null
+    val totalMinutes =
+        remainingMs /
+            (
+                60L *
+                    1000L
+            )
 
-            remainingMs >=
-                60L * 60L * 1000L -> {
-                val hours =
-                    remainingMs /
-                        (
-                            60L *
-                                60L *
-                                1000L
-                        )
+    return if (
+        totalMinutes >= 60L
+    ) {
+        val hours =
+            totalMinutes / 60L
 
-                val minutes =
-                    (
-                        remainingMs /
-                            (
-                                60L *
-                                    1000L
-                            )
-                    ) % 60L
+        val minutes =
+            totalMinutes % 60L
 
-                "${hours}h ${minutes}m left"
-            }
-
-            else -> {
-                val minutes =
-                    (
-                        remainingMs /
-                            (
-                                60L *
-                                    1000L
-                            )
-                    )
-                        .coerceAtLeast(1L)
-
-                "${minutes}m left"
-            }
-        }
-
-    return listOfNotNull(
-        episodeLabel,
-        remainingLabel,
-    ).joinToString(
-        "  •  "
-    )
-        .ifBlank {
-            "Continue watching"
-        }
+        "${hours}h ${minutes}m left"
+    } else {
+        "${totalMinutes.coerceAtLeast(1L)}m left"
+    }
 }
 
 @Composable
 private fun HomeSectionHeader(
     title: String,
     subtitle: String? = null,
-    onTrailingClick: (() -> Unit)? = null,
+    onTrailingClick:
+        (() -> Unit)? = null,
 ) {
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .padding(
-                    horizontal = 20.dp
+                    horizontal = 16.dp
                 ),
         verticalAlignment =
             Alignment.CenterVertically,
     ) {
         Text(
             text = title,
-            color = Color.White,
+            color =
+                Color.White,
             fontWeight =
                 FontWeight.Bold,
-            fontSize = 19.sp,
+            fontSize = 20.sp,
             maxLines = 1,
             overflow =
                 TextOverflow.Ellipsis,
@@ -1897,15 +2045,18 @@ private fun HomeSectionHeader(
             ?.let {
                 trailing ->
                 Text(
-                    text = trailing,
+                    text =
+                        trailing,
                     color =
                         if (
                             trailing ==
                                 "See All"
                         ) {
-                            VueoPalette.Accent
+                            VueoPalette
+                                .Accent
                         } else {
-                            VueoPalette.Muted
+                            VueoPalette
+                                .Muted
                         },
                     fontSize =
                         if (
@@ -1921,9 +2072,11 @@ private fun HomeSectionHeader(
                             trailing ==
                                 "See All"
                         ) {
-                            FontWeight.SemiBold
+                            FontWeight
+                                .SemiBold
                         } else {
-                            FontWeight.Normal
+                            FontWeight
+                                .Normal
                         },
                     maxLines = 1,
                     modifier =
@@ -1942,8 +2095,10 @@ private fun HomeSectionHeader(
                                         onTrailingClick
                                 )
                                 .padding(
-                                    horizontal = 8.dp,
-                                    vertical = 6.dp,
+                                    horizontal =
+                                        8.dp,
+                                    vertical =
+                                        6.dp,
                                 )
                         } else {
                             Modifier
@@ -1962,7 +2117,8 @@ private fun HomeLoadingState() {
             ),
     ) {
         HomeSectionHeader(
-            title = "Loading VUEO",
+            title =
+                "Loading VUEO",
             subtitle =
                 "Refreshing catalogs",
         )
@@ -1970,7 +2126,7 @@ private fun HomeLoadingState() {
         LazyRow(
             contentPadding =
                 PaddingValues(
-                    horizontal = 20.dp
+                    horizontal = 16.dp
                 ),
             horizontalArrangement =
                 Arrangement.spacedBy(
@@ -1987,11 +2143,13 @@ private fun HomeLoadingState() {
                 Surface(
                     modifier =
                         Modifier
-                            .width(126.dp)
-                            .height(190.dp),
+                            .width(122.dp)
+                            .aspectRatio(
+                                2f / 3f
+                            ),
                     shape =
                         RoundedCornerShape(
-                            16.dp
+                            15.dp
                         ),
                     color =
                         VueoPalette
@@ -2005,7 +2163,8 @@ private fun HomeLoadingState() {
                 Modifier
                     .fillMaxWidth()
                     .padding(
-                        horizontal = 20.dp
+                        horizontal =
+                            16.dp
                     ),
             color =
                 VueoPalette.Accent,
@@ -2020,18 +2179,19 @@ private fun HomeLoadingState() {
 private fun EmptyHomeCard(
     hasAddons: Boolean,
     error: String?,
-    onOpenContentManager: () -> Unit,
+    onOpenContentManager:
+        () -> Unit,
 ) {
     Card(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .padding(
-                    horizontal = 20.dp
+                    horizontal = 16.dp
                 ),
         shape =
             RoundedCornerShape(
-                22.dp
+                20.dp
             ),
         colors =
             CardDefaults
@@ -2044,7 +2204,7 @@ private fun EmptyHomeCard(
         Column(
             modifier =
                 Modifier.padding(
-                    22.dp
+                    20.dp
                 ),
             verticalArrangement =
                 Arrangement.spacedBy(
@@ -2052,7 +2212,8 @@ private fun EmptyHomeCard(
                 ),
         ) {
             Text(
-                text = "CONTENT",
+                text =
+                    "CONTENT",
                 color =
                     VueoPalette.Accent,
                 fontWeight =
@@ -2064,12 +2225,15 @@ private fun EmptyHomeCard(
 
             Text(
                 text =
-                    if (hasAddons) {
+                    if (
+                        hasAddons
+                    ) {
                         "No catalog loaded"
                     } else {
                         "Connect your first content source"
                     },
-                color = Color.White,
+                color =
+                    Color.White,
                 fontSize = 22.sp,
                 fontWeight =
                     FontWeight.Black,
@@ -2120,7 +2284,7 @@ private fun CatalogSection(
     Column(
         verticalArrangement =
             Arrangement.spacedBy(
-                11.dp
+                10.dp
             ),
     ) {
         HomeSectionHeader(
@@ -2133,11 +2297,11 @@ private fun CatalogSection(
         LazyRow(
             contentPadding =
                 PaddingValues(
-                    horizontal = 20.dp
+                    horizontal = 16.dp
                 ),
             horizontalArrangement =
                 Arrangement.spacedBy(
-                    11.dp
+                    10.dp
                 ),
         ) {
             items(
@@ -2196,7 +2360,8 @@ private fun CatalogSeeAllScreen(
                             .ArrowBack,
                     contentDescription =
                         "Back",
-                    tint = Color.White,
+                    tint =
+                        Color.White,
                 )
             }
 
@@ -2206,14 +2371,17 @@ private fun CatalogSeeAllScreen(
                         .weight(1f),
             ) {
                 Text(
-                    text = row.title,
-                    color = Color.White,
+                    text =
+                        row.title,
+                    color =
+                        Color.White,
                     fontWeight =
                         FontWeight.Bold,
                     fontSize = 22.sp,
                     maxLines = 1,
                     overflow =
-                        TextOverflow.Ellipsis,
+                        TextOverflow
+                            .Ellipsis,
                 )
 
                 Text(
@@ -2232,8 +2400,7 @@ private fun CatalogSeeAllScreen(
                     minSize = 112.dp
                 ),
             modifier =
-                Modifier
-                    .fillMaxSize(),
+                Modifier.fillMaxSize(),
             contentPadding =
                 PaddingValues(
                     start = 16.dp,
@@ -2316,7 +2483,8 @@ private fun CatalogGridPoster(
 
         Text(
             text = item.name,
-            color = Color.White,
+            color =
+                Color.White,
             maxLines = 1,
             overflow =
                 TextOverflow.Ellipsis,
@@ -2358,7 +2526,7 @@ private fun MediaPoster(
     Column(
         modifier =
             Modifier
-                .width(126.dp)
+                .width(122.dp)
                 .clickable(
                     onClick = onClick
                 ),
@@ -2382,7 +2550,7 @@ private fun MediaPoster(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .height(184.dp),
+                        .height(180.dp),
                 contentScale =
                     ContentScale.Crop,
                 fallbackText =
@@ -2392,7 +2560,8 @@ private fun MediaPoster(
 
         Text(
             text = item.name,
-            color = Color.White,
+            color =
+                Color.White,
             maxLines = 1,
             overflow =
                 TextOverflow.Ellipsis,
