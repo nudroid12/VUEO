@@ -9,6 +9,7 @@ import com.vueo.app.core.extensions.MediaExtension
 import com.vueo.app.core.model.CatalogPage
 import com.vueo.app.core.model.EpisodeItem
 import com.vueo.app.core.model.MediaItem
+import com.vueo.app.core.model.MediaPerson
 import com.vueo.app.core.model.StreamSource
 import com.vueo.app.core.model.SubtitleTrack
 import org.json.JSONArray
@@ -204,7 +205,153 @@ private fun JSONObject.toMediaItem(sourceId: String): MediaItem? {
         genres = optJSONArray("genres").toStringList(),
         episodes = optJSONArray("videos").toEpisodeList(),
         sourceExtensionId = sourceId,
+        imdbRating = optFlexibleDouble(
+            "imdbRating",
+            "imdb_rating",
+        ),
+        runtimeMinutes = optRuntimeMinutes(),
+        certification = optCertification(),
+        directors = optFlexibleStrings(
+            "director",
+            "directors",
+        ),
+        creators = optFlexibleStrings(
+            "creator",
+            "creators",
+        ),
+        writers = optFlexibleStrings(
+            "writer",
+            "writers",
+        ),
+        cast = optFlexibleStrings(
+            "cast",
+        ).map {
+            MediaPerson(
+                name = it
+            )
+        },
     )
+}
+
+private fun JSONObject.optFlexibleDouble(
+    vararg keys: String,
+): Double? {
+    for (key in keys) {
+        val value = opt(key)
+        val parsed =
+            when (value) {
+                is Number -> value.toDouble()
+                is String ->
+                    value
+                        .trim()
+                        .replace(",", ".")
+                        .toDoubleOrNull()
+                else -> null
+            }
+
+        if (
+            parsed != null &&
+            parsed.isFinite() &&
+            parsed > 0.0
+        ) {
+            return parsed
+        }
+    }
+
+    return null
+}
+
+private fun JSONObject.optFlexibleStrings(
+    vararg keys: String,
+): List<String> {
+    val values =
+        buildList {
+            keys.forEach { key ->
+                when (val raw = opt(key)) {
+                    is JSONArray -> {
+                        for (index in 0 until raw.length()) {
+                            when (val entry = raw.opt(index)) {
+                                is JSONObject ->
+                                    entry
+                                        .optString("name")
+                                        .trim()
+                                        .takeIf { it.isNotBlank() }
+                                        ?.let(::add)
+                                else ->
+                                    entry
+                                        ?.toString()
+                                        ?.trim()
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?.let(::add)
+                            }
+                        }
+                    }
+                    is String ->
+                        raw
+                            .split(",")
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                            .forEach(::add)
+                }
+            }
+        }
+
+    return values.distinctBy { it.lowercase() }
+}
+
+private fun JSONObject.optRuntimeMinutes(): Int? {
+    val raw = opt("runtime") ?: return null
+
+    if (raw is Number) {
+        return raw
+            .toInt()
+            .takeIf { it > 0 }
+    }
+
+    val text = raw.toString().trim().lowercase()
+    if (text.isBlank()) return null
+
+    val hours =
+        Regex("""(\d+)\s*h""")
+            .find(text)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?: 0
+
+    val minutes =
+        Regex("""(\d+)\s*(?:m|min)""")
+            .find(text)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?: 0
+
+    val total = hours * 60 + minutes
+    if (total > 0) return total
+
+    return Regex("""\d+""")
+        .find(text)
+        ?.value
+        ?.toIntOrNull()
+        ?.takeIf { it > 0 }
+}
+
+private fun JSONObject.optCertification(): String? {
+    val keys =
+        listOf(
+            "certification",
+            "ageRating",
+            "age_rating",
+            "rated",
+            "contentRating",
+            "content_rating",
+        )
+
+    return keys
+        .asSequence()
+        .map { optString(it).trim() }
+        .firstOrNull { it.isNotBlank() }
 }
 
 private fun JSONArray?.toEpisodeList(): List<EpisodeItem> {

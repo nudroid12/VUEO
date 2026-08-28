@@ -131,6 +131,7 @@ import com.vueo.app.core.extensions.SourceDiscoveryCache
 import com.vueo.app.core.extensions.CatalogDiscoveryCache
 import com.vueo.app.core.enrichment.MdblistClient
 import com.vueo.app.core.enrichment.MediaRating
+import com.vueo.app.core.enrichment.RichDetailsClient
 import com.vueo.app.core.enrichment.TmdbEnhancementClient
 import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.BuildConfig
@@ -156,7 +157,9 @@ import com.vueo.app.core.plugin.PluginSourceEngine
 import com.vueo.app.core.plugin.PluginRepositoryDescriptor
 import com.vueo.app.core.plugin.PluginRepositoryClient
 import com.vueo.app.core.model.EpisodeItem
+import com.vueo.app.core.model.MediaCompany
 import com.vueo.app.core.model.MediaItem
+import com.vueo.app.core.model.MediaPerson
 import com.vueo.app.core.model.StreamSource
 import com.vueo.app.core.storage.AddonStore
 import com.vueo.app.ui.components.NetworkImage
@@ -5540,6 +5543,26 @@ private fun MediaDetailsScreen(
             }
 
         if (
+            tmdbKey.isNotBlank() &&
+            settingsStore
+                .tmdbMetadataEnrichmentEnabled()
+        ) {
+            item =
+                runCatching {
+                    RichDetailsClient
+                        .enrich(
+                            media = item,
+                            apiKey = tmdbKey,
+                        )
+                }.getOrDefault(item)
+        }
+
+        ratings =
+            baseDetailsRatings(
+                item
+            )
+
+        if (
             item.type == "series" &&
             item.episodes.isNotEmpty()
         ) {
@@ -5701,7 +5724,7 @@ private fun MediaDetailsScreen(
                     emptyList()
                 )
 
-            ratings =
+            val enabledRatings =
                 fetched.filter {
                     rating ->
                     when (rating.source) {
@@ -5728,6 +5751,14 @@ private fun MediaDetailsScreen(
                         else -> false
                     }
                 }
+
+            ratings =
+                (ratings + enabledRatings)
+                    .associateBy {
+                        it.source
+                    }
+                    .values
+                    .toList()
         }
     }
 
@@ -6290,6 +6321,25 @@ private fun MediaDetailsScreen(
                 "Watch"
         }
 
+    val detailFacts =
+        listOfNotNull(
+            item.releaseInfo
+                ?.takeIf {
+                    it.isNotBlank()
+                },
+            item.runtimeMinutes
+                ?.takeIf {
+                    it > 0
+                }
+                ?.let(
+                    ::formatDetailsRuntime
+                ),
+            item.certification
+                ?.takeIf {
+                    it.isNotBlank()
+                },
+        )
+
     LazyColumn(
         modifier =
             Modifier
@@ -6490,19 +6540,15 @@ private fun MediaDetailsScreen(
 
                         Text(
                             text =
-                                listOfNotNull(
-                                    item.releaseInfo,
-                                    item.genres
-                                        .take(2)
-                                        .takeIf {
-                                            it.isNotEmpty()
-                                        }
-                                        ?.joinToString(
-                                            " • "
-                                        ),
-                                ).joinToString(
-                                    " • "
-                                ),
+                                item.genres
+                                    .take(3)
+                                    .joinToString(
+                                        " • "
+                                    )
+                                    .ifBlank {
+                                        item.releaseInfo
+                                            .orEmpty()
+                                    },
                             color =
                                 Color.White.copy(
                                     alpha = .66f
@@ -6704,10 +6750,30 @@ private fun MediaDetailsScreen(
             }
         }
 
+        if (detailFacts.isNotEmpty()) {
+            item {
+                DetailsFactsRow(
+                    facts = detailFacts
+                )
+            }
+        }
+
         if (ratings.isNotEmpty()) {
             item {
                 MediaRatingsStrip(
                     ratings = ratings
+                )
+            }
+        }
+
+        if (
+            item.directors.isNotEmpty() ||
+            item.creators.isNotEmpty() ||
+            item.writers.isNotEmpty()
+        ) {
+            item {
+                MediaCreditsSummary(
+                    media = item
                 )
             }
         }
@@ -6749,6 +6815,39 @@ private fun MediaDetailsScreen(
                     }
                 }
             }
+
+        val featuredCompanies =
+            if (item.type == "series") {
+                item.networks
+            } else {
+                item.productionCompanies
+            }
+
+        if (featuredCompanies.isNotEmpty()) {
+            item {
+                MediaCompanySection(
+                    title =
+                        if (
+                            item.type ==
+                                "series"
+                        ) {
+                            "Networks"
+                        } else {
+                            "Production"
+                        },
+                    companies =
+                        featuredCompanies,
+                )
+            }
+        }
+
+        if (item.cast.isNotEmpty()) {
+            item {
+                MediaCastSection(
+                    cast = item.cast
+                )
+            }
+        }
 
         if (
             item.type == "series" &&
@@ -6977,23 +7076,238 @@ private fun DetailsLoadingSkeleton() {
     }
 }
 
+private fun baseDetailsRatings(
+    media: MediaItem,
+): List<MediaRating> =
+    buildList {
+        media.imdbRating
+            ?.takeIf {
+                it.isFinite() &&
+                    it > 0.0
+            }
+            ?.let {
+                add(
+                    MediaRating(
+                        source = "imdb",
+                        value = it,
+                    )
+                )
+            }
+
+        media.tmdbRating
+            ?.takeIf {
+                it.isFinite() &&
+                    it > 0.0
+            }
+            ?.let {
+                add(
+                    MediaRating(
+                        source = "tmdb",
+                        value = it,
+                    )
+                )
+            }
+    }
+
+private fun formatDetailsRuntime(
+    minutes: Int,
+): String {
+    if (minutes <= 0) return ""
+    val hours = minutes / 60
+    val remaining = minutes % 60
+    return when {
+        hours <= 0 -> "${minutes}m"
+        remaining <= 0 -> "${hours}h"
+        else -> "${hours}h ${remaining}m"
+    }
+}
+
+@Composable
+private fun DetailsFactsRow(
+    facts: List<String>,
+) {
+    Row(
+        modifier =
+            Modifier.padding(
+                horizontal = 18.dp
+            ),
+        horizontalArrangement =
+            Arrangement.spacedBy(
+                16.dp
+            ),
+        verticalAlignment =
+            Alignment.CenterVertically,
+    ) {
+        facts.forEach { fact ->
+            Text(
+                text = fact,
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight =
+                    FontWeight.Bold,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
 @Composable
 private fun MediaRatingsStrip(
     ratings: List<MediaRating>,
 ) {
-    Column(
-        verticalArrangement =
+    LazyRow(
+        contentPadding =
+            PaddingValues(
+                horizontal = 18.dp
+            ),
+        horizontalArrangement =
             Arrangement.spacedBy(
                 8.dp
             ),
     ) {
+        items(
+            ratings,
+            key = {
+                it.source
+            },
+        ) { rating ->
+            Surface(
+                shape =
+                    RoundedCornerShape(
+                        13.dp
+                    ),
+                color =
+                    VueoPalette
+                        .SurfaceStrong,
+            ) {
+                Row(
+                    modifier =
+                        Modifier.padding(
+                            horizontal =
+                                11.dp,
+                            vertical =
+                                8.dp,
+                        ),
+                    verticalAlignment =
+                        Alignment.CenterVertically,
+                    horizontalArrangement =
+                        Arrangement.spacedBy(
+                            6.dp
+                        ),
+                ) {
+                    Text(
+                        text =
+                            if (
+                                rating.source ==
+                                    "imdb"
+                            ) {
+                                "★ IMDb"
+                            } else {
+                                rating.compactLabel
+                            },
+                        color =
+                            if (
+                                rating.source ==
+                                    "imdb"
+                            ) {
+                                VueoPalette.Accent
+                            } else {
+                                VueoPalette.Muted
+                            },
+                        fontSize = 10.sp,
+                        fontWeight =
+                            FontWeight.Bold,
+                    )
+
+                    Text(
+                        text =
+                            rating.displayValue(),
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight =
+                            FontWeight.Black,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MediaCreditsSummary(
+    media: MediaItem,
+) {
+    Column(
+        modifier =
+            Modifier.padding(
+                horizontal = 18.dp
+            ),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                6.dp
+            ),
+    ) {
+        if (
+            media.type == "series" &&
+            media.creators.isNotEmpty()
+        ) {
+            DetailsCreditLine(
+                label = "Creator",
+                names = media.creators,
+            )
+        } else if (
+            media.directors.isNotEmpty()
+        ) {
+            DetailsCreditLine(
+                label = "Director",
+                names = media.directors,
+            )
+        }
+
+        if (media.writers.isNotEmpty()) {
+            DetailsCreditLine(
+                label = "Writer",
+                names = media.writers,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DetailsCreditLine(
+    label: String,
+    names: List<String>,
+) {
+    Text(
+        text =
+            "$label: ${names.take(3).joinToString(", ")}",
+        color =
+            Color.White.copy(
+                alpha = .78f
+            ),
+        fontSize = 12.sp,
+        lineHeight = 17.sp,
+    )
+}
+
+@Composable
+private fun MediaCompanySection(
+    title: String,
+    companies: List<MediaCompany>,
+) {
+    Column(
+        verticalArrangement =
+            Arrangement.spacedBy(
+                10.dp
+            ),
+    ) {
         Text(
-            text = "Ratings",
-            color = Color.White,
+            text = title,
             modifier =
                 Modifier.padding(
                     horizontal = 18.dp
                 ),
+            color = Color.White,
             fontSize = 19.sp,
             fontWeight =
                 FontWeight.Black,
@@ -7006,59 +7320,177 @@ private fun MediaRatingsStrip(
                 ),
             horizontalArrangement =
                 Arrangement.spacedBy(
-                    8.dp
+                    10.dp
                 ),
         ) {
             items(
-                ratings,
+                companies.take(12),
                 key = {
-                    it.source
+                    it.name
                 },
-            ) { rating ->
+            ) { company ->
                 Surface(
+                    modifier =
+                        Modifier
+                            .width(116.dp)
+                            .height(66.dp),
                     shape =
                         RoundedCornerShape(
-                            13.dp
+                            14.dp
                         ),
                     color =
-                        VueoPalette
-                            .SurfaceStrong,
+                        Color.White.copy(
+                            alpha = .94f
+                        ),
                 ) {
-                    Row(
-                        modifier =
-                            Modifier.padding(
-                                horizontal =
-                                    11.dp,
-                                vertical =
-                                    8.dp,
-                            ),
-                        verticalAlignment =
-                            Alignment.CenterVertically,
-                        horizontalArrangement =
-                            Arrangement.spacedBy(
-                                6.dp
-                            ),
+                    if (
+                        !company.logo.isNullOrBlank()
                     ) {
-                        Text(
-                            text =
-                                rating.compactLabel,
-                            color =
-                                VueoPalette.Muted,
-                            fontSize = 9.sp,
-                            fontWeight =
-                                FontWeight.Bold,
+                        NetworkImage(
+                            url = company.logo,
+                            contentDescription =
+                                company.name,
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .padding(10.dp),
+                            contentScale =
+                                ContentScale.Fit,
+                            fallbackText =
+                                company.name,
                         )
+                    } else {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .padding(8.dp),
+                            contentAlignment =
+                                Alignment.Center,
+                        ) {
+                            Text(
+                                text =
+                                    company.name,
+                                color =
+                                    Color.Black.copy(
+                                        alpha = .78f
+                                    ),
+                                fontSize = 10.sp,
+                                fontWeight =
+                                    FontWeight.Bold,
+                                maxLines = 2,
+                                overflow =
+                                    TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
-                        Text(
-                            text =
-                                rating.displayValue(),
-                            color =
-                                Color.White,
-                            fontSize = 12.sp,
-                            fontWeight =
-                                FontWeight.Black,
+@Composable
+private fun MediaCastSection(
+    cast: List<MediaPerson>,
+) {
+    Column(
+        verticalArrangement =
+            Arrangement.spacedBy(
+                10.dp
+            ),
+    ) {
+        Text(
+            text = "Cast",
+            modifier =
+                Modifier.padding(
+                    horizontal = 18.dp
+                ),
+            color = Color.White,
+            fontSize = 19.sp,
+            fontWeight =
+                FontWeight.Black,
+        )
+
+        LazyRow(
+            contentPadding =
+                PaddingValues(
+                    horizontal = 18.dp
+                ),
+            horizontalArrangement =
+                Arrangement.spacedBy(
+                    14.dp
+                ),
+        ) {
+            items(
+                cast.take(20),
+                key = {
+                    "${it.name}:${it.character.orEmpty()}"
+                },
+            ) { person ->
+                Column(
+                    modifier =
+                        Modifier.width(
+                            82.dp
+                        ),
+                    horizontalAlignment =
+                        Alignment.CenterHorizontally,
+                    verticalArrangement =
+                        Arrangement.spacedBy(
+                            5.dp
+                        ),
+                ) {
+                    Surface(
+                        modifier =
+                            Modifier.size(
+                                72.dp
+                            ),
+                        shape = CircleShape,
+                        color =
+                            VueoPalette
+                                .SurfaceStrong,
+                    ) {
+                        NetworkImage(
+                            url = person.profile,
+                            contentDescription =
+                                person.name,
+                            modifier =
+                                Modifier.fillMaxSize(),
+                            contentScale =
+                                ContentScale.Crop,
+                            fallbackText =
+                                person.name
+                                    .take(1)
+                                    .uppercase(),
                         )
                     }
+
+                    Text(
+                        text = person.name,
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight =
+                            FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow =
+                            TextOverflow.Ellipsis,
+                    )
+
+                    person.character
+                        ?.takeIf {
+                            it.isNotBlank()
+                        }
+                        ?.let { role ->
+                            Text(
+                                text = role,
+                                color =
+                                    VueoPalette.Muted,
+                                fontSize = 9.sp,
+                                maxLines = 1,
+                                overflow =
+                                    TextOverflow.Ellipsis,
+                            )
+                        }
                 }
             }
         }

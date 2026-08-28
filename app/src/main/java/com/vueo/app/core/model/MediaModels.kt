@@ -10,6 +10,18 @@ data class EpisodeItem(
     val thumbnail: String? = null,
 )
 
+data class MediaPerson(
+    val name: String,
+    val character: String? = null,
+    val role: String? = null,
+    val profile: String? = null,
+)
+
+data class MediaCompany(
+    val name: String,
+    val logo: String? = null,
+)
+
 data class MediaItem(
     val id: String,
     val type: String,
@@ -21,6 +33,16 @@ data class MediaItem(
     val genres: List<String> = emptyList(),
     val episodes: List<EpisodeItem> = emptyList(),
     val sourceExtensionId: String? = null,
+    val imdbRating: Double? = null,
+    val tmdbRating: Double? = null,
+    val runtimeMinutes: Int? = null,
+    val certification: String? = null,
+    val directors: List<String> = emptyList(),
+    val creators: List<String> = emptyList(),
+    val writers: List<String> = emptyList(),
+    val cast: List<MediaPerson> = emptyList(),
+    val productionCompanies: List<MediaCompany> = emptyList(),
+    val networks: List<MediaCompany> = emptyList(),
 )
 
 data class CatalogRow(
