@@ -1,4 +1,4 @@
-# VUEO Architecture v0.2
+# VUEO Architecture v0.9.2
 
 ```text
                          VUEO
@@ -538,3 +538,52 @@ TMDB and MDBList are enrichment modules, not VUEO core dependencies. No enhancem
 TMDB's existing provider ID bridge continues to use the locally stored key while the user-facing configuration lives under Enhancements. MDBList is isolated in Settings storage until the v0.9.2 rating enrichment layer consumes it.
 
 Subtitle source acquisition remains part of Stremio Addons in Content Manager. Subtitle preference and presentation behavior live under Settings > Subtitles.
+
+## v0.9.2 optional discovery and enrichment layer
+
+```text
+                         Details
+                            |
+              +-------------+-------------+
+              |                           |
+          VUEO Core                 Enhancements
+              |                           |
+      Stremio metadata          +---------+---------+
+      cached catalog            |                   |
+              |                TMDB               MDBList
+              |                 |                   |
+              |         metadata / artwork          |
+              |         recommendations             |
+              |         similar titles              |
+              |                 |                   |
+              +----------> More Like This      rating bundle
+                                 |                   |
+                          VUEO fallback       enabled ratings
+                                 |                   |
+                                 +---------+---------+
+                                           |
+                                      Details UI
+```
+
+### Design rule
+
+Enhancements never become a dependency of VUEO Core. Missing keys, disabled feature toggles, network failures, or unavailable enhancement services must fall back to the existing VUEO experience instead of blocking Details, source discovery, or playback.
+
+### TMDB path
+
+- Resolve an IMDb or numeric media ID to TMDB when possible.
+- Fetch richer Details only when metadata or artwork enrichment is enabled.
+- Fetch Recommendations first, then Similar when enabled.
+- Merge enhancement discovery ahead of cached local recommendations without removing the VUEO fallback.
+- TMDB recommendation cards use a `tmdb:` ID internally and attempt to restore an IMDb ID before the existing core metadata and source path is used.
+
+### MDBList path
+
+- Resolve a lookup through IMDb when the media already has an IMDb ID, otherwise use a TMDB ID when available.
+- Fetch one rating bundle per title.
+- Cache repeated rating lookups in memory.
+- Filter the returned bundle according to the user's IMDb, Rotten Tomatoes, Metacritic, TMDB, and Trakt toggles.
+
+### Attribution
+
+The About VUEO page contains the required textual TMDB attribution notice. Approved logo treatment can be finalized with release branding before v1.0.

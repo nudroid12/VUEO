@@ -1,4 +1,4 @@
-# VUEO v0.9.1
+# VUEO v0.9.2
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -731,3 +731,56 @@ The page shows the installed version and stores the Automatic Update Checks pref
 - recent source cache maintenance
 - reduced Library progress write frequency
 - preferred quality boost in Smart Source ranking
+
+## v0.9.2 Discovery & Enrichment
+
+VUEO now connects the optional **Enhancements** layer to the Details experience.
+
+### TMDB enhancement
+
+When the user configures a TMDB API key, VUEO can optionally:
+
+- enrich title metadata
+- add poster and backdrop fallback
+- load Recommendations
+- load Similar titles
+- combine TMDB discovery with the local VUEO catalog fallback for More Like This
+- test the configured TMDB connection from Settings
+
+TMDB is not required. If it is not configured, disabled, or unavailable, VUEO keeps using its normal metadata and local catalog discovery path.
+
+### MDBList enhancement
+
+When the user configures MDBList, Details can show compact optional ratings for:
+
+- IMDb
+- Rotten Tomatoes
+- Metacritic
+- TMDB
+- Trakt
+
+Each rating source respects its Settings toggle. MDBList responses are cached in memory to avoid repeating the same lookup whenever the same Details page is reopened.
+
+MDBList is not required for playback, source discovery, Home, Search, Library, or Content Manager.
+
+### Details flow
+
+```text
+Open Details
+   |
+   +-- Core metadata first
+   |
+   +-- TMDB configured? -> optional metadata/artwork enrichment
+   |
+   +-- Local VUEO More Like This available immediately
+   |
+   +-- TMDB enabled? -> Recommendations + Similar -> merge with fallback
+   |
+   +-- MDBList enabled? -> rating bundle -> enabled rating chips
+   |
+   v
+Watch -> existing progressive source discovery
+```
+
+Version: **0.9.2**  
+Version code: **19**

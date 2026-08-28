@@ -1,0 +1,688 @@
+package com.vueo.app.core.enrichment
+
+import android.net.Uri
+import com.vueo.app.core.model.MediaItem
+import com.vueo.app.core.plugin.TmdbResolver
+import com.vueo.app.core.stremio.SimpleHttp
+import org.json.JSONArray
+import org.json.JSONObject
+
+/**
+ * Optional TMDB enrichment layer.
+ *
+ * VUEO core never depends on this object. All calls are guarded by the user
+ * supplied TMDB key and callers are expected to fall back to core metadata.
+ */
+object TmdbEnhancementClient {
+    private const val API_BASE =
+        "https://api.themoviedb.org/3"
+
+    private const val IMAGE_BASE =
+        "https://image.tmdb.org/t/p"
+
+    private const val CACHE_TTL_MS =
+        30 * 60_000L
+
+    private const val MAX_CACHE_ENTRIES =
+        80
+
+    private val detailsCache =
+        object : LinkedHashMap<String, CacheEntry<JSONObject>>(
+            96,
+            0.75f,
+            true,
+        ) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<String, CacheEntry<JSONObject>>?,
+            ): Boolean =
+                size > MAX_CACHE_ENTRIES
+        }
+
+    private val discoveryCache =
+        object : LinkedHashMap<String, CacheEntry<List<MediaItem>>>(
+            48,
+            0.75f,
+            true,
+        ) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<String, CacheEntry<List<MediaItem>>>?,
+            ): Boolean =
+                size > MAX_CACHE_ENTRIES
+        }
+
+    private val resolvedIds =
+        object : LinkedHashMap<String, CacheEntry<String>>(
+            96,
+            0.75f,
+            true,
+        ) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<String, CacheEntry<String>>?,
+            ): Boolean =
+                size > MAX_CACHE_ENTRIES
+        }
+
+    suspend fun testConnection(
+        apiKey: String,
+    ): Boolean {
+        if (apiKey.isBlank()) {
+            return false
+        }
+
+        return runCatching {
+            val json = JSONObject(
+                SimpleHttp.get(
+                    "$API_BASE/configuration?api_key=${Uri.encode(apiKey.trim())}"
+                )
+            )
+
+            json.optJSONObject("images") != null
+        }.getOrDefault(false)
+    }
+
+    /**
+     * Convert a TMDB recommendation seed into a core-friendly item when
+     * possible. TMDB detail responses expose external_ids, so an IMDb ID can
+     * be restored before a Stremio metadata provider is asked for full meta.
+     */
+    suspend fun prepareForCore(
+        item: MediaItem,
+        apiKey: String,
+    ): MediaItem {
+        if (
+            apiKey.isBlank() ||
+            !item.id.startsWith("tmdb:")
+        ) {
+            return item
+        }
+
+        val tmdbId =
+            item.id
+                .substringAfter("tmdb:")
+                .takeIf {
+                    it.matches(Regex("""\d+"""))
+                }
+                ?: return item
+
+        val details =
+            details(
+                mediaType = item.type,
+                tmdbId = tmdbId,
+                apiKey = apiKey,
+            )
+                ?: return item
+
+        val imdbId =
+            details
+                .optNullableString("imdb_id")
+                ?: details
+                    .optJSONObject("external_ids")
+                    ?.optNullableString("imdb_id")
+
+        if (
+            imdbId != null &&
+            imdbId.startsWith("tt")
+        ) {
+            putResolvedId(
+                media = item.copy(id = imdbId),
+                tmdbId = tmdbId,
+            )
+        }
+
+        return mergeDetails(
+            item = item.copy(
+                id = imdbId ?: item.id,
+            ),
+            details = details,
+            metadataEnabled = true,
+            artworkEnabled = true,
+        )
+    }
+
+    suspend fun enrich(
+        item: MediaItem,
+        apiKey: String,
+        metadataEnabled: Boolean,
+        artworkEnabled: Boolean,
+    ): MediaItem {
+        if (
+            apiKey.isBlank() ||
+            (!metadataEnabled && !artworkEnabled)
+        ) {
+            return item
+        }
+
+        val tmdbId =
+            resolveTmdbId(
+                media = item,
+                apiKey = apiKey,
+            )
+                ?: return item
+
+        val details =
+            details(
+                mediaType = item.type,
+                tmdbId = tmdbId,
+                apiKey = apiKey,
+            )
+                ?: return item
+
+        return mergeDetails(
+            item = item,
+            details = details,
+            metadataEnabled = metadataEnabled,
+            artworkEnabled = artworkEnabled,
+        )
+    }
+
+    suspend fun moreLikeThis(
+        item: MediaItem,
+        apiKey: String,
+        recommendationsEnabled: Boolean,
+        similarEnabled: Boolean,
+        limit: Int = 18,
+    ): List<MediaItem> {
+        if (
+            apiKey.isBlank() ||
+            (!recommendationsEnabled && !similarEnabled) ||
+            limit <= 0
+        ) {
+            return emptyList()
+        }
+
+        val tmdbId =
+            resolveTmdbId(
+                media = item,
+                apiKey = apiKey,
+            )
+                ?: return emptyList()
+
+        val cacheKey =
+            listOf(
+                item.type,
+                tmdbId,
+                recommendationsEnabled,
+                similarEnabled,
+                item.sourceExtensionId.orEmpty(),
+                limit,
+            ).joinToString(":")
+
+        cached(discoveryCache, cacheKey)
+            ?.let {
+                return it
+            }
+
+        val namespace =
+            if (item.type == "series") {
+                "tv"
+            } else {
+                "movie"
+            }
+
+        val collected =
+            mutableListOf<MediaItem>()
+
+        if (recommendationsEnabled) {
+            requestDiscovery(
+                path =
+                    "/$namespace/$tmdbId/recommendations",
+                type = item.type,
+                apiKey = apiKey,
+                sourceExtensionId =
+                    item.sourceExtensionId,
+            ).let(collected::addAll)
+        }
+
+        if (
+            similarEnabled &&
+            collected.size < limit
+        ) {
+            requestDiscovery(
+                path =
+                    "/$namespace/$tmdbId/similar",
+                type = item.type,
+                apiKey = apiKey,
+                sourceExtensionId =
+                    item.sourceExtensionId,
+            ).let(collected::addAll)
+        }
+
+        val result =
+            collected
+                .asSequence()
+                .filterNot {
+                    candidate ->
+                    candidate.id == item.id ||
+                        candidate.id == "tmdb:$tmdbId"
+                }
+                .distinctBy {
+                    "${it.type}:${it.id}"
+                }
+                .take(limit)
+                .toList()
+
+        synchronized(discoveryCache) {
+            discoveryCache[cacheKey] =
+                CacheEntry(
+                    value = result,
+                    updatedAt =
+                        System.currentTimeMillis(),
+                )
+        }
+
+        return result
+    }
+
+    private suspend fun requestDiscovery(
+        path: String,
+        type: String,
+        apiKey: String,
+        sourceExtensionId: String?,
+    ): List<MediaItem> {
+        val url =
+            "$API_BASE$path" +
+                "?language=en-US" +
+                "&page=1" +
+                "&api_key=${Uri.encode(apiKey.trim())}"
+
+        return runCatching {
+            val json =
+                JSONObject(
+                    SimpleHttp.get(url)
+                )
+
+            json.optJSONArray("results")
+                .toMediaItems(
+                    type = type,
+                    sourceExtensionId =
+                        sourceExtensionId,
+                )
+        }.getOrDefault(emptyList())
+    }
+
+    private suspend fun details(
+        mediaType: String,
+        tmdbId: String,
+        apiKey: String,
+    ): JSONObject? {
+        val namespace =
+            if (mediaType == "series") {
+                "tv"
+            } else {
+                "movie"
+            }
+
+        val cacheKey =
+            "$namespace:$tmdbId"
+
+        cached(detailsCache, cacheKey)
+            ?.let {
+                return JSONObject(it.toString())
+            }
+
+        val url =
+            "$API_BASE/$namespace/$tmdbId" +
+                "?append_to_response=external_ids" +
+                "&language=en-US" +
+                "&api_key=${Uri.encode(apiKey.trim())}"
+
+        val json =
+            runCatching {
+                JSONObject(
+                    SimpleHttp.get(url)
+                )
+            }.getOrNull()
+                ?: return null
+
+        synchronized(detailsCache) {
+            detailsCache[cacheKey] =
+                CacheEntry(
+                    value =
+                        JSONObject(
+                            json.toString()
+                        ),
+                    updatedAt =
+                        System.currentTimeMillis(),
+                )
+        }
+
+        return json
+    }
+
+    private suspend fun resolveTmdbId(
+        media: MediaItem,
+        apiKey: String,
+    ): String? {
+        val key =
+            "${media.type}:${media.id}"
+
+        cached(resolvedIds, key)
+            ?.let {
+                return it
+            }
+
+        val resolved =
+            TmdbResolver.resolve(
+                media = media,
+                apiKey = apiKey,
+            )
+                ?: return null
+
+        putResolvedId(
+            media = media,
+            tmdbId = resolved,
+        )
+
+        return resolved
+    }
+
+    private fun putResolvedId(
+        media: MediaItem,
+        tmdbId: String,
+    ) {
+        synchronized(resolvedIds) {
+            resolvedIds[
+                "${media.type}:${media.id}"
+            ] = CacheEntry(
+                value = tmdbId,
+                updatedAt =
+                    System.currentTimeMillis(),
+            )
+        }
+    }
+
+    private fun mergeDetails(
+        item: MediaItem,
+        details: JSONObject,
+        metadataEnabled: Boolean,
+        artworkEnabled: Boolean,
+    ): MediaItem {
+        val overview =
+            details.optNullableString(
+                "overview"
+            )
+
+        val releaseDate =
+            details.optNullableString(
+                if (item.type == "series") {
+                    "first_air_date"
+                } else {
+                    "release_date"
+                }
+            )
+
+        val tmdbGenres =
+            details
+                .optJSONArray("genres")
+                .toGenreNames()
+
+        val title =
+            details.optNullableString(
+                if (item.type == "series") {
+                    "name"
+                } else {
+                    "title"
+                }
+            )
+
+        val tmdbPoster =
+            details
+                .optNullableString(
+                    "poster_path"
+                )
+                ?.let {
+                    "$IMAGE_BASE/w500$it"
+                }
+
+        val tmdbBackdrop =
+            details
+                .optNullableString(
+                    "backdrop_path"
+                )
+                ?.let {
+                    "$IMAGE_BASE/w1280$it"
+                }
+
+        return item.copy(
+            name =
+                if (
+                    metadataEnabled &&
+                    item.name.isBlank()
+                ) {
+                    title ?: item.name
+                } else {
+                    item.name
+                },
+            description =
+                if (metadataEnabled) {
+                    richerText(
+                        item.description,
+                        overview,
+                    )
+                } else {
+                    item.description
+                },
+            releaseInfo =
+                if (metadataEnabled) {
+                    item.releaseInfo
+                        ?: releaseDate
+                            ?.take(4)
+                            ?.takeIf {
+                                it.all { ch -> ch.isDigit() }
+                            }
+                } else {
+                    item.releaseInfo
+                },
+            genres =
+                if (metadataEnabled) {
+                    (
+                        item.genres +
+                            tmdbGenres
+                    )
+                        .filter {
+                            it.isNotBlank()
+                        }
+                        .distinct()
+                } else {
+                    item.genres
+                },
+            poster =
+                if (artworkEnabled) {
+                    item.poster
+                        ?: tmdbPoster
+                } else {
+                    item.poster
+                },
+            background =
+                if (artworkEnabled) {
+                    item.background
+                        ?: tmdbBackdrop
+                        ?: item.poster
+                        ?: tmdbPoster
+                } else {
+                    item.background
+                },
+        )
+    }
+
+    private fun richerText(
+        current: String?,
+        candidate: String?,
+    ): String? {
+        val a =
+            current
+                ?.trim()
+                ?.takeIf {
+                    it.isNotBlank()
+                }
+
+        val b =
+            candidate
+                ?.trim()
+                ?.takeIf {
+                    it.isNotBlank()
+                }
+
+        return when {
+            a == null -> b
+            b == null -> a
+            b.length > a.length -> b
+            else -> a
+        }
+    }
+
+    private fun <T> cached(
+        cache: MutableMap<String, CacheEntry<T>>,
+        key: String,
+    ): T? =
+        synchronized(cache) {
+            val entry =
+                cache[key]
+                    ?: return@synchronized null
+
+            val age =
+                System.currentTimeMillis() -
+                    entry.updatedAt
+
+            if (age > CACHE_TTL_MS) {
+                cache.remove(key)
+                null
+            } else {
+                entry.value
+            }
+        }
+
+    private data class CacheEntry<T>(
+        val value: T,
+        val updatedAt: Long,
+    )
+}
+
+private fun JSONArray?
+    .toMediaItems(
+        type: String,
+        sourceExtensionId: String?,
+    ): List<MediaItem> {
+    if (this == null) {
+        return emptyList()
+    }
+
+    return buildList {
+        for (
+            index in
+            0 until length()
+        ) {
+            val json =
+                optJSONObject(index)
+                    ?: continue
+
+            val id =
+                json.optLong(
+                    "id",
+                    -1L,
+                )
+
+            if (id <= 0L) {
+                continue
+            }
+
+            val name =
+                json.optNullableString(
+                    if (type == "series") {
+                        "name"
+                    } else {
+                        "title"
+                    }
+                )
+                    ?: continue
+
+            val poster =
+                json.optNullableString(
+                    "poster_path"
+                )
+                    ?.let {
+                        "https://image.tmdb.org/t/p/w500$it"
+                    }
+
+            val background =
+                json.optNullableString(
+                    "backdrop_path"
+                )
+                    ?.let {
+                        "https://image.tmdb.org/t/p/w1280$it"
+                    }
+
+            val date =
+                json.optNullableString(
+                    if (type == "series") {
+                        "first_air_date"
+                    } else {
+                        "release_date"
+                    }
+                )
+
+            add(
+                MediaItem(
+                    id = "tmdb:$id",
+                    type = type,
+                    name = name,
+                    poster = poster,
+                    background =
+                        background ?: poster,
+                    description =
+                        json.optNullableString(
+                            "overview"
+                        ),
+                    releaseInfo =
+                        date
+                            ?.take(4)
+                            ?.takeIf {
+                                it.all { ch -> ch.isDigit() }
+                            },
+                    sourceExtensionId =
+                        sourceExtensionId,
+                )
+            )
+        }
+    }
+}
+
+private fun JSONArray?
+    .toGenreNames():
+    List<String> {
+    if (this == null) {
+        return emptyList()
+    }
+
+    return buildList {
+        for (
+            index in
+            0 until length()
+        ) {
+            optJSONObject(index)
+                ?.optNullableString(
+                    "name"
+                )
+                ?.let(::add)
+        }
+    }
+}
+
+private fun JSONObject
+    .optNullableString(
+        key: String,
+    ): String? {
+    if (
+        !has(key) ||
+        isNull(key)
+    ) {
+        return null
+    }
+
+    return optString(key)
+        .trim()
+        .takeIf {
+            it.isNotBlank() &&
+                it != "null"
+        }
+}

@@ -103,6 +103,9 @@ import com.vueo.app.core.extensions.SourceRanker
 import com.vueo.app.core.extensions.SourceCleaner
 import com.vueo.app.core.extensions.SourceDiscoveryCache
 import com.vueo.app.core.extensions.CatalogDiscoveryCache
+import com.vueo.app.core.enrichment.MdblistClient
+import com.vueo.app.core.enrichment.MediaRating
+import com.vueo.app.core.enrichment.TmdbEnhancementClient
 import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.BuildConfig
 import com.vueo.app.core.storage.PlaybackStore
@@ -4168,6 +4171,14 @@ private fun MediaDetailsScreen(
             List<MediaItem>
         >(emptyList())
     }
+    var relatedUsesTmdb by remember {
+        mutableStateOf(false)
+    }
+    var ratings by remember {
+        mutableStateOf<
+            List<MediaRating>
+        >(emptyList())
+    }
     var inWatchlist by remember(
         initialItem.id,
         initialItem.type,
@@ -4214,9 +4225,77 @@ private fun MediaDetailsScreen(
         mutableStateOf<String?>(null)
     }
 
-    LaunchedEffect(initialItem.id, initialItem.sourceExtensionId) {
+    LaunchedEffect(
+        initialItem.id,
+        initialItem.type,
+        initialItem.sourceExtensionId,
+    ) {
         loadingMeta = true
-        item = engine.loadMeta(initialItem)
+        relatedItems = emptyList()
+        relatedUsesTmdb = false
+        ratings = emptyList()
+
+        val tmdbKey =
+            pluginStore
+                .tmdbApiKey()
+
+        val preparedItem =
+            if (
+                tmdbKey.isNotBlank() &&
+                initialItem.id
+                    .startsWith(
+                        "tmdb:"
+                    )
+            ) {
+                runCatching {
+                    TmdbEnhancementClient
+                        .prepareForCore(
+                            item =
+                                initialItem,
+                            apiKey =
+                                tmdbKey,
+                        )
+                }.getOrDefault(
+                    initialItem
+                )
+            } else {
+                initialItem
+            }
+
+        val coreItem =
+            engine.loadMeta(
+                preparedItem
+            )
+
+        item =
+            if (
+                tmdbKey.isNotBlank() &&
+                (
+                    settingsStore
+                        .tmdbMetadataEnrichmentEnabled() ||
+                        settingsStore
+                            .tmdbArtworkEnrichmentEnabled()
+                )
+            ) {
+                runCatching {
+                    TmdbEnhancementClient
+                        .enrich(
+                            item = coreItem,
+                            apiKey =
+                                tmdbKey,
+                            metadataEnabled =
+                                settingsStore
+                                    .tmdbMetadataEnrichmentEnabled(),
+                            artworkEnabled =
+                                settingsStore
+                                    .tmdbArtworkEnrichmentEnabled(),
+                        )
+                }.getOrDefault(
+                    coreItem
+                )
+            } else {
+                coreItem
+            }
 
         if (
             item.type == "series" &&
@@ -4266,6 +4345,9 @@ private fun MediaDetailsScreen(
                             it.season ==
                                 firstSeason
                         }
+        } else {
+            selectedSeason = null
+            selectedEpisode = null
         }
 
         inWatchlist =
@@ -4274,11 +4356,122 @@ private fun MediaDetailsScreen(
                     item
                 )
 
-        relatedItems =
+        val resolvedItem =
+            item
+
+        val localRelated =
             CatalogDiscoveryCache
-                .related(item)
+                .related(
+                    resolvedItem,
+                    limit = 18,
+                )
+
+        relatedItems =
+            localRelated
 
         loadingMeta = false
+
+        launch {
+            if (
+                tmdbKey.isBlank() ||
+                (
+                    !settingsStore
+                        .tmdbRecommendationsEnabled() &&
+                        !settingsStore
+                            .tmdbSimilarTitlesEnabled()
+                )
+            ) {
+                return@launch
+            }
+
+            val tmdbRelated =
+                runCatching {
+                    TmdbEnhancementClient
+                        .moreLikeThis(
+                            item =
+                                resolvedItem,
+                            apiKey =
+                                tmdbKey,
+                            recommendationsEnabled =
+                                settingsStore
+                                    .tmdbRecommendationsEnabled(),
+                            similarEnabled =
+                                settingsStore
+                                    .tmdbSimilarTitlesEnabled(),
+                            limit = 18,
+                        )
+                }.getOrDefault(
+                    emptyList()
+                )
+
+            if (tmdbRelated.isNotEmpty()) {
+                relatedUsesTmdb = true
+                relatedItems =
+                    (
+                        tmdbRelated +
+                            localRelated
+                    )
+                        .distinctBy {
+                            "${it.type}:${it.id}"
+                        }
+                        .take(18)
+            }
+        }
+
+        launch {
+            val mdblistKey =
+                settingsStore
+                    .mdblistApiKey()
+
+            if (
+                mdblistKey.isBlank() ||
+                !settingsStore
+                    .mdblistRatingsEnabled()
+            ) {
+                return@launch
+            }
+
+            val fetched =
+                runCatching {
+                    MdblistClient
+                        .ratings(
+                            media =
+                                resolvedItem,
+                            apiKey =
+                                mdblistKey,
+                        )
+                }.getOrDefault(
+                    emptyList()
+                )
+
+            ratings =
+                fetched.filter {
+                    rating ->
+                    when (rating.source) {
+                        "imdb" ->
+                            settingsStore
+                                .mdblistImdbEnabled()
+
+                        "tomatoes" ->
+                            settingsStore
+                                .mdblistRottenTomatoesEnabled()
+
+                        "metacritic" ->
+                            settingsStore
+                                .mdblistMetacriticEnabled()
+
+                        "tmdb" ->
+                            settingsStore
+                                .mdblistTmdbRatingEnabled()
+
+                        "trakt" ->
+                            settingsStore
+                                .mdblistTraktEnabled()
+
+                        else -> false
+                    }
+                }
+        }
     }
 
     val playbackSource = selectedPlaybackSource
@@ -4569,6 +4762,14 @@ private fun MediaDetailsScreen(
                         }
                     }
                 }
+            }
+        }
+
+        if (ratings.isNotEmpty()) {
+            item {
+                MediaRatingsStrip(
+                    ratings = ratings
+                )
             }
         }
 
@@ -4872,7 +5073,7 @@ onClick = {
 
                     if (tmdbId == null) {
                         sourcePickerNotice =
-                            "Plugin providers skipped: VUEO could not resolve a TMDB ID. Add your TMDB API key in Settings > Content Manager > Plugins."
+                            "Plugin providers skipped: VUEO could not resolve a TMDB ID. Add your TMDB API key in Settings > Enhancements > TMDB."
 
                         return@async null
                     }
@@ -5121,6 +5322,23 @@ onClick = {
                             FontWeight.Black,
                     )
 
+                    Text(
+                        if (relatedUsesTmdb) {
+                            "TMDB enhanced • VUEO fallback ready"
+                        } else {
+                            "From your VUEO catalog"
+                        },
+                        color =
+                            Color.White.copy(
+                                alpha = .48f
+                            ),
+                        modifier =
+                            Modifier.padding(
+                                horizontal = 20.dp
+                            ),
+                        fontSize = 11.sp,
+                    )
+
                     LazyRow(
                         contentPadding =
                             PaddingValues(
@@ -5147,6 +5365,106 @@ onClick = {
                                 },
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MediaRatingsStrip(
+    ratings: List<MediaRating>,
+) {
+    Column(
+        verticalArrangement =
+            Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier =
+                Modifier.padding(
+                    horizontal = 20.dp
+                ),
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            Text(
+                "RATINGS",
+                color =
+                    VueoPalette.Neon,
+                fontSize = 10.sp,
+                fontWeight =
+                    FontWeight.Black,
+                letterSpacing = 1.2.sp,
+            )
+
+            Spacer(
+                Modifier.width(8.dp)
+            )
+
+            Text(
+                "via MDBList",
+                color =
+                    Color.White.copy(
+                        alpha = .45f
+                    ),
+                fontSize = 10.sp,
+            )
+        }
+
+        LazyRow(
+            contentPadding =
+                PaddingValues(
+                    horizontal = 20.dp
+                ),
+            horizontalArrangement =
+                Arrangement.spacedBy(8.dp),
+        ) {
+            items(
+                ratings,
+                key = {
+                    it.source
+                },
+            ) { rating ->
+                Surface(
+                    shape =
+                        RoundedCornerShape(
+                            14.dp
+                        ),
+                    color =
+                        VueoPalette
+                            .SurfaceStrong,
+                ) {
+                    Row(
+                        modifier =
+                            Modifier.padding(
+                                horizontal = 12.dp,
+                                vertical = 9.dp,
+                            ),
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                        horizontalArrangement =
+                            Arrangement.spacedBy(7.dp),
+                    ) {
+                        Text(
+                            rating.compactLabel,
+                            color =
+                                Color.White.copy(
+                                    alpha = .62f
+                                ),
+                            fontSize = 10.sp,
+                            fontWeight =
+                                FontWeight.Bold,
+                        )
+
+                        Text(
+                            rating.displayValue(),
+                            color =
+                                Color.White,
+                            fontSize = 13.sp,
+                            fontWeight =
+                                FontWeight.Black,
+                        )
                     }
                 }
             }

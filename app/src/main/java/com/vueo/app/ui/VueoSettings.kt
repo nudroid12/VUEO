@@ -30,6 +30,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
@@ -55,6 +56,8 @@ import com.vueo.app.BuildConfig
 import com.vueo.app.core.extensions.CatalogDiscoveryCache
 import com.vueo.app.core.extensions.SourceDiscoveryCache
 import com.vueo.app.core.extensions.UnifiedMediaEngine
+import com.vueo.app.core.enrichment.MdblistClient
+import com.vueo.app.core.enrichment.TmdbEnhancementClient
 import com.vueo.app.core.plugin.PluginStore
 import com.vueo.app.core.storage.LibraryStore
 import com.vueo.app.core.storage.PreferredQuality
@@ -280,6 +283,13 @@ internal fun TmdbEnhancementSettingsScreen(
     var saved by remember {
         mutableStateOf(false)
     }
+    val scope = rememberCoroutineScope()
+    var testing by remember {
+        mutableStateOf(false)
+    }
+    var connectionStatus by remember {
+        mutableStateOf<String?>(null)
+    }
     var metadata by remember {
         mutableStateOf(settingsStore.tmdbMetadataEnrichmentEnabled())
     }
@@ -301,11 +311,12 @@ internal fun TmdbEnhancementSettingsScreen(
         item {
             VueoStatusCard(
                 title = "Status",
-                value = if (apiKey.trim().isNotEmpty()) {
-                    "Configured"
-                } else {
-                    "Not configured"
-                },
+                value = connectionStatus
+                    ?: if (apiKey.trim().isNotEmpty()) {
+                        "Configured"
+                    } else {
+                        "Not configured"
+                    },
                 text = "The key is stored locally on this device. VUEO core does not depend on TMDB.",
             )
         }
@@ -332,19 +343,70 @@ internal fun TmdbEnhancementSettingsScreen(
                         onValueChange = {
                             apiKey = it
                             saved = false
+                            connectionStatus = null
                         },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         label = { Text("TMDB v3 API Key") },
                     )
 
-                    Button(
-                        onClick = {
-                            pluginStore.setTmdbApiKey(apiKey)
-                            saved = true
-                        },
+                    Row(
+                        horizontalArrangement =
+                            Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("Save")
+                        Button(
+                            onClick = {
+                                pluginStore
+                                    .setTmdbApiKey(
+                                        apiKey
+                                    )
+                                saved = true
+                                connectionStatus = null
+                            },
+                        ) {
+                            Text("Save")
+                        }
+
+                        OutlinedButton(
+                            enabled = !testing,
+                            onClick = {
+                                val key = apiKey.trim()
+
+                                if (key.isBlank()) {
+                                    connectionStatus =
+                                        "Enter API key"
+                                } else {
+                                    testing = true
+                                    connectionStatus =
+                                        "Testing..."
+
+                                    scope.launch {
+                                        val ok =
+                                            TmdbEnhancementClient
+                                                .testConnection(
+                                                    key
+                                                )
+
+                                        connectionStatus =
+                                            if (ok) {
+                                                "Connected"
+                                            } else {
+                                                "Connection failed"
+                                            }
+
+                                        testing = false
+                                    }
+                                }
+                            },
+                        ) {
+                            Text(
+                                if (testing) {
+                                    "Testing..."
+                                } else {
+                                    "Test Connection"
+                                }
+                            )
+                        }
                     }
 
                     if (saved) {
@@ -414,7 +476,7 @@ internal fun TmdbEnhancementSettingsScreen(
         item {
             VueoInfoCard(
                 title = "Discovery connection",
-                text = "The preferences are ready now. Recommendation, Similar, and More Like This enrichment will connect to this module in v0.9.2.",
+                text = "TMDB now enriches Details metadata and powers More Like This with Recommendations, Similar titles, and the VUEO catalog fallback.",
             )
         }
     }
@@ -430,6 +492,13 @@ internal fun MdblistEnhancementSettingsScreen(
     }
     var saved by remember {
         mutableStateOf(false)
+    }
+    val scope = rememberCoroutineScope()
+    var testing by remember {
+        mutableStateOf(false)
+    }
+    var connectionStatus by remember {
+        mutableStateOf<String?>(null)
     }
     var ratings by remember {
         mutableStateOf(settingsStore.mdblistRatingsEnabled())
@@ -458,11 +527,12 @@ internal fun MdblistEnhancementSettingsScreen(
         item {
             VueoStatusCard(
                 title = "Status",
-                value = if (apiKey.trim().isNotEmpty()) {
-                    "Configured"
-                } else {
-                    "Not configured"
-                },
+                value = connectionStatus
+                    ?: if (apiKey.trim().isNotEmpty()) {
+                        "Configured"
+                    } else {
+                        "Not configured"
+                    },
                 text = "MDBList is optional. Without it, VUEO simply shows the information available from core metadata sources.",
             )
         }
@@ -489,19 +559,70 @@ internal fun MdblistEnhancementSettingsScreen(
                         onValueChange = {
                             apiKey = it
                             saved = false
+                            connectionStatus = null
                         },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         label = { Text("MDBList API Key") },
                     )
 
-                    Button(
-                        onClick = {
-                            settingsStore.setMdblistApiKey(apiKey)
-                            saved = true
-                        },
+                    Row(
+                        horizontalArrangement =
+                            Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("Save")
+                        Button(
+                            onClick = {
+                                settingsStore
+                                    .setMdblistApiKey(
+                                        apiKey
+                                    )
+                                saved = true
+                                connectionStatus = null
+                            },
+                        ) {
+                            Text("Save")
+                        }
+
+                        OutlinedButton(
+                            enabled = !testing,
+                            onClick = {
+                                val key = apiKey.trim()
+
+                                if (key.isBlank()) {
+                                    connectionStatus =
+                                        "Enter API key"
+                                } else {
+                                    testing = true
+                                    connectionStatus =
+                                        "Testing..."
+
+                                    scope.launch {
+                                        val ok =
+                                            MdblistClient
+                                                .testConnection(
+                                                    key
+                                                )
+
+                                        connectionStatus =
+                                            if (ok) {
+                                                "Connected"
+                                            } else {
+                                                "Connection failed"
+                                            }
+
+                                        testing = false
+                                    }
+                                }
+                            },
+                        ) {
+                            Text(
+                                if (testing) {
+                                    "Testing..."
+                                } else {
+                                    "Test Connection"
+                                }
+                            )
+                        }
                     }
 
                     if (saved) {
@@ -595,7 +716,7 @@ internal fun MdblistEnhancementSettingsScreen(
         item {
             VueoInfoCard(
                 title = "Ratings connection",
-                text = "The configuration layer is ready now. MDBList fetching and Details UI enrichment will connect in v0.9.2.",
+                text = "MDBList ratings now appear on Details when configured. VUEO fetches one rating bundle and shows only the rating sources you enable.",
             )
         }
     }
@@ -1159,6 +1280,13 @@ internal fun AboutVueoSettingsScreen(
             VueoInfoCard(
                 title = "Privacy",
                 text = "Settings and API keys configured in this build are stored locally on the device. Optional enhancement services only run when configured and used by their feature layer.",
+            )
+        }
+
+        item {
+            VueoInfoCard(
+                title = "TMDB Attribution",
+                text = "This product uses the TMDB API but is not endorsed or certified by TMDB.",
             )
         }
     }

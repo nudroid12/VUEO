@@ -123,7 +123,7 @@ object SimpleHttp {
                 )
                 .header(
                     "User-Agent",
-                    "VUEO/0.9.0",
+                    "VUEO/0.9.2",
                 )
                 .build()
 
