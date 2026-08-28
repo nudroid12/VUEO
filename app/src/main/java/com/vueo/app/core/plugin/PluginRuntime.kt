@@ -12,7 +12,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
@@ -29,6 +31,12 @@ data class ProviderDiagnostic(
     val streamCount: Int,
     val error: String? = null,
     val logs: List<String> = emptyList(),
+)
+
+data class PluginDiscoveryProgress(
+    val result: PluginDiscoveryResult,
+    val completedProviders: Int,
+    val totalProviders: Int,
 )
 
 data class PluginDiscoveryResult(
@@ -61,31 +69,43 @@ class PluginSourceEngine(
             context.applicationContext
         )
 
-    suspend fun discover(
-        tmdbId: String,
-        mediaType: String,
-        season: Int?,
-        episode: Int?,
-    ): PluginDiscoveryResult =
-        coroutineScope {
 
-            if (!store.pluginsEnabled()) {
-                return@coroutineScope PluginDiscoveryResult(
-                        streams = emptyList(),
-                        attemptedProviders = 0,
-                        successfulProviders = 0,
-                        slowProviders = 0,
-                        noResultProviders = 0,
-                        needsSetupProviders = 0,
-                        unavailableProviders = 0,
-                        blockedProviders = 0,
-                        timeoutProviders = 0,
-                        failedProviders = 0,
-                        diagnostics = emptyList(),
-                    )
-            }
+suspend fun discover(
+    tmdbId: String,
+    mediaType: String,
+    season: Int?,
+    episode: Int?,
+): PluginDiscoveryResult =
+    discoverProgressive(
+        tmdbId = tmdbId,
+        mediaType = mediaType,
+        season = season,
+        episode = episode,
+        onProgress = {},
+    )
 
-            val targets = store.repositories()
+suspend fun discoverProgressive(
+    tmdbId: String,
+    mediaType: String,
+    season: Int?,
+    episode: Int?,
+    onProgress: suspend (PluginDiscoveryProgress) -> Unit,
+): PluginDiscoveryResult =
+    coroutineScope {
+
+        if (!store.pluginsEnabled()) {
+            return@coroutineScope emptyDiscoveryResult()
+        }
+
+        val knownHealth =
+            healthStore.records()
+                .associateBy {
+                    it.repositoryManifestUrl to
+                        it.providerId
+                }
+
+        val targets =
+            store.repositories()
                 .flatMap { repository ->
                     repository.providers
                         .filter { provider ->
@@ -108,11 +128,45 @@ class PluginSourceEngine(
                             repository to provider
                         }
                 }
+                .sortedWith(
+                    compareBy<
+                        Pair<
+                            PluginRepositoryDescriptor,
+                            PluginProviderDescriptor
+                        >
+                    > {
+                        val record =
+                            knownHealth[
+                                it.first.manifestUrl to
+                                    it.second.id
+                            ]
 
-            val runs = targets.map {
-                (repository, provider) ->
+                        providerPriority(
+                            record?.status
+                        )
+                    }.thenBy {
+                        knownHealth[
+                            it.first.manifestUrl to
+                                it.second.id
+                        ]?.responseMs
+                            ?: Long.MAX_VALUE
+                    }
+                )
 
-                async {
+        if (targets.isEmpty()) {
+            return@coroutineScope emptyDiscoveryResult()
+        }
+
+        val runs =
+            mutableListOf<ProviderRun>()
+
+        val mutex = Mutex()
+
+        targets.map {
+            (repository, provider) ->
+
+            async {
+                val run =
                     concurrency.withPermit {
                         runProvider(
                             repository =
@@ -129,118 +183,185 @@ class PluginSourceEngine(
                                 episode,
                         )
                     }
-                }
-            }.awaitAll()
 
-            runs.forEach { run ->
-                healthStore.save(
-                    ProviderHealthRecord(
-                        repositoryManifestUrl =
-                            run.diagnostic
-                                .repositoryManifestUrl,
-                        repositoryName =
-                            run.diagnostic
-                                .repositoryName,
-                        providerId =
-                            run.diagnostic
-                                .providerId,
-                        providerName =
-                            run.diagnostic
-                                .providerName,
-                        status =
-                            run.diagnostic
-                                .status,
-                        responseMs =
-                            run.diagnostic
-                                .responseMs,
-                        streamCount =
-                            run.diagnostic
-                                .streamCount,
-                        error =
-                            run.diagnostic
-                                .error,
-                        logs =
-                            run.diagnostic
-                                .logs
-                                .takeLast(
-                                    MAX_STORED_LOGS
+                saveHealth(run)
+
+                val snapshot =
+                    mutex.withLock {
+                        runs += run
+
+                        PluginDiscoveryProgress(
+                            result =
+                                buildDiscoveryResult(
+                                    runs
                                 ),
-                        lastCheckedEpochMs =
-                            System.currentTimeMillis(),
-                    )
-                )
+                            completedProviders =
+                                runs.size,
+                            totalProviders =
+                                targets.size,
+                        )
+                    }
+
+                onProgress(snapshot)
             }
+        }.awaitAll()
 
-            val diagnostics =
-                runs.map { it.diagnostic }
-
-            PluginDiscoveryResult(
-                streams =
-                    runs
-                        .flatMap {
-                            it.streams
-                        }
-                        .distinctBy {
-                            listOf(
-                                it.url,
-                                it.providerId,
-                                it.name,
-                            )
-                        },
-                attemptedProviders =
-                    runs.size,
-                successfulProviders =
-                    diagnostics.count {
-                        it.status ==
-                            ProviderHealthStatus
-                                .ONLINE
-                    },
-                slowProviders =
-                    diagnostics.count {
-                        it.status ==
-                            ProviderHealthStatus
-                                .SLOW
-                    },
-                noResultProviders =
-                    diagnostics.count {
-                        it.status ==
-                            ProviderHealthStatus
-                                .NO_RESULTS
-                    },
-                needsSetupProviders =
-                    diagnostics.count {
-                        it.status ==
-                            ProviderHealthStatus
-                                .NEEDS_SETUP
-                    },
-                unavailableProviders =
-                    diagnostics.count {
-                        it.status ==
-                            ProviderHealthStatus
-                                .UNAVAILABLE
-                    },
-                blockedProviders =
-                    diagnostics.count {
-                        it.status ==
-                            ProviderHealthStatus
-                                .BLOCKED
-                    },
-                timeoutProviders =
-                    diagnostics.count {
-                        it.status ==
-                            ProviderHealthStatus
-                                .TIMEOUT
-                    },
-                failedProviders =
-                    diagnostics.count {
-                        it.status ==
-                            ProviderHealthStatus
-                                .FAILED
-                    },
-                diagnostics =
-                    diagnostics,
+        mutex.withLock {
+            buildDiscoveryResult(
+                runs
             )
         }
+    }
+
+private fun saveHealth(
+    run: ProviderRun,
+) {
+    healthStore.save(
+        ProviderHealthRecord(
+            repositoryManifestUrl =
+                run.diagnostic
+                    .repositoryManifestUrl,
+            repositoryName =
+                run.diagnostic
+                    .repositoryName,
+            providerId =
+                run.diagnostic
+                    .providerId,
+            providerName =
+                run.diagnostic
+                    .providerName,
+            status =
+                run.diagnostic
+                    .status,
+            responseMs =
+                run.diagnostic
+                    .responseMs,
+            streamCount =
+                run.diagnostic
+                    .streamCount,
+            error =
+                run.diagnostic
+                    .error,
+            logs =
+                run.diagnostic
+                    .logs
+                    .takeLast(
+                        MAX_STORED_LOGS
+                    ),
+            lastCheckedEpochMs =
+                System.currentTimeMillis(),
+        )
+    )
+}
+
+private fun buildDiscoveryResult(
+    runs: List<ProviderRun>,
+): PluginDiscoveryResult {
+    val diagnostics =
+        runs.map {
+            it.diagnostic
+        }
+
+    return PluginDiscoveryResult(
+        streams =
+            runs
+                .flatMap {
+                    it.streams
+                }
+                .distinctBy {
+                    listOf(
+                        it.url,
+                        it.infoHash,
+                        it.fileIndex,
+                        it.providerId,
+                    )
+                },
+        attemptedProviders =
+            runs.size,
+        successfulProviders =
+            diagnostics.count {
+                it.status ==
+                    ProviderHealthStatus
+                        .ONLINE
+            },
+        slowProviders =
+            diagnostics.count {
+                it.status ==
+                    ProviderHealthStatus
+                        .SLOW
+            },
+        noResultProviders =
+            diagnostics.count {
+                it.status ==
+                    ProviderHealthStatus
+                        .NO_RESULTS
+            },
+        needsSetupProviders =
+            diagnostics.count {
+                it.status ==
+                    ProviderHealthStatus
+                        .NEEDS_SETUP
+            },
+        unavailableProviders =
+            diagnostics.count {
+                it.status ==
+                    ProviderHealthStatus
+                        .UNAVAILABLE
+            },
+        blockedProviders =
+            diagnostics.count {
+                it.status ==
+                    ProviderHealthStatus
+                        .BLOCKED
+            },
+        timeoutProviders =
+            diagnostics.count {
+                it.status ==
+                    ProviderHealthStatus
+                        .TIMEOUT
+            },
+        failedProviders =
+            diagnostics.count {
+                it.status ==
+                    ProviderHealthStatus
+                        .FAILED
+            },
+        diagnostics =
+            diagnostics,
+    )
+}
+
+private fun emptyDiscoveryResult():
+    PluginDiscoveryResult =
+    PluginDiscoveryResult(
+        streams = emptyList(),
+        attemptedProviders = 0,
+        successfulProviders = 0,
+        slowProviders = 0,
+        noResultProviders = 0,
+        needsSetupProviders = 0,
+        unavailableProviders = 0,
+        blockedProviders = 0,
+        timeoutProviders = 0,
+        failedProviders = 0,
+        diagnostics = emptyList(),
+    )
+
+private fun providerPriority(
+    status: ProviderHealthStatus?,
+): Int =
+    when (status) {
+        ProviderHealthStatus.ONLINE -> 0
+        ProviderHealthStatus.SLOW -> 1
+        ProviderHealthStatus.UNKNOWN,
+        null -> 2
+        ProviderHealthStatus.NO_RESULTS -> 3
+        ProviderHealthStatus.TIMEOUT,
+        ProviderHealthStatus.BLOCKED,
+        ProviderHealthStatus.FAILED -> 4
+        ProviderHealthStatus.NEEDS_SETUP,
+        ProviderHealthStatus.UNAVAILABLE -> 5
+    }
 
     private suspend fun runProvider(
         repository: PluginRepositoryDescriptor,
@@ -341,9 +462,27 @@ class PluginSourceEngine(
                         .NO_RESULTS
             }
 
+        val rankBoost =
+            when (status) {
+                ProviderHealthStatus.ONLINE ->
+                    if (elapsedMs < 1_000L) 30 else 22
+
+                ProviderHealthStatus.SLOW ->
+                    8
+
+                else ->
+                    0
+            }
+
         return ProviderRun(
             streams =
-                execution.streams,
+                execution.streams.map {
+                    it.copy(
+                        rankBoost =
+                            it.rankBoost +
+                                rankBoost
+                    )
+                },
             diagnostic =
                 ProviderDiagnostic(
                     repositoryManifestUrl =

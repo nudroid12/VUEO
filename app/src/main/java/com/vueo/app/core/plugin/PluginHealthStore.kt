@@ -59,6 +59,7 @@ class PluginHealthStore(context: Context) {
                 it.providerId == providerId
         }
 
+    @Synchronized
     fun save(record: ProviderHealthRecord) {
         val next = records()
             .filterNot {

@@ -1,4 +1,4 @@
-# VUEO v0.3.6
+# VUEO v0.4.0
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -327,3 +327,43 @@ Provider status now distinguishes:
 - raw result count and removed exact-duplicate count are shown
 
 After this milestone unresolved individual provider compatibility issues are intentionally deferred. Development moves to the main VUEO application roadmap.
+
+
+## v0.4.0 Fast Source Engine
+
+The plugin-runtime phase is closed. v0.4 begins application experience and performance work.
+
+### Progressive source discovery
+
+- Source Picker opens immediately after `Find Sources`
+- Stremio addons report results progressively
+- JavaScript providers report results progressively
+- `Play Best` updates as better sources arrive
+- provider discovery no longer waits for every provider before showing results
+- source discovery can be cancelled by leaving the Source Picker
+
+### Health-first provider scheduling
+
+Providers with recent `Online` health run first, followed by `Slow`, `Unknown`, `No Results`, and finally unhealthy providers. This improves time-to-first-useful-source without disabling any provider.
+
+### Smart ranking
+
+A source returned by a fast healthy provider receives a small runtime ranking boost. Resolution, HDR, codec and direct-playability still remain major ranking factors.
+
+### Short-lived source cache
+
+Recent source results are cached in memory for two minutes. Reopening the same movie or episode can show the previous sources immediately while VUEO refreshes providers in the background.
+
+### Live Source Picker
+
+The Source Picker now shows:
+
+- live search state
+- addon progress
+- plugin progress
+- current unique-source count
+- time to first source
+- cached result refresh state
+- final source count
+
+This milestone focuses on VUEO feeling fast and responsive instead of only reducing raw execution time.

@@ -85,6 +85,7 @@ import com.vueo.app.core.extensions.MediaExtension
 import com.vueo.app.core.extensions.UnifiedMediaEngine
 import com.vueo.app.core.extensions.SourceRanker
 import com.vueo.app.core.extensions.SourceCleaner
+import com.vueo.app.core.extensions.SourceDiscoveryCache
 import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.core.storage.PlaybackStore
 import com.vueo.app.core.model.SubtitleTrack
@@ -103,6 +104,8 @@ import com.vueo.app.core.model.MediaItem
 import com.vueo.app.core.model.StreamSource
 import com.vueo.app.core.storage.AddonStore
 import com.vueo.app.ui.components.NetworkImage
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
 private enum class AppTab {
@@ -2054,6 +2057,18 @@ private fun MediaDetailsScreen(
     var sourcePickerRawCount by remember {
         mutableIntStateOf(0)
     }
+    var sourcePickerSearching by remember {
+        mutableStateOf(false)
+    }
+    var sourcePickerProgress by remember {
+        mutableStateOf("Ready")
+    }
+    var sourcePickerFirstResultMs by remember {
+        mutableStateOf<Long?>(null)
+    }
+    var sourceDiscoveryJob by remember {
+        mutableStateOf<Job?>(null)
+    }
     var selectedPlaybackSource by remember {
         mutableStateOf<StreamSource?>(null)
     }
@@ -2109,8 +2124,21 @@ private fun MediaDetailsScreen(
             streams = streams,
             rawCount = sourcePickerRawCount,
             notice = sourcePickerNotice,
-            onBack = { sourcePickerStreams = null },
+            searching = sourcePickerSearching,
+            progressText = sourcePickerProgress,
+            firstResultMs = sourcePickerFirstResultMs,
+            onBack = {
+                sourceDiscoveryJob?.cancel()
+                sourceDiscoveryJob = null
+                sourcePickerSearching = false
+                loadingStreams = false
+                sourcePickerStreams = null
+            },
             onPlay = { source ->
+                sourceDiscoveryJob?.cancel()
+                sourceDiscoveryJob = null
+                sourcePickerSearching = false
+
                 val videoId = selectedVideoId(item, selectedEpisode)
 
                 if (videoId != null && source.isDirectPlayable) {
@@ -2241,130 +2269,346 @@ private fun MediaDetailsScreen(
                     enabled = !loadingStreams &&
                         videoId != null &&
                         (!seriesNeedsEpisode || selectedEpisode != null),
-                    onClick = {
-                        val targetVideoId = videoId ?: return@Button
+onClick = {
+    val targetVideoId =
+        videoId
+            ?: return@Button
 
-                        scope.launch {
-                            loadingStreams = true
-                            sourceStatus = null
+    sourceDiscoveryJob
+        ?.cancel()
 
-                            val addonStreams =
-                                runCatching {
-                                    engine.resolveStreams(
-                                        type = item.type,
-                                        videoId = targetVideoId,
-                                    )
-                                }.getOrElse {
-                                    sourceStatus =
-                                        it.message
-                                        ?: "Unable to discover addon streams."
-                                    emptyList()
-                                }
+    val cacheKey =
+        SourceDiscoveryCache.key(
+            mediaType =
+                item.type,
+            mediaId =
+                item.id,
+            videoId =
+                targetVideoId,
+        )
 
-                            val subtitles =
-                                runCatching {
-                                    engine.resolveSubtitles(
-                                        type = item.type,
-                                        videoId = targetVideoId,
-                                    )
-                                }.getOrDefault(
-                                    emptyList()
+    val cached =
+        SourceDiscoveryCache
+            .get(cacheKey)
+
+    sourcePickerStreams =
+        cached?.streams
+            ?: emptyList()
+
+    sourcePickerRawCount =
+        cached?.rawCount
+            ?: 0
+
+    sourcePickerNotice =
+        cached?.notice
+
+    sourcePickerSearching =
+        true
+
+    sourcePickerFirstResultMs =
+        null
+
+    sourcePickerProgress =
+        if (cached != null) {
+            "Recent sources loaded instantly • refreshing in background"
+        } else {
+            "Starting source discovery…"
+        }
+
+    loadingStreams = true
+    sourceStatus = null
+
+    sourceDiscoveryJob =
+        scope.launch {
+            val startedAt =
+                System.nanoTime()
+
+            val cachedStreams =
+                cached?.streams
+                    .orEmpty()
+
+            var freshAddonStreams =
+                emptyList<StreamSource>()
+
+            var freshPluginStreams =
+                emptyList<StreamSource>()
+
+            var addonRawCount = 0
+            var pluginRawCount = 0
+
+            var addonCompleted = 0
+            var addonTotal = 0
+
+            var pluginCompleted = 0
+            var pluginTotal = 0
+
+            fun elapsedMs(): Long =
+                (
+                    System.nanoTime() -
+                        startedAt
+                ) / 1_000_000L
+
+            fun publish(
+                progress: String,
+            ) {
+                val fresh =
+                    SourceCleaner.clean(
+                        freshAddonStreams +
+                            freshPluginStreams
+                    )
+
+                val display =
+                    if (
+                        sourcePickerSearching
+                    ) {
+                        SourceCleaner.clean(
+                            cachedStreams +
+                                fresh
+                        )
+                    } else {
+                        fresh
+                    }
+
+                if (
+                    sourcePickerFirstResultMs ==
+                    null &&
+                    display.isNotEmpty() &&
+                    cachedStreams.isEmpty()
+                ) {
+                    sourcePickerFirstResultMs =
+                        elapsedMs()
+                }
+
+                sourcePickerStreams =
+                    display
+
+                sourcePickerRawCount =
+                    maxOf(
+                        cached?.rawCount
+                            ?: 0,
+                        addonRawCount +
+                            pluginRawCount,
+                    )
+
+                sourcePickerProgress =
+                    progress
+            }
+
+            val subtitlesDeferred =
+                async {
+                    runCatching {
+                        engine.resolveSubtitles(
+                            type =
+                                item.type,
+                            videoId =
+                                targetVideoId,
+                        )
+                    }.getOrDefault(
+                        emptyList()
+                    )
+                }
+
+            val addonDeferred =
+                async {
+                    runCatching {
+                        engine
+                            .resolveStreamsProgressive(
+                                type =
+                                    item.type,
+                                videoId =
+                                    targetVideoId,
+                            ) { progress ->
+                                freshAddonStreams =
+                                    progress.streams
+
+                                addonRawCount =
+                                    progress.rawCount
+
+                                addonCompleted =
+                                    progress.completedAddons
+
+                                addonTotal =
+                                    progress.totalAddons
+
+                                publish(
+                                    "Searching • Addons " +
+                                        "$addonCompleted/$addonTotal • " +
+                                        "Plugins $pluginCompleted/$pluginTotal"
                                 )
-
-                            var pluginStreams =
-                                emptyList<StreamSource>()
-
-                            sourcePickerNotice = null
-
-                            if (
-                                pluginStore.pluginsEnabled() &&
-                                pluginStore.repositories()
-                                    .isNotEmpty()
-                            ) {
-                                val tmdbId =
-                                    runCatching {
-                                        TmdbResolver.resolve(
-                                            media = item,
-                                            apiKey =
-                                                pluginStore.tmdbApiKey(),
-                                        )
-                                    }.getOrNull()
-
-                                if (tmdbId == null) {
-                                    sourcePickerNotice =
-                                        "Plugin providers skipped: VUEO could not resolve a TMDB ID. Add your TMDB API key in Content Manager > Plugins."
-                                } else {
-                                    val mediaType =
-                                        if (
-                                            item.type == "series"
-                                        ) {
-                                            "tv"
-                                        } else {
-                                            "movie"
-                                        }
-
-                                    val pluginResult =
-                                        runCatching {
-                                            pluginEngine.discover(
-                                                tmdbId = tmdbId,
-                                                mediaType =
-                                                    mediaType,
-                                                season =
-                                                    selectedEpisode
-                                                        ?.season,
-                                                episode =
-                                                    selectedEpisode
-                                                        ?.episode,
-                                            )
-                                        }.getOrNull()
-
-                                    if (
-                                        pluginResult != null
-                                    ) {
-                                        pluginStreams =
-                                            pluginResult.streams
-
-                                        sourcePickerNotice =
-                                            "Plugins: ${pluginResult.attemptedProviders} checked • " +
-                                                "${pluginResult.successfulProviders} online • " +
-                                                "${pluginResult.slowProviders} slow • " +
-                                                "${pluginResult.noResultProviders} no results • " +
-                                                "${pluginResult.needsSetupProviders} setup • " +
-                                                "${pluginResult.unavailableProviders} unavailable • " +
-                                                "${pluginResult.blockedProviders} blocked • " +
-                                                "${pluginResult.timeoutProviders} timeout • " +
-                                                "${pluginResult.failedProviders} failed. " +
-                                                "Open Content Manager > Plugins for diagnostics."
-                                    }
-                                }
                             }
+                    }.getOrElse {
+                        emptyList()
+                    }
+                }
 
-                            val rawStreams =
-                                addonStreams +
-                                    pluginStreams
+            val pluginDeferred =
+                async {
+                    if (
+                        !pluginStore
+                            .pluginsEnabled() ||
+                        pluginStore
+                            .repositories()
+                            .isEmpty()
+                    ) {
+                        return@async null
+                    }
 
-                            sourcePickerRawCount =
-                                rawStreams.size
+                    val tmdbId =
+                        runCatching {
+                            TmdbResolver.resolve(
+                                media =
+                                    item,
+                                apiKey =
+                                    pluginStore
+                                        .tmdbApiKey(),
+                            )
+                        }.getOrNull()
 
-                            val streams =
-                                SourceCleaner.clean(
-                                    rawStreams
-                                )
+                    if (tmdbId == null) {
+                        sourcePickerNotice =
+                            "Plugin providers skipped: VUEO could not resolve a TMDB ID. Add your TMDB API key in Content Manager > Plugins."
 
-                            if (streams.isEmpty()) {
-                                sourceStatus =
-                                    sourcePickerNotice
-                                    ?: "No sources were returned by installed addons or plugins."
-                            } else {
-                                sourcePickerSubtitles =
-                                    subtitles
-                                sourcePickerStreams =
-                                    streams
-                            }
+                        return@async null
+                    }
 
-                            loadingStreams = false
+                    val mediaType =
+                        if (
+                            item.type ==
+                            "series"
+                        ) {
+                            "tv"
+                        } else {
+                            "movie"
                         }
-                    },
+
+                    runCatching {
+                        pluginEngine
+                            .discoverProgressive(
+                                tmdbId =
+                                    tmdbId,
+                                mediaType =
+                                    mediaType,
+                                season =
+                                    selectedEpisode
+                                        ?.season,
+                                episode =
+                                    selectedEpisode
+                                        ?.episode,
+                            ) { progress ->
+                                freshPluginStreams =
+                                    progress
+                                        .result
+                                        .streams
+
+                                pluginRawCount =
+                                    freshPluginStreams
+                                        .size
+
+                                pluginCompleted =
+                                    progress
+                                        .completedProviders
+
+                                pluginTotal =
+                                    progress
+                                        .totalProviders
+
+                                publish(
+                                    "Searching • Addons " +
+                                        "$addonCompleted/$addonTotal • " +
+                                        "Plugins $pluginCompleted/$pluginTotal • " +
+                                        "${SourceCleaner.clean(freshAddonStreams + freshPluginStreams).size} fresh sources"
+                                )
+                            }
+                    }.getOrNull()
+                }
+
+            val finalAddonStreams =
+                addonDeferred.await()
+
+            val pluginResult =
+                pluginDeferred.await()
+
+            sourcePickerSubtitles =
+                subtitlesDeferred.await()
+
+            freshAddonStreams =
+                finalAddonStreams
+
+            if (pluginResult != null) {
+                freshPluginStreams =
+                    pluginResult.streams
+
+                pluginRawCount =
+                    pluginResult.streams.size
+
+                sourcePickerNotice =
+                    "Plugins: ${pluginResult.attemptedProviders} checked • " +
+                        "${pluginResult.successfulProviders} online • " +
+                        "${pluginResult.slowProviders} slow • " +
+                        "${pluginResult.noResultProviders} no results • " +
+                        "${pluginResult.needsSetupProviders} setup • " +
+                        "${pluginResult.unavailableProviders} unavailable • " +
+                        "${pluginResult.blockedProviders} blocked • " +
+                        "${pluginResult.timeoutProviders} timeout • " +
+                        "${pluginResult.failedProviders} failed."
+            }
+
+            val freshFinal =
+                SourceCleaner.clean(
+                    freshAddonStreams +
+                        freshPluginStreams
+                )
+
+            val finalStreams =
+                if (
+                    freshFinal.isNotEmpty()
+                ) {
+                    freshFinal
+                } else {
+                    cachedStreams
+                }
+
+            sourcePickerStreams =
+                finalStreams
+
+            sourcePickerRawCount =
+                maxOf(
+                    cached?.rawCount
+                        ?: 0,
+                    addonRawCount +
+                        pluginRawCount,
+                )
+
+            sourcePickerSearching =
+                false
+
+            loadingStreams = false
+
+            sourcePickerProgress =
+                if (
+                    finalStreams.isEmpty()
+                ) {
+                    "Search complete • no sources found"
+                } else {
+                    "Search complete • ${finalStreams.size} unique sources"
+                }
+
+            if (
+                finalStreams.isNotEmpty()
+            ) {
+                SourceDiscoveryCache.put(
+                    key =
+                        cacheKey,
+                    streams =
+                        finalStreams,
+                    rawCount =
+                        sourcePickerRawCount,
+                    notice =
+                        sourcePickerNotice,
+                )
+            }
+        }
+},
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
@@ -2522,6 +2766,9 @@ private fun SourcePickerScreen(
     streams: List<StreamSource>,
     rawCount: Int,
     notice: String?,
+    searching: Boolean,
+    progressText: String,
+    firstResultMs: Long?,
     onBack: () -> Unit,
     onPlay: (StreamSource) -> Unit,
 ) {
@@ -2560,6 +2807,86 @@ private fun SourcePickerScreen(
                 subtitle = mediaTitle,
                 onBack = onBack,
             )
+        }
+
+        item {
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement =
+                        Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            if (searching) {
+                                "SMART SOURCE ENGINE"
+                            } else {
+                                "SOURCE ENGINE"
+                            },
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .primary,
+                            fontWeight =
+                                FontWeight.Black,
+                            fontSize = 11.sp,
+                            modifier =
+                                Modifier.weight(1f),
+                        )
+
+                        Text(
+                            if (searching) {
+                                "LIVE"
+                            } else {
+                                "READY"
+                            },
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .primary,
+                            fontSize = 10.sp,
+                            fontWeight =
+                                FontWeight.Bold,
+                        )
+                    }
+
+                    if (searching) {
+                        LinearProgressIndicator(
+                            modifier =
+                                Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    Text(
+                        progressText,
+                        color =
+                            MaterialTheme
+                                .colorScheme
+                                .onSurface
+                                .copy(alpha = .68f),
+                        fontSize = 12.sp,
+                    )
+
+                    firstResultMs?.let {
+                        Text(
+                            "First source in ${it} ms",
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurface
+                                    .copy(alpha = .5f),
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+            }
         }
 
         if (!notice.isNullOrBlank()) {
@@ -2635,7 +2962,7 @@ private fun SourcePickerScreen(
                     }
                 }
             }
-        } else {
+        } else if (!searching) {
             item {
                 ElevatedCard(
                     modifier = Modifier
@@ -2643,11 +2970,33 @@ private fun SourcePickerScreen(
                         .padding(horizontal = 20.dp),
                 ) {
                     Text(
-                        "Sources were found, but none are direct HTTPS/HLS/DASH streams that the current VUEO player can play. Torrent/debrid playback is a later layer.",
+                        if (streams.isEmpty()) {
+                            "No sources were returned for this title."
+                        } else {
+                            "Sources were found, but none are direct HTTPS/HLS/DASH streams that the current VUEO player can play. Torrent/debrid playback is a later layer."
+                        },
                         modifier = Modifier.padding(18.dp),
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = .7f),
                     )
                 }
+            }
+        }
+
+        if (streams.isEmpty() && searching) {
+            item {
+                Text(
+                    "Sources will appear here as soon as a provider responds.",
+                    modifier =
+                        Modifier.padding(
+                            horizontal = 20.dp
+                        ),
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurface
+                            .copy(alpha = .5f),
+                    fontSize = 12.sp,
+                )
             }
         }
 

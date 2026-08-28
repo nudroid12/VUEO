@@ -272,3 +272,39 @@ Play Best
 ```
 
 v0.3.6 marks the end of continuous provider-runtime work for the current development phase. Remaining individual provider issues can be revisited after the main application is feature-complete.
+
+
+## v0.4.0 progressive source architecture
+
+```text
+User taps Find Sources
+          |
+          v
+Source Picker opens immediately
+          |
+          +---- recent 2-minute cache --------> instant sources
+          |
+          +---- Stremio addons
+          |         |
+          |         +--> partial results
+          |
+          +---- Plugin engine
+                    |
+                    +--> healthy providers first
+                    |
+                    +--> provider completes
+                    |
+                    +--> partial results
+                              |
+                              v
+                     SourceCleaner + Ranker
+                              |
+                              v
+                    UI updates progressively
+                              |
+                         Play Best ready
+                              |
+                    remaining providers continue
+```
+
+Leaving the Source Picker cancels the active discovery job.

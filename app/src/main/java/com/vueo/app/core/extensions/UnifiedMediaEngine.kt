@@ -7,6 +7,8 @@ import com.vueo.app.core.model.SubtitleTrack
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.CopyOnWriteArrayList
 
 class UnifiedMediaEngine {
@@ -63,19 +65,77 @@ class UnifiedMediaEngine {
             }
             ?: item
 
-    suspend fun resolveStreams(type: String, videoId: String): List<StreamSource> = coroutineScope {
-        extensions
-            .filter { "stream" in it.descriptor.resources }
-            .map { extension ->
-                async {
-                    runCatching { extension.streams(type, videoId) }
-                        .getOrDefault(emptyList())
-                }
+    suspend fun resolveStreams(
+        type: String,
+        videoId: String,
+    ): List<StreamSource> =
+        resolveStreamsProgressive(
+            type = type,
+            videoId = videoId,
+            onProgress = {},
+        )
+
+    suspend fun resolveStreamsProgressive(
+        type: String,
+        videoId: String,
+        onProgress: suspend (AddonStreamProgress) -> Unit,
+    ): List<StreamSource> = coroutineScope {
+        val providers =
+            extensions.filter {
+                "stream" in
+                    it.descriptor.resources
             }
-            .awaitAll()
-            .flatten()
-            .distinctBy { listOf(it.url, it.infoHash, it.fileIndex, it.providerId) }
-            .sortedWith(SourceRanker.comparator)
+
+        if (providers.isEmpty()) {
+            return@coroutineScope emptyList()
+        }
+
+        val mutex = Mutex()
+        val rawStreams =
+            mutableListOf<StreamSource>()
+
+        var completed = 0
+
+        providers.map { extension ->
+            async {
+                val result =
+                    runCatching {
+                        extension.streams(
+                            type,
+                            videoId,
+                        )
+                    }.getOrDefault(
+                        emptyList()
+                    )
+
+                val progress =
+                    mutex.withLock {
+                        rawStreams += result
+                        completed++
+
+                        AddonStreamProgress(
+                            streams =
+                                SourceCleaner.clean(
+                                    rawStreams
+                                ),
+                            rawCount =
+                                rawStreams.size,
+                            completedAddons =
+                                completed,
+                            totalAddons =
+                                providers.size,
+                        )
+                    }
+
+                onProgress(progress)
+            }
+        }.awaitAll()
+
+        mutex.withLock {
+            SourceCleaner.clean(
+                rawStreams
+            )
+        }
     }
 
     suspend fun resolveSubtitles(
@@ -97,13 +157,21 @@ class UnifiedMediaEngine {
     }
 }
 
+data class AddonStreamProgress(
+    val streams: List<StreamSource>,
+    val rawCount: Int,
+    val completedAddons: Int,
+    val totalAddons: Int,
+)
+
 object SourceRanker {
     private fun score(source: StreamSource): Int {
         val q = source.quality.orEmpty().lowercase()
         val hdr = source.hdr.orEmpty().lowercase()
         val codec = source.codec.orEmpty().lowercase()
 
-        return (if (source.isDirectPlayable) 100 else 0) + when {
+        return source.rankBoost +
+            (if (source.isDirectPlayable) 100 else 0) + when {
             "2160" in q || "4k" in q -> 40
             "1080" in q -> 30
             "720" in q -> 20
