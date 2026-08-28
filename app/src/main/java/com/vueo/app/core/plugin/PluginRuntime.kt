@@ -45,8 +45,7 @@ class PluginSourceEngine(
         coroutineScope {
 
             if (!store.pluginsEnabled()) {
-                return@coroutineScope
-                    PluginDiscoveryResult(
+                return@coroutineScope PluginDiscoveryResult(
                         streams = emptyList(),
                         attemptedProviders = 0,
                         successfulProviders = 0,
