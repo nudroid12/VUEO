@@ -239,3 +239,36 @@ Provider JS
 ```
 
 The compatibility layer is deliberately based on the provider APIs documented by Nuvio rather than exposing Node.js wholesale.
+
+
+## v0.3.6 plugin phase exit
+
+```text
+Provider execution
+      |
+      +-- Online
+      +-- Slow
+      +-- No Results
+      +-- Needs Setup
+      +-- Unavailable
+      +-- Blocked
+      +-- Timeout
+      +-- Failed
+      |
+      v
+Plugin sources + Stremio sources
+      |
+      v
+Exact duplicate removal
+      |
+      v
+Smart ranking
+      |
+      v
+4K / 1080p / 720p / Other groups
+      |
+      v
+Play Best
+```
+
+v0.3.6 marks the end of continuous provider-runtime work for the current development phase. Remaining individual provider issues can be revisited after the main application is feature-complete.

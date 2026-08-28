@@ -10,6 +10,10 @@ enum class ProviderHealthStatus(
     ONLINE("Online"),
     SLOW("Slow"),
     NO_RESULTS("No Results"),
+    NEEDS_SETUP("Needs Setup"),
+    UNAVAILABLE("Unavailable"),
+    BLOCKED("Blocked"),
+    TIMEOUT("Timeout"),
     FAILED("Failed"),
     UNKNOWN("Unknown"),
 }
@@ -86,6 +90,10 @@ class PluginHealthStore(context: Context) {
         var online = 0
         var slow = 0
         var noResults = 0
+        var needsSetup = 0
+        var unavailable = 0
+        var blocked = 0
+        var timeout = 0
         var failed = 0
         var unknown = 0
         var disabled = 0
@@ -104,6 +112,10 @@ class PluginHealthStore(context: Context) {
                     ProviderHealthStatus.ONLINE -> online++
                     ProviderHealthStatus.SLOW -> slow++
                     ProviderHealthStatus.NO_RESULTS -> noResults++
+                    ProviderHealthStatus.NEEDS_SETUP -> needsSetup++
+                    ProviderHealthStatus.UNAVAILABLE -> unavailable++
+                    ProviderHealthStatus.BLOCKED -> blocked++
+                    ProviderHealthStatus.TIMEOUT -> timeout++
                     ProviderHealthStatus.FAILED -> failed++
                     ProviderHealthStatus.UNKNOWN -> unknown++
                 }
@@ -114,6 +126,10 @@ class PluginHealthStore(context: Context) {
             online = online,
             slow = slow,
             noResults = noResults,
+            needsSetup = needsSetup,
+            unavailable = unavailable,
+            blocked = blocked,
+            timeout = timeout,
             failed = failed,
             unknown = unknown,
             disabled = disabled,
@@ -136,6 +152,10 @@ data class ProviderHealthSummary(
     val online: Int,
     val slow: Int,
     val noResults: Int,
+    val needsSetup: Int,
+    val unavailable: Int,
+    val blocked: Int,
+    val timeout: Int,
     val failed: Int,
     val unknown: Int,
     val disabled: Int,

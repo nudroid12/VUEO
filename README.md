@@ -1,4 +1,4 @@
-# VUEO v0.3.5
+# VUEO v0.3.6
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -294,3 +294,36 @@ This directly targets current providers such as Castle, MovieBox and ShowBox.
 - fetch `redirect: "manual"` support
 
 Provider Health remains the source of truth. A provider that executes successfully but returns nothing remains `No Results`, not `Failed`.
+
+
+## v0.3.6 Final plugin cleanup for this phase
+
+This is the final plugin-focused milestone before VUEO moves on to completing the rest of the application.
+
+### Runtime precision
+
+- compatibility modules use private internal identifiers, avoiding collisions with providers that declare `const cheerio` or `const CryptoJS`
+- binary-safe `btoa` / `atob`
+- Nuvio-compatible `__crypto_aes_decrypt_raw` helper for Castle
+- richer provider failure classification
+
+Provider status now distinguishes:
+
+- Online
+- Slow
+- No Results
+- Needs Setup
+- Unavailable
+- Blocked
+- Timeout
+- Failed
+- Unknown
+
+### Source cleanup
+
+- exact duplicate stream URLs are removed after addon + plugin merge
+- torrent duplicates use infoHash + fileIndex
+- Source Picker groups unique results into 4K, 1080p, 720p and Other
+- raw result count and removed exact-duplicate count are shown
+
+After this milestone unresolved individual provider compatibility issues are intentionally deferred. Development moves to the main VUEO application roadmap.

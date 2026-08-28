@@ -84,6 +84,7 @@ import com.vueo.app.core.extensions.ExtensionKind
 import com.vueo.app.core.extensions.MediaExtension
 import com.vueo.app.core.extensions.UnifiedMediaEngine
 import com.vueo.app.core.extensions.SourceRanker
+import com.vueo.app.core.extensions.SourceCleaner
 import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.core.storage.PlaybackStore
 import com.vueo.app.core.model.SubtitleTrack
@@ -1259,11 +1260,29 @@ private fun PluginsScreen(
 
                         Text(
                             "${summary.online} online • ${summary.slow} slow • " +
-                                "${summary.noResults} no results • ${summary.failed} failed",
+                                "${summary.noResults} no results",
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
                         )
+
+                        if (
+                            summary.needsSetup > 0 ||
+                            summary.unavailable > 0 ||
+                            summary.blocked > 0 ||
+                            summary.timeout > 0 ||
+                            summary.failed > 0
+                        ) {
+                            Text(
+                                "${summary.needsSetup} setup • " +
+                                    "${summary.unavailable} unavailable • " +
+                                    "${summary.blocked} blocked • " +
+                                    "${summary.timeout} timeout • " +
+                                    "${summary.failed} failed",
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f),
+                                fontSize = 11.sp,
+                            )
+                        }
 
                         if (summary.unknown > 0 || summary.disabled > 0) {
                             Text(
@@ -1931,7 +1950,16 @@ private fun ProviderHealthRow(
                     effectiveStatus,
                     color = when {
                         !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = .45f)
-                        health?.status == ProviderHealthStatus.FAILED -> MaterialTheme.colorScheme.error
+                        health?.status in setOf(
+                            ProviderHealthStatus.FAILED,
+                            ProviderHealthStatus.BLOCKED,
+                            ProviderHealthStatus.TIMEOUT,
+                            ProviderHealthStatus.UNAVAILABLE,
+                        ) -> MaterialTheme.colorScheme.error
+
+                        health?.status == ProviderHealthStatus.NEEDS_SETUP ->
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = .7f)
+
                         else -> MaterialTheme.colorScheme.primary
                     },
                     fontSize = 11.sp,
@@ -1955,7 +1983,16 @@ private fun ProviderHealthRow(
             )
         }
 
-        if (enabled && health?.status == ProviderHealthStatus.FAILED) {
+        if (
+            enabled &&
+            health?.status in setOf(
+                ProviderHealthStatus.FAILED,
+                ProviderHealthStatus.NEEDS_SETUP,
+                ProviderHealthStatus.UNAVAILABLE,
+                ProviderHealthStatus.BLOCKED,
+                ProviderHealthStatus.TIMEOUT,
+            )
+        ) {
             health.error?.let { error ->
                 Text(
                     error,
@@ -2014,6 +2051,9 @@ private fun MediaDetailsScreen(
     var sourcePickerNotice by remember {
         mutableStateOf<String?>(null)
     }
+    var sourcePickerRawCount by remember {
+        mutableIntStateOf(0)
+    }
     var selectedPlaybackSource by remember {
         mutableStateOf<StreamSource?>(null)
     }
@@ -2067,6 +2107,7 @@ private fun MediaDetailsScreen(
                 episode = selectedEpisode,
             ),
             streams = streams,
+            rawCount = sourcePickerRawCount,
             notice = sourcePickerNotice,
             onBack = { sourcePickerStreams = null },
             onPlay = { source ->
@@ -2288,29 +2329,27 @@ private fun MediaDetailsScreen(
                                                 "${pluginResult.successfulProviders} online • " +
                                                 "${pluginResult.slowProviders} slow • " +
                                                 "${pluginResult.noResultProviders} no results • " +
+                                                "${pluginResult.needsSetupProviders} setup • " +
+                                                "${pluginResult.unavailableProviders} unavailable • " +
+                                                "${pluginResult.blockedProviders} blocked • " +
+                                                "${pluginResult.timeoutProviders} timeout • " +
                                                 "${pluginResult.failedProviders} failed. " +
                                                 "Open Content Manager > Plugins for diagnostics."
                                     }
                                 }
                             }
 
-                            val streams =
-                                (
-                                    addonStreams +
+                            val rawStreams =
+                                addonStreams +
                                     pluginStreams
+
+                            sourcePickerRawCount =
+                                rawStreams.size
+
+                            val streams =
+                                SourceCleaner.clean(
+                                    rawStreams
                                 )
-                                    .distinctBy {
-                                        listOf(
-                                            it.url,
-                                            it.infoHash,
-                                            it.providerId,
-                                            it.name,
-                                        )
-                                    }
-                                    .sortedWith(
-                                        SourceRanker
-                                            .comparator
-                                    )
 
                             if (streams.isEmpty()) {
                                 sourceStatus =
@@ -2481,12 +2520,34 @@ private fun EpisodeSelector(
 private fun SourcePickerScreen(
     mediaTitle: String,
     streams: List<StreamSource>,
+    rawCount: Int,
     notice: String?,
     onBack: () -> Unit,
     onPlay: (StreamSource) -> Unit,
 ) {
     val playable = streams.filter { it.isDirectPlayable }
     val best = playable.firstOrNull()
+
+    val qualityGroups =
+        listOf(
+            "4K",
+            "1080p",
+            "720p",
+            "Other",
+        ).mapNotNull { bucket ->
+            val matches =
+                streams.filter {
+                    SourceCleaner
+                        .qualityBucket(it) ==
+                        bucket
+                }
+
+            if (matches.isEmpty()) {
+                null
+            } else {
+                bucket to matches
+            }
+        }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -2591,34 +2652,88 @@ private fun SourcePickerScreen(
         }
 
         item {
-            Text(
-                "All Sources (${streams.size})",
-                modifier = Modifier.padding(horizontal = 20.dp),
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Black,
-            )
+            Column(
+                modifier =
+                    Modifier.padding(
+                        horizontal = 20.dp
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    "Unique Sources (${streams.size})",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Black,
+                )
+
+                if (
+                    rawCount > streams.size
+                ) {
+                    Text(
+                        "$rawCount raw results analysed • " +
+                            "${rawCount - streams.size} exact duplicates removed",
+                        color =
+                            MaterialTheme
+                                .colorScheme
+                                .onSurface
+                                .copy(alpha = .5f),
+                        fontSize = 11.sp,
+                    )
+                }
+            }
         }
 
-        items(
-            streams.take(60),
-            key = {
-                listOf(
-                    it.url,
-                    it.infoHash,
-                    it.fileIndex,
-                    it.providerId,
-                    it.name,
-                ).joinToString(":")
-            },
-        ) { source ->
-            StreamSourceCard(
-                source = source,
-                onClick = if (source.isDirectPlayable) {
-                    { onPlay(source) }
-                } else {
-                    null
+        qualityGroups.forEach {
+            (bucket, sources) ->
+
+            item(
+                key = "group:$bucket"
+            ) {
+                Text(
+                    "$bucket • ${sources.size}",
+                    modifier =
+                        Modifier.padding(
+                            horizontal = 20.dp,
+                            vertical = 3.dp,
+                        ),
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurface
+                            .copy(alpha = .62f),
+                    fontWeight =
+                        FontWeight.Bold,
+                    fontSize = 13.sp,
+                )
+            }
+
+            items(
+                sources,
+                key = {
+                    listOf(
+                        bucket,
+                        it.url,
+                        it.infoHash,
+                        it.fileIndex,
+                        it.providerId,
+                        it.name,
+                    ).joinToString(":")
                 },
-            )
+            ) { source ->
+                StreamSourceCard(
+                    source = source,
+                    onClick =
+                        if (
+                            source.isDirectPlayable
+                        ) {
+                            {
+                                onPlay(source)
+                            }
+                        } else {
+                            null
+                        },
+                )
+            }
         }
     }
 }

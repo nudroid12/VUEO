@@ -37,6 +37,10 @@ data class PluginDiscoveryResult(
     val successfulProviders: Int,
     val slowProviders: Int,
     val noResultProviders: Int,
+    val needsSetupProviders: Int,
+    val unavailableProviders: Int,
+    val blockedProviders: Int,
+    val timeoutProviders: Int,
     val failedProviders: Int,
     val diagnostics: List<ProviderDiagnostic>,
 )
@@ -72,6 +76,10 @@ class PluginSourceEngine(
                         successfulProviders = 0,
                         slowProviders = 0,
                         noResultProviders = 0,
+                        needsSetupProviders = 0,
+                        unavailableProviders = 0,
+                        blockedProviders = 0,
+                        timeoutProviders = 0,
                         failedProviders = 0,
                         diagnostics = emptyList(),
                     )
@@ -199,6 +207,30 @@ class PluginSourceEngine(
                             ProviderHealthStatus
                                 .NO_RESULTS
                     },
+                needsSetupProviders =
+                    diagnostics.count {
+                        it.status ==
+                            ProviderHealthStatus
+                                .NEEDS_SETUP
+                    },
+                unavailableProviders =
+                    diagnostics.count {
+                        it.status ==
+                            ProviderHealthStatus
+                                .UNAVAILABLE
+                    },
+                blockedProviders =
+                    diagnostics.count {
+                        it.status ==
+                            ProviderHealthStatus
+                                .BLOCKED
+                    },
+                timeoutProviders =
+                    diagnostics.count {
+                        it.status ==
+                            ProviderHealthStatus
+                                .TIMEOUT
+                    },
                 failedProviders =
                     diagnostics.count {
                         it.status ==
@@ -300,8 +332,9 @@ class PluginSourceEngine(
                         .ONLINE
 
                 error != null ->
-                    ProviderHealthStatus
-                        .FAILED
+                    classifyProviderFailure(
+                        error
+                    )
 
                 else ->
                     ProviderHealthStatus
@@ -468,6 +501,44 @@ class PluginSourceEngine(
                             ),
                             Charsets.UTF_8,
                         )
+                    }
+
+                    function<String, String>(
+                        "__vueoBinaryToBase64"
+                    ) { value ->
+                        val bytes =
+                            ByteArray(value.length) { index ->
+                                (
+                                    value[index].code and 0xFF
+                                ).toByte()
+                            }
+
+                        Base64.encodeToString(
+                            bytes,
+                            Base64.NO_WRAP,
+                        )
+                    }
+
+                    function<String, String>(
+                        "__vueoBase64ToBinary"
+                    ) { value ->
+                        val bytes =
+                            Base64.decode(
+                                value,
+                                Base64.DEFAULT,
+                            )
+
+                        buildString(
+                            bytes.size
+                        ) {
+                            bytes.forEach { byte ->
+                                append(
+                                    (
+                                        byte.toInt() and 0xFF
+                                    ).toChar()
+                                )
+                            }
+                        }
                     }
 
                     asyncFunction<Double, Boolean>(
@@ -708,20 +779,20 @@ class PluginSourceEngine(
               });
             }
 
-            var axios = function (config) {
+            var __vueoAxiosModule = function (config) {
               return __vueoAxiosRequest(config);
             };
 
-            axios.request = __vueoAxiosRequest;
+            __vueoAxiosModule.request = __vueoAxiosRequest;
 
-            axios.get = function (url, config) {
+            __vueoAxiosModule.get = function (url, config) {
               config = config || {};
               config.url = url;
               config.method = "GET";
               return __vueoAxiosRequest(config);
             };
 
-            axios.post = function (url, data, config) {
+            __vueoAxiosModule.post = function (url, data, config) {
               config = config || {};
               config.url = url;
               config.method = "POST";
@@ -729,14 +800,18 @@ class PluginSourceEngine(
               return __vueoAxiosRequest(config);
             };
 
-            globalThis.axios = axios;
+            globalThis.axios = __vueoAxiosModule;
 
             globalThis.btoa = function (value) {
-              return __vueoBase64(String(value));
+              return __vueoBinaryToBase64(
+                String(value)
+              );
             };
 
             globalThis.atob = function (value) {
-              return __vueoBase64Decode(String(value));
+              return __vueoBase64ToBinary(
+                String(value)
+              );
             };
 
             globalThis.Buffer = globalThis.Buffer || {
@@ -1286,7 +1361,7 @@ class PluginSourceEngine(
                           function (encoder) {
                             return (
                               encoder ||
-                              CryptoJS.enc.Hex
+                              __vueoCryptoJsModule.enc.Hex
                             ).stringify(this);
                           };
 
@@ -1367,6 +1442,54 @@ class PluginSourceEngine(
 
                           return parsed;
                         }
+
+                        globalThis.__crypto_aes_decrypt_raw =
+                          function (
+                            mode,
+                            keyArg,
+                            ivArg,
+                            dataArg
+                          ) {
+                            function bytesOf(value) {
+                              if (!value) {
+                                return [];
+                              }
+
+                              return Array.prototype
+                                .slice.call(value)
+                                .map(
+                                  function (byte) {
+                                    return (
+                                      Number(byte) & 255
+                                    );
+                                  }
+                                );
+                            }
+
+                            var result =
+                              __vueoCryptoNative({
+                                op: "decrypt",
+                                algorithm: "AES",
+                                data:
+                                  __vueoBytesToB64(
+                                    bytesOf(dataArg)
+                                  ),
+                                key:
+                                  __vueoBytesToB64(
+                                    bytesOf(keyArg)
+                                  ),
+                                iv:
+                                  __vueoBytesToB64(
+                                    bytesOf(ivArg)
+                                  )
+                              });
+
+                            return new Uint8Array(
+                              __vueoB64ToBytes(
+                                result.data
+                              )
+                            );
+                          };
 
                         function __vueoCryptoHash(
                           algorithm,
@@ -1557,7 +1680,7 @@ class PluginSourceEngine(
                           return {
                             ciphertext: ciphertext,
                             toString: function () {
-                              return CryptoJS.enc.Base64
+                              return __vueoCryptoJsModule.enc.Base64
                                 .stringify(
                                   ciphertext
                                 );
@@ -1565,7 +1688,7 @@ class PluginSourceEngine(
                           };
                         }
 
-                        var CryptoJS = {
+                        var __vueoCryptoJsModule = {
                           lib: {
                             WordArray: {
                               create:
@@ -2443,7 +2566,7 @@ class PluginSourceEngine(
                           return $;
                         }
 
-                        var cheerio = {
+                        var __vueoCheerioModule = {
                           load:
                             function (
                               html,
@@ -2463,26 +2586,26 @@ class PluginSourceEngine(
                             if (
                               name === "axios"
                             ) {
-                              return axios;
+                              return __vueoAxiosModule;
                             }
 
                             if (
                               name ===
                               "cheerio-without-node-native"
                             ) {
-                              return cheerio;
+                              return __vueoCheerioModule;
                             }
 
                             if (
                               name === "cheerio"
                             ) {
-                              return cheerio;
+                              return __vueoCheerioModule;
                             }
 
                             if (
                               name === "crypto-js"
                             ) {
-                              return CryptoJS;
+                              return __vueoCryptoJsModule;
                             }
 
                             throw new Error(
@@ -2554,6 +2677,48 @@ class PluginSourceEngine(
 
         private const val MAX_LOG_LENGTH =
             500
+    }
+}
+
+
+private fun classifyProviderFailure(
+    error: String,
+): ProviderHealthStatus {
+    val normalized =
+        error.lowercase()
+
+    return when {
+        "timed out" in normalized ||
+            "timeout" in normalized ->
+            ProviderHealthStatus.TIMEOUT
+
+        "nxdomain" in normalized ||
+            "unable to resolve host" in normalized ||
+            "unknownhost" in normalized ||
+            "no address associated" in normalized ->
+            ProviderHealthStatus.UNAVAILABLE
+
+        "no token available" in normalized ||
+            "token required" in normalized ||
+            "requires token" in normalized ||
+            "missing token" in normalized ||
+            "ui token" in normalized &&
+            (
+                "expired" in normalized ||
+                "required" in normalized ||
+                "missing" in normalized
+            ) ->
+            ProviderHealthStatus.NEEDS_SETUP
+
+        "http 403" in normalized ||
+            "status 403" in normalized ||
+            "forbidden" in normalized ||
+            "cloudflare" in normalized ||
+            "captcha" in normalized ->
+            ProviderHealthStatus.BLOCKED
+
+        else ->
+            ProviderHealthStatus.FAILED
     }
 }
 

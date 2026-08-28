@@ -121,3 +121,79 @@ object SourceRanker {
     val comparator = compareByDescending<StreamSource> { score(it) }
         .thenBy { it.sizeBytes ?: Long.MAX_VALUE }
 }
+
+
+object SourceCleaner {
+    fun clean(
+        sources: List<StreamSource>,
+    ): List<StreamSource> {
+        val sorted =
+            sources.sortedWith(
+                SourceRanker.comparator
+            )
+
+        val seen =
+            hashSetOf<String>()
+
+        return sorted.filter { source ->
+            seen.add(
+                identityKey(source)
+            )
+        }
+    }
+
+    fun qualityBucket(
+        source: StreamSource,
+    ): String {
+        val value =
+            (
+                source.quality.orEmpty() +
+                " " +
+                source.name
+            ).lowercase()
+
+        return when {
+            "2160" in value ||
+                "4k" in value ||
+                "uhd" in value ->
+                "4K"
+
+            "1080" in value ->
+                "1080p"
+
+            "720" in value ->
+                "720p"
+
+            else ->
+                "Other"
+        }
+    }
+
+    private fun identityKey(
+        source: StreamSource,
+    ): String =
+        when {
+            !source.url.isNullOrBlank() ->
+                "url:" +
+                    source.url
+                        .trim()
+
+            !source.infoHash.isNullOrBlank() ->
+                "torrent:" +
+                    source.infoHash
+                        .lowercase() +
+                    ":" +
+                    (
+                        source.fileIndex
+                            ?: -1
+                    )
+
+            else ->
+                listOf(
+                    "fallback",
+                    source.providerId,
+                    source.name,
+                    source.quality,
+                ).joinToString("|")
+        }
+}
