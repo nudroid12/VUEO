@@ -160,11 +160,6 @@ fun VueoApp() {
             context.applicationContext
         )
     }
-    val libraryStore = remember {
-        LibraryStore(
-            context.applicationContext
-        )
-    }
     val providerCodeSync = remember {
         ProviderCodeSyncManager(
             context.applicationContext
@@ -3254,6 +3249,11 @@ private fun MediaDetailsScreen(
     val context = LocalContext.current
     val pluginStore = remember {
         PluginStore(context.applicationContext)
+    }
+    val libraryStore = remember {
+        LibraryStore(
+            context.applicationContext
+        )
     }
     val pluginEngine = remember {
         PluginSourceEngine(
