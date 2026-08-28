@@ -1,5 +1,10 @@
 package com.vueo.app.ui
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -64,7 +69,13 @@ import com.vueo.app.core.storage.PreferredQuality
 import com.vueo.app.core.storage.SettingsStore
 import com.vueo.app.core.storage.SubtitleLanguage
 import com.vueo.app.core.storage.SubtitleSize
+import com.vueo.app.core.storage.VueoBackupManager
+import com.vueo.app.core.update.VueoUpdateManager
+import com.vueo.app.core.update.VueoUpdateStore
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 internal fun VueoSettingsHub(
@@ -90,6 +101,10 @@ internal fun VueoSettingsHub(
     val providers = pluginStore.totalProviderCount()
     val tmdbConfigured = pluginStore.tmdbApiKey().isNotBlank()
     val mdblistConfigured = settingsStore.mdblistApiKey().isNotBlank()
+    val updateStore = remember {
+        VueoUpdateStore(context.applicationContext)
+    }
+    val latestUpdate = updateStore.latestRelease()
 
     LazyColumn(
         modifier = Modifier
@@ -180,8 +195,8 @@ internal fun VueoSettingsHub(
         item {
             VueoSettingsNavigationCard(
                 title = "Data & Storage",
-                subtitle = "Cache, Continue Watching, history, and local data controls.",
-                status = "Local device data",
+                subtitle = "Backup, restore, cache, history, and local data controls.",
+                status = "Backup ready",
                 icon = Icons.Default.VideoLibrary,
                 onClick = onDataStorage,
             )
@@ -191,7 +206,13 @@ internal fun VueoSettingsHub(
             VueoSettingsNavigationCard(
                 title = "Updates",
                 subtitle = "Version information and update preferences.",
-                status = "VUEO ${BuildConfig.VERSION_NAME}",
+                status = if (
+                    latestUpdate?.isNewerThanCurrent() == true
+                ) {
+                    "Update ${latestUpdate.versionName} available"
+                } else {
+                    "VUEO ${BuildConfig.VERSION_NAME}"
+                },
                 icon = Icons.Default.Refresh,
                 onClick = onUpdates,
             )
@@ -1077,8 +1098,10 @@ internal fun AppearanceSettingsScreen(
 @Composable
 internal fun DataStorageSettingsScreen(
     libraryStore: LibraryStore,
+    settingsStore: SettingsStore,
     onLibraryChanged: () -> Unit,
     onCatalogCacheCleared: () -> Unit,
+    onPersistentDataChanged: suspend () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -1086,8 +1109,67 @@ internal fun DataStorageSettingsScreen(
     var confirmAction by remember {
         mutableStateOf<DataClearAction?>(null)
     }
+    var pendingRestoreUri by remember {
+        mutableStateOf<Uri?>(null)
+    }
+    var showResetConfirm by remember {
+        mutableStateOf(false)
+    }
     var feedback by remember {
         mutableStateOf<String?>(null)
+    }
+    var busy by remember {
+        mutableStateOf(false)
+    }
+    var includeCredentials by remember {
+        mutableStateOf(
+            settingsStore.includeCredentialsInBackup()
+        )
+    }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument(
+            "application/json"
+        ),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                busy = true
+                feedback = null
+
+                runCatching {
+                    VueoBackupManager.exportToUri(
+                        context = context.applicationContext,
+                        uri = uri,
+                        includeCredentials = includeCredentials,
+                    )
+                }.onSuccess { summary ->
+                    feedback = buildString {
+                        append("Backup created with ")
+                        append(summary.valueCount)
+                        append(" saved values")
+                        if (summary.includesCredentials) {
+                            append(", including API keys.")
+                        } else {
+                            append(". API keys were excluded.")
+                        }
+                    }
+                }.onFailure { error ->
+                    feedback = error.message
+                        ?: "Unable to create backup."
+                }
+
+                busy = false
+            }
+        }
+    }
+
+    val restoreLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            pendingRestoreUri = uri
+        }
     }
 
     confirmAction?.let { action ->
@@ -1140,18 +1222,231 @@ internal fun DataStorageSettingsScreen(
         )
     }
 
+    pendingRestoreUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = {
+                if (!busy) {
+                    pendingRestoreUri = null
+                }
+            },
+            title = {
+                Text("Restore VUEO backup?")
+            },
+            text = {
+                Text(
+                    "Current VUEO configuration, Library and playback progress will be replaced by the selected backup. Temporary caches are rebuilt automatically."
+                )
+            },
+            confirmButton = {
+                Button(
+                    enabled = !busy,
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            feedback = null
+
+                            runCatching {
+                                val summary =
+                                    VueoBackupManager.restoreFromUri(
+                                        context = context.applicationContext,
+                                        uri = uri,
+                                    )
+
+                                onPersistentDataChanged()
+                                summary
+                            }.onSuccess { summary ->
+                                feedback = buildString {
+                                    append("Backup restored")
+                                    summary.sourceVersion
+                                        ?.let {
+                                            append(" from VUEO ")
+                                            append(it)
+                                        }
+                                    append(". ")
+                                    append(summary.valueCount)
+                                    append(" values restored.")
+                                }
+                                pendingRestoreUri = null
+                            }.onFailure { error ->
+                                feedback = error.message
+                                    ?: "Unable to restore this backup."
+                            }
+
+                            busy = false
+                        }
+                    },
+                ) {
+                    Text(
+                        if (busy) {
+                            "Restoring..."
+                        } else {
+                            "Restore"
+                        }
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !busy,
+                    onClick = {
+                        pendingRestoreUri = null
+                    },
+                ) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    if (showResetConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!busy) {
+                    showResetConfirm = false
+                }
+            },
+            title = {
+                Text("Reset VUEO data?")
+            },
+            text = {
+                Text(
+                    "This clears addons, plugin repositories, API keys, preferences, My List, Continue Watching, history, playback progress and temporary data. Development defaults will be seeded again."
+                )
+            },
+            confirmButton = {
+                Button(
+                    enabled = !busy,
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            feedback = null
+
+                            runCatching {
+                                VueoBackupManager.resetUserData(
+                                    context.applicationContext
+                                )
+                                onPersistentDataChanged()
+                            }.onSuccess {
+                                includeCredentials = false
+                                feedback = "VUEO data reset to a fresh state."
+                                showResetConfirm = false
+                            }.onFailure { error ->
+                                feedback = error.message
+                                    ?: "Unable to reset VUEO data."
+                            }
+
+                            busy = false
+                        }
+                    },
+                ) {
+                    Text(
+                        if (busy) {
+                            "Resetting..."
+                        } else {
+                            "Reset"
+                        }
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !busy,
+                    onClick = {
+                        showResetConfirm = false
+                    },
+                ) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
     VueoSettingsPage(
         title = "Data & Storage",
-        subtitle = "Local cache and playback data controls.",
+        subtitle = "Backup, restore, cache, history, and local data controls.",
         onBack = onBack,
     ) {
         feedback?.let { message ->
             item {
                 VueoInfoCard(
-                    title = "Done",
+                    title = if (busy) "Working" else "Status",
                     text = message,
                 )
             }
+        }
+
+        if (busy) {
+            item {
+                VueoInfoCard(
+                    title = "Working",
+                    text = "Keep VUEO open while this data operation finishes.",
+                )
+            }
+        }
+
+        item {
+            VueoSettingsSectionLabel("BACKUP & RESTORE")
+        }
+
+        item {
+            VueoInfoCard(
+                title = "What gets backed up",
+                text = "Content Manager configuration, provider preferences, Settings, My List, Continue Watching, Watch History and playback progress. Cache, provider scripts and health diagnostics are rebuilt instead of copied.",
+            )
+        }
+
+        item {
+            VueoSettingsToggleCard(
+                title = "Include API Keys",
+                subtitle = "Off by default. Enable only when you want TMDB and MDBList keys written into the backup file.",
+                checked = includeCredentials,
+                onCheckedChange = {
+                    includeCredentials = it
+                    settingsStore.setIncludeCredentialsInBackup(it)
+                },
+            )
+        }
+
+        item {
+            VueoSettingsActionCard(
+                title = "Create Backup",
+                subtitle = if (includeCredentials) {
+                    "Export VUEO data as JSON. This backup will include configured API keys."
+                } else {
+                    "Export VUEO data as JSON without API keys."
+                },
+                action = "Export",
+                onClick = {
+                    if (!busy) {
+                        exportLauncher.launch(
+                            vueoBackupFileName()
+                        )
+                    }
+                },
+            )
+        }
+
+        item {
+            VueoSettingsActionCard(
+                title = "Restore Backup",
+                subtitle = "Choose a VUEO JSON backup. Restored sources are reloaded without requiring an app reinstall.",
+                action = "Restore",
+                onClick = {
+                    if (!busy) {
+                        restoreLauncher.launch(
+                            arrayOf(
+                                "application/json",
+                                "text/plain",
+                                "application/octet-stream",
+                            )
+                        )
+                    }
+                },
+            )
+        }
+
+        item {
+            VueoSettingsSectionLabel("CACHE & HISTORY")
         }
 
         item {
@@ -1160,7 +1455,9 @@ internal fun DataStorageSettingsScreen(
                 subtitle = "Clear the persistent Home snapshot and in-memory search cache.",
                 action = "Clear",
                 onClick = {
-                    confirmAction = DataClearAction.CATALOG_CACHE
+                    if (!busy) {
+                        confirmAction = DataClearAction.CATALOG_CACHE
+                    }
                 },
             )
         }
@@ -1171,7 +1468,9 @@ internal fun DataStorageSettingsScreen(
                 subtitle = "Discard short-lived source results used to speed up repeat searches.",
                 action = "Clear",
                 onClick = {
-                    confirmAction = DataClearAction.SOURCE_CACHE
+                    if (!busy) {
+                        confirmAction = DataClearAction.SOURCE_CACHE
+                    }
                 },
             )
         }
@@ -1182,7 +1481,9 @@ internal fun DataStorageSettingsScreen(
                 subtitle = "Remove unfinished playback entries from Continue Watching.",
                 action = "Clear",
                 onClick = {
-                    confirmAction = DataClearAction.CONTINUE_WATCHING
+                    if (!busy) {
+                        confirmAction = DataClearAction.CONTINUE_WATCHING
+                    }
                 },
             )
         }
@@ -1193,16 +1494,27 @@ internal fun DataStorageSettingsScreen(
                 subtitle = "Clear playback history without changing My List.",
                 action = "Clear",
                 onClick = {
-                    confirmAction = DataClearAction.WATCH_HISTORY
+                    if (!busy) {
+                        confirmAction = DataClearAction.WATCH_HISTORY
+                    }
                 },
             )
         }
 
         item {
-            VueoStatusCard(
-                title = "Backup & Restore",
-                value = "Next milestone",
-                text = "The Settings location is reserved now. Export and restore will be implemented in the Distribution & Data patch.",
+            VueoSettingsSectionLabel("RESET")
+        }
+
+        item {
+            VueoSettingsActionCard(
+                title = "Reset VUEO Data",
+                subtitle = "Return local configuration and Library data to a fresh state without uninstalling the APK.",
+                action = "Reset",
+                onClick = {
+                    if (!busy) {
+                        showResetConfirm = true
+                    }
+                },
             )
         }
     }
@@ -1213,27 +1525,53 @@ internal fun UpdatesSettingsScreen(
     settingsStore: SettingsStore,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val updateStore = remember {
+        VueoUpdateStore(context.applicationContext)
+    }
+
     var automaticChecks by remember {
-        mutableStateOf(settingsStore.automaticUpdateChecksEnabled())
+        mutableStateOf(
+            settingsStore.automaticUpdateChecksEnabled()
+        )
+    }
+    var latestRelease by remember {
+        mutableStateOf(
+            updateStore.latestRelease()
+        )
+    }
+    var lastCheckedAt by remember {
+        mutableStateOf(
+            updateStore.lastCheckedAt()
+        )
+    }
+    var feedback by remember {
+        mutableStateOf(
+            updateStore.lastError()
+        )
+    }
+    var checking by remember {
+        mutableStateOf(false)
     }
 
     VueoSettingsPage(
         title = "Updates",
-        subtitle = "Version and future APK update behavior.",
+        subtitle = "Check VUEO releases and open the delivery link provided by the release feed.",
         onBack = onBack,
     ) {
         item {
             VueoStatusCard(
                 title = "Current Version",
                 value = BuildConfig.VERSION_NAME,
-                text = "Build ${BuildConfig.VERSION_CODE}. Direct APK distribution remains the target release method.",
+                text = "Build ${BuildConfig.VERSION_CODE}. VUEO can use a release feed without locking APK delivery to one platform.",
             )
         }
 
         item {
             VueoSettingsToggleCard(
                 title = "Automatic Update Checks",
-                subtitle = "Save whether VUEO should check for a newer APK when the update service is connected.",
+                subtitle = "Check the VUEO release feed in the background at most once every six hours.",
                 checked = automaticChecks,
                 onCheckedChange = {
                     automaticChecks = it
@@ -1243,10 +1581,148 @@ internal fun UpdatesSettingsScreen(
         }
 
         item {
-            VueoStatusCard(
+            VueoSettingsActionCard(
                 title = "Check for Updates",
-                value = "Foundation ready",
-                text = "Actual update checking and Telegram APK delivery are scheduled for the Distribution & Data milestone.",
+                subtitle = if (checking) {
+                    "Checking the VUEO release feed..."
+                } else {
+                    "Check now instead of waiting for the next background check."
+                },
+                action = if (checking) {
+                    "Checking"
+                } else {
+                    "Check"
+                },
+                onClick = {
+                    if (!checking) {
+                        scope.launch {
+                            checking = true
+                            feedback = null
+
+                            val result = VueoUpdateManager.check(
+                                context = context.applicationContext,
+                                force = true,
+                            )
+
+                            latestRelease = result.release
+                            lastCheckedAt = result.checkedAtEpochMs
+                            feedback = result.error
+                                ?: if (
+                                    result.release
+                                        ?.isNewerThanCurrent() == true
+                                ) {
+                                    "VUEO ${result.release.versionName} is available."
+                                } else {
+                                    "You are up to date."
+                                }
+
+                            checking = false
+                        }
+                    }
+                },
+            )
+        }
+
+        feedback?.let { message ->
+            item {
+                VueoInfoCard(
+                    title = "Update Status",
+                    text = message,
+                )
+            }
+        }
+
+        if (lastCheckedAt > 0L) {
+            item {
+                VueoStatusCard(
+                    title = "Last Checked",
+                    value = formatUpdateCheckTime(lastCheckedAt),
+                    text = "The last successful release data remains cached so the Updates page stays useful offline.",
+                )
+            }
+        }
+
+        latestRelease?.let { release ->
+            item {
+                VueoStatusCard(
+                    title = if (release.isNewerThanCurrent()) {
+                        "Update Available"
+                    } else {
+                        "Latest Release"
+                    },
+                    value = release.versionName,
+                    text = buildString {
+                        append(release.title)
+                        release.publishedAt?.let {
+                            append(" • ")
+                            append(it)
+                        }
+                    },
+                )
+            }
+
+            if (release.changelog.isNotEmpty()) {
+                item {
+                    VueoInfoCard(
+                        title = "What's New",
+                        text = release.changelog.joinToString(
+                            separator = "\n"
+                        ) {
+                            "• $it"
+                        },
+                    )
+                }
+            }
+
+            if (release.isNewerThanCurrent()) {
+                release.downloadUrl?.let { url ->
+                    item {
+                        VueoSettingsActionCard(
+                            title = "Download Update",
+                            subtitle = "Open the APK delivery link from the VUEO release feed.",
+                            action = "Open",
+                            onClick = {
+                                if (!openVueoReleaseUrl(context, url)) {
+                                    feedback = "Unable to open the update link."
+                                }
+                            },
+                        )
+                    }
+                }
+
+                release.telegramUrl?.let { url ->
+                    item {
+                        VueoSettingsActionCard(
+                            title = "Open Telegram Release",
+                            subtitle = "Open the Telegram release or channel link supplied by the VUEO release feed.",
+                            action = "Telegram",
+                            onClick = {
+                                if (!openVueoReleaseUrl(context, url)) {
+                                    feedback = "Unable to open the Telegram link."
+                                }
+                            },
+                        )
+                    }
+                }
+
+                if (
+                    release.downloadUrl == null &&
+                    release.telegramUrl == null
+                ) {
+                    item {
+                        VueoInfoCard(
+                            title = "Release detected",
+                            text = "This release feed does not publish an APK or Telegram delivery link yet. VUEO will not redirect to an untrusted download source.",
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            VueoInfoCard(
+                title = "VUEO 0.9.3",
+                text = "Backup and restore, optional API-key backup, update checking, Telegram-ready release links, data reset, and versioned data migration.",
             )
         }
     }
@@ -1279,7 +1755,7 @@ internal fun AboutVueoSettingsScreen(
         item {
             VueoInfoCard(
                 title = "Privacy",
-                text = "Settings and API keys configured in this build are stored locally on the device. Optional enhancement services only run when configured and used by their feature layer.",
+                text = "Settings and API keys are stored locally on the device. VUEO backups exclude API keys by default and include them only when the user explicitly enables that option.",
             )
         }
 
@@ -1290,6 +1766,44 @@ internal fun AboutVueoSettingsScreen(
             )
         }
     }
+}
+
+private fun vueoBackupFileName(): String {
+    val stamp = SimpleDateFormat(
+        "yyyyMMdd-HHmm",
+        Locale.US,
+    ).format(Date())
+
+    return "VUEO-backup-$stamp.json"
+}
+
+private fun formatUpdateCheckTime(
+    epochMs: Long,
+): String =
+    SimpleDateFormat(
+        "yyyy-MM-dd HH:mm",
+        Locale.getDefault(),
+    ).format(Date(epochMs))
+
+private fun openVueoReleaseUrl(
+    context: Context,
+    url: String,
+): Boolean {
+    if (!url.startsWith("https://")) {
+        return false
+    }
+
+    return runCatching {
+        val intent = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse(url),
+        ).addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK
+        )
+
+        context.startActivity(intent)
+        true
+    }.getOrDefault(false)
 }
 
 private enum class SubtitleLanguageTarget {

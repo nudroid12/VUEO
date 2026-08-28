@@ -416,6 +416,23 @@ class SettingsStore(
             .apply()
     }
 
+    fun includeCredentialsInBackup(): Boolean =
+        prefs.getBoolean(
+            KEY_INCLUDE_CREDENTIALS_IN_BACKUP,
+            false,
+        )
+
+    fun setIncludeCredentialsInBackup(
+        enabled: Boolean,
+    ) {
+        prefs.edit()
+            .putBoolean(
+                KEY_INCLUDE_CREDENTIALS_IN_BACKUP,
+                enabled,
+            )
+            .apply()
+    }
+
     private inline fun <reified T : Enum<T>> enumValue(
         key: String,
         default: T,
@@ -499,5 +516,8 @@ class SettingsStore(
 
         private const val KEY_AUTO_UPDATE_CHECKS =
             "automatic_update_checks"
+
+        private const val KEY_INCLUDE_CREDENTIALS_IN_BACKUP =
+            "include_credentials_in_backup"
     }
 }

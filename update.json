@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "versionCode": 20,
+  "versionName": "0.9.3",
+  "title": "VUEO 0.9.3",
+  "publishedAt": "2026-08-28",
+  "changelog": [
+    "Backup and restore VUEO configuration and Library data",
+    "Optional API-key inclusion in backup files",
+    "Functional update checker with cached background checks",
+    "Release feed supports direct APK and Telegram delivery links",
+    "Reset VUEO data without uninstalling the app",
+    "Versioned local-data migration foundation"
+  ],
+  "downloadUrl": "",
+  "telegramUrl": ""
+}

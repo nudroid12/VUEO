@@ -113,6 +113,8 @@ import com.vueo.app.core.storage.LibraryStore
 import com.vueo.app.core.storage.LibraryPlaybackEntry
 import com.vueo.app.core.storage.PreferredQuality
 import com.vueo.app.core.storage.SettingsStore
+import com.vueo.app.core.storage.VueoDataMigration
+import com.vueo.app.core.update.VueoUpdateManager
 import com.vueo.app.core.model.SubtitleTrack
 import com.vueo.app.core.plugin.PluginStore
 import com.vueo.app.core.plugin.ProviderCodeSyncManager
@@ -216,6 +218,10 @@ fun VueoApp() {
     }
 
     LaunchedEffect(Unit) {
+        VueoDataMigration.migrateIfNeeded(
+            context.applicationContext
+        )
+
         CatalogDiscoveryCache
             .restoreHome(
                 context.applicationContext
@@ -223,6 +229,18 @@ fun VueoApp() {
 
         SourceDiscoveryCache
             .clearExpired()
+
+        if (
+            settingsStore
+                .automaticUpdateChecksEnabled()
+        ) {
+            launch {
+                VueoUpdateManager.check(
+                    context = context.applicationContext,
+                    force = false,
+                )
+            }
+        }
 
         contentVersion++
 
@@ -540,11 +558,44 @@ fun VueoApp() {
                     SettingsPage.DATA_STORAGE ->
                         DataStorageSettingsScreen(
                             libraryStore = libraryStore,
+                            settingsStore = settingsStore,
                             onLibraryChanged = {
                                 libraryVersion++
                             },
                             onCatalogCacheCleared = {
                                 contentVersion++
+                            },
+                            onPersistentDataChanged = {
+                                engine
+                                    .stremioAddons()
+                                    .forEach {
+                                        engine.uninstall(
+                                            it.descriptor.id
+                                        )
+                                    }
+
+                                store.seedDevelopmentDefaultsIfNeeded()
+                                pluginStore.seedDevelopmentDefaultsIfNeeded()
+
+                                store.manifestUrls()
+                                    .forEach { manifestUrl ->
+                                        runCatching {
+                                            ExtensionInstaller
+                                                .installStremioAddon(
+                                                    manifestUrl
+                                                )
+                                        }.onSuccess(
+                                            engine::install
+                                        )
+                                    }
+
+                                providerCodeSync.syncMissing(
+                                    pluginStore.repositories()
+                                )
+
+                                selectedLibraryEntry = null
+                                contentVersion++
+                                libraryVersion++
                             },
                             onBack = {
                                 settingsPage = SettingsPage.ROOT
