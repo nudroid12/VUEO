@@ -1,0 +1,250 @@
+name: Fix VUEO v0.3.5 HTML Bridge Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fix HtmlCompatBridge Kotlin syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path(
+              "app/src/main/java/com/vueo/app/core/plugin/HtmlCompatBridge.kt"
+          )
+
+          if not path.exists():
+              raise SystemExit(
+                  "HtmlCompatBridge.kt not found. Apply v0.3.5 first."
+              )
+
+          text = path.read_text(encoding="utf-8")
+          original = text
+
+          replacements = {
+              "result += root.select(selector)":
+                  "result.addAll(root.select(selector))",
+
+              "result += element.select(selector)":
+                  "result.addAll(element.select(selector))",
+
+              "element.is(selector)":
+                  "element.`is`(selector)",
+
+              "parent.is(selector)":
+                  "parent.`is`(selector)",
+
+              "child.is(selector)":
+                  "child.`is`(selector)",
+
+              "sibling.is(selector)":
+                  "sibling.`is`(selector)",
+
+              "?.is(selector)":
+                  "?.`is`(selector)",
+
+              "result += parent":
+                  "result.add(parent)",
+
+              "result += child":
+                  "result.add(child)",
+
+              "result += sibling":
+                  "result.add(sibling)",
+          }
+
+          for old, new in replacements.items():
+              text = text.replace(old, new)
+
+          if text == original:
+              if (
+                  ".`is`(selector)" in text and
+                  "result.addAll(root.select(selector))" in text
+              ):
+                  print("Hotfix already applied.")
+              else:
+                  raise SystemExit(
+                      "Expected HtmlCompatBridge patterns were not found."
+                  )
+          else:
+              path.write_text(
+                  text,
+                  encoding="utf-8",
+              )
+              print("Fixed HtmlCompatBridge Kotlin syntax.")
+          PY
+
+      - name: Verify source hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FILE="app/src/main/java/com/vueo/app/core/plugin/HtmlCompatBridge.kt"
+
+          grep -q 'element.`is`(selector)' "$FILE"
+          grep -q 'parent.`is`(selector)' "$FILE"
+          grep -q 'child.`is`(selector)' "$FILE"
+          grep -q 'sibling.`is`(selector)' "$FILE"
+          grep -q '?.`is`(selector)' "$FILE"
+          grep -q 'result.addAll(root.select(selector))' "$FILE"
+          grep -q 'result.addAll(element.select(selector))' "$FILE"
+
+          if grep -Fq 'element.is(selector)' "$FILE"; then
+            echo "::error::Unescaped Kotlin reserved method is still present."
+            exit 1
+          fi
+
+          if grep -Fq 'result += parent' "$FILE" || \
+             grep -Fq 'result += child' "$FILE" || \
+             grep -Fq 'result += sibling' "$FILE"; then
+            echo "::error::Ambiguous set mutation is still present."
+            exit 1
+          fi
+
+          echo "HtmlCompatBridge source checks passed."
+
+      - name: Commit and push hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email \
+              "41898282+github-actions[bot]@users.noreply.github.com"
+
+            git add \
+              app/src/main/java/com/vueo/app/core/plugin/HtmlCompatBridge.kt
+
+            git commit -m \
+              "Fix v0.3.5 jsoup Kotlin bridge compilation"
+
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          else
+            echo "Hotfix already present. Continuing to build."
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Verify Gradle wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f ./gradlew || {
+            echo "::error::gradlew is missing."
+            exit 1
+          }
+
+          test -f ./gradle/wrapper/gradle-wrapper.properties || {
+            echo "::error::Gradle wrapper configuration is missing."
+            exit 1
+          }
+
+          chmod +x ./gradlew
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SDKMANAGER="$(command -v sdkmanager || true)"
+
+          if [ -z "$SDKMANAGER" ]; then
+            if [ -n "${ANDROID_HOME:-}" ] && \
+               [ -x "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" ]; then
+              SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+            else
+              echo "::error::sdkmanager was not found."
+              exit 1
+            fi
+          fi
+
+          yes 2>/dev/null | \
+            "$SDKMANAGER" --licenses \
+            >/dev/null 2>&1 || true
+
+          "$SDKMANAGER" --channel=0 \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
+
+      - name: Build VUEO v0.3.5 APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./gradlew \
+            :app:assembleDebug \
+            --stacktrace \
+            --no-daemon
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK_DIR="app/build/outputs/apk/debug"
+
+          echo "Generated APK files:"
+
+          find "$APK_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -name "*.apk" \
+            -print || true
+
+          if ! find "$APK_DIR" \
+              -maxdepth 1 \
+              -type f \
+              -name "*.apk" \
+              -print -quit | grep -q .; then
+            echo "::error::Build completed without an APK."
+            exit 1
+          fi
+
+      - name: Upload fixed VUEO v0.3.5 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VUEO-v0.3.5-fixed-${{ github.run_number }}
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## VUEO v0.3.5 Build Hotfix"
+            echo
+            echo "- Fixed jsoup Element.is() calls for Kotlin"
+            echo "- Replaced ambiguous Set += mutations"
+            echo "- Existing Cheerio compatibility retained"
+            echo "- Existing CryptoJS compatibility retained"
+            echo "- Existing URL compatibility retained"
+            echo "- APK rebuilt in this workflow"
+          } >> "$GITHUB_STEP_SUMMARY"
