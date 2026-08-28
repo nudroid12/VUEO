@@ -56,7 +56,7 @@ internal fun AppAccent.composeColor(): Color = Color(argb)
 @Composable
 internal fun VueoBrandMark(
     modifier: Modifier = Modifier,
-    color: Color = VueoPalette.BrandLime,
+    color: Color = VueoPalette.Accent,
 ) {
     Canvas(modifier = modifier) {
         val w = size.width
@@ -101,7 +101,7 @@ internal fun VueoBrandLockup(
         Spacer(Modifier.width(if (compact) 8.dp else 10.dp))
         Text(
             "VUEO",
-            color = VueoPalette.BrandLime,
+            color = VueoPalette.Accent,
             fontWeight = FontWeight.Black,
             fontSize = if (compact) 19.sp else 24.sp,
             letterSpacing = if (compact) 2.6.sp else 3.6.sp,
