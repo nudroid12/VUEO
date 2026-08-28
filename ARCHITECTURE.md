@@ -121,3 +121,22 @@ Media3 with provider request headers
 ```
 
 Remote provider JavaScript cannot access Android files, content providers, or local/private network addresses through VUEO's native fetch bridge.
+
+
+## v0.3.2 health loop
+
+```text
+Provider execution
+      |
+      +-- streams + fast  -> Online
+      +-- streams + slow  -> Slow
+      +-- no streams      -> No Results
+      +-- runtime error   -> Failed
+      |
+      v
+PluginHealthStore
+      |
+      +-- Content Manager health summary
+      +-- per-provider status and latency
+      +-- failure reason
+```

@@ -88,6 +88,9 @@ import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.core.storage.PlaybackStore
 import com.vueo.app.core.model.SubtitleTrack
 import com.vueo.app.core.plugin.PluginStore
+import com.vueo.app.core.plugin.ProviderHealthStatus
+import com.vueo.app.core.plugin.ProviderHealthRecord
+import com.vueo.app.core.plugin.PluginHealthStore
 import com.vueo.app.core.plugin.TmdbResolver
 import com.vueo.app.core.plugin.PluginSourceEngine
 import com.vueo.app.core.plugin.PluginRepositoryDescriptor
@@ -1058,6 +1061,12 @@ private fun PluginsScreen(
         )
     }
     val scope = rememberCoroutineScope()
+    val healthStore = remember {
+        PluginHealthStore(context.applicationContext)
+    }
+    var healthRevision by remember {
+        mutableIntStateOf(0)
+    }
 
     var repositories by remember {
         mutableStateOf(
@@ -1175,6 +1184,65 @@ private fun PluginsScreen(
                                 )
                             },
                         )
+                    }
+                }
+            }
+
+            item {
+                val summary = healthStore.summary(
+                    repositories = repositories,
+                    pluginStore = store,
+                )
+
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "Provider Health",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp,
+                                )
+                                Text(
+                                    "Updated whenever VUEO runs source discovery.",
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f),
+                                    fontSize = 11.sp,
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { healthRevision++ },
+                            ) {
+                                Icon(
+                                    Icons.Default.Refresh,
+                                    contentDescription = "Refresh health",
+                                )
+                            }
+                        }
+
+                        Text(
+                            "${summary.online} online • ${summary.slow} slow • " +
+                                "${summary.noResults} no results • ${summary.failed} failed",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                        )
+
+                        if (summary.unknown > 0 || summary.disabled > 0) {
+                            Text(
+                                "${summary.unknown} unknown • ${summary.disabled} disabled",
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f),
+                                fontSize = 11.sp,
+                            )
+                        }
                     }
                 }
             }
@@ -1304,6 +1372,8 @@ private fun PluginsScreen(
                 PluginRepositoryCard(
                     repository = repository,
                     store = store,
+                    healthStore = healthStore,
+                    healthRevision = healthRevision,
                     isDevelopmentDefault =
                         store.isDevelopmentDefault(
                             repository.manifestUrl
@@ -1340,15 +1410,20 @@ private fun PluginsScreen(
                         }
                     },
                     onDelete = {
+                        healthStore.removeRepository(
+                            repository.manifestUrl
+                        )
                         store.remove(
                             repository.manifestUrl
                         )
                         repositories =
                             store.repositories()
+                        healthRevision++
                     },
                     onProviderChanged = {
                         repositories =
                             store.repositories()
+                        healthRevision++
                     },
                 )
             }
@@ -1505,6 +1580,8 @@ private fun PluginsScreen(
 private fun PluginRepositoryCard(
     repository: PluginRepositoryDescriptor,
     store: PluginStore,
+    healthStore: PluginHealthStore,
+    healthRevision: Int,
     isDevelopmentDefault: Boolean,
     refreshing: Boolean,
     onRefresh: () -> Unit,
@@ -1672,104 +1749,138 @@ private fun PluginRepositoryCard(
 
             HorizontalDivider()
 
-            repository.providers.forEach {
-                provider ->
+            repository.providers.forEach { provider ->
+                val enabled = store.isProviderEnabled(
+                    repository,
+                    provider,
+                )
 
-                val enabled =
-                    store.isProviderEnabled(
-                        repository,
-                        provider,
+                val health = if (healthRevision >= 0) {
+                    healthStore.record(
+                        repositoryManifestUrl = repository.manifestUrl,
+                        providerId = provider.id,
                     )
+                } else {
+                    null
+                }
 
-                Row(
-                    modifier =
-                        Modifier.fillMaxWidth(),
-                    verticalAlignment =
-                        Alignment.CenterVertically,
-                ) {
-                    Column(
-                        modifier =
-                            Modifier.weight(1f),
-                    ) {
-                        Text(
-                            provider.name,
-                            fontWeight =
-                                FontWeight.Bold,
+                ProviderHealthRow(
+                    repository = repository,
+                    provider = provider,
+                    health = health,
+                    enabled = enabled,
+                    onEnabledChanged = { next ->
+                        store.setProviderEnabled(
+                            repository,
+                            provider,
+                            next,
                         )
+                        onProviderChanged()
+                    },
+                )
+            }
+        }
+    }
+}
 
-                        val details =
-                            buildList {
-                                if (
-                                    provider
-                                        .supportedTypes
-                                        .isNotEmpty()
-                                ) {
-                                    add(
-                                        provider
-                                            .supportedTypes
-                                            .sorted()
-                                            .joinToString(
-                                                "/"
-                                            )
-                                    )
-                                }
+@Composable
+private fun ProviderHealthRow(
+    repository: PluginRepositoryDescriptor,
+    provider: com.vueo.app.core.plugin.PluginProviderDescriptor,
+    health: ProviderHealthRecord?,
+    enabled: Boolean,
+    onEnabledChanged: (Boolean) -> Unit,
+) {
+    val effectiveStatus = if (!enabled) {
+        "Disabled"
+    } else {
+        health?.status?.label ?: ProviderHealthStatus.UNKNOWN.label
+    }
 
-                                if (
-                                    provider
-                                        .formats
-                                        .isNotEmpty()
-                                ) {
-                                    add(
-                                        provider
-                                            .formats
-                                            .take(3)
-                                            .joinToString(
-                                                ", "
-                                            )
-                                    )
-                                }
+    Column(
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    provider.name,
+                    fontWeight = FontWeight.Bold,
+                )
 
-                                if (
-                                    provider.limited
-                                ) {
-                                    add("limited")
-                                }
-                            }.joinToString(
-                                " • "
-                            )
-
-                        if (
-                            details.isNotBlank()
-                        ) {
-                            Text(
-                                details,
-                                color =
-                                    MaterialTheme
-                                        .colorScheme
-                                        .onSurface
-                                        .copy(
-                                            alpha =
-                                                .5f
-                                        ),
-                                fontSize = 11.sp,
-                            )
-                        }
+                val details = buildList {
+                    if (provider.supportedTypes.isNotEmpty()) {
+                        add(provider.supportedTypes.sorted().joinToString("/"))
                     }
+                    if (provider.formats.isNotEmpty()) {
+                        add(provider.formats.take(3).joinToString(", "))
+                    }
+                    if (provider.limited) add("limited")
+                }.joinToString(" • ")
 
-                    Switch(
-                        checked = enabled,
-                        onCheckedChange = {
-                            store.setProviderEnabled(
-                                repository,
-                                provider,
-                                it,
-                            )
-                            onProviderChanged()
-                        },
+                if (details.isNotBlank()) {
+                    Text(
+                        details,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f),
+                        fontSize = 11.sp,
                     )
                 }
             }
+
+            Column(
+                horizontalAlignment = Alignment.End,
+            ) {
+                Text(
+                    effectiveStatus,
+                    color = when {
+                        !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = .45f)
+                        health?.status == ProviderHealthStatus.FAILED -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.primary
+                    },
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+
+                health?.responseMs?.let { responseMs ->
+                    Text(
+                        "${responseMs} ms",
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .45f),
+                        fontSize = 10.sp,
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            Switch(
+                checked = enabled,
+                onCheckedChange = onEnabledChanged,
+            )
         }
+
+        if (enabled && health?.status == ProviderHealthStatus.FAILED) {
+            health.error?.let { error ->
+                Text(
+                    error,
+                    color = MaterialTheme.colorScheme.error.copy(alpha = .85f),
+                    fontSize = 10.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        } else if (enabled && health?.status == ProviderHealthStatus.NO_RESULTS) {
+            Text(
+                "Runtime completed but this title returned no sources.",
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .42f),
+                fontSize = 10.sp,
+            )
+        }
+
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .08f),
+        )
     }
 }
 
@@ -2078,7 +2189,12 @@ private fun MediaDetailsScreen(
                                             pluginResult.streams
 
                                         sourcePickerNotice =
-                                            "Plugins: ${pluginResult.attemptedProviders} checked • ${pluginResult.successfulProviders} returned sources"
+                                            "Plugins: ${pluginResult.attemptedProviders} checked • " +
+                                                "${pluginResult.successfulProviders} online • " +
+                                                "${pluginResult.slowProviders} slow • " +
+                                                "${pluginResult.noResultProviders} no results • " +
+                                                "${pluginResult.failedProviders} failed. " +
+                                                "Open Content Manager > Plugins for diagnostics."
                                     }
                                 }
                             }

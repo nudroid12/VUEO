@@ -1,4 +1,4 @@
-# VUEO v0.3.1
+# VUEO v0.3.2
 
 VUEO is an Android media client with a built-in **Content Manager**.
 
@@ -171,3 +171,21 @@ Compatibility note:
 
 This first runtime targets bundled Nuvio providers that export `module.exports.getStreams` and use `fetch`.
 Providers requiring unsupported Node modules or special runtime globals can fail individually without stopping the rest of source discovery.
+
+
+## v0.3.2 Provider Health and Runtime Diagnostics
+
+- Persistent provider health records
+- Online, Slow, No Results, Failed and Unknown states
+- Per-provider response time
+- Last runtime error retained for failed providers
+- Recent console logs retained for diagnostics
+- Provider Health summary in Content Manager > Plugins
+- Health updates after every source discovery
+- Source Picker shows online/slow/no-result/failed counts
+- Runtime now captures console.log and console.error
+- Basic axios compatibility is available through global axios and require("axios")
+- Minimal Buffer.from(...).toString("base64") support
+- Provider concurrency increased to 5 with a 10 second provider timeout
+
+`No Results` is deliberately separate from `Failed`: a provider can execute correctly and still have no source for a particular title.
