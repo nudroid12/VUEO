@@ -1385,7 +1385,7 @@ internal fun DataStorageSettingsScreen(
         }
 
         item {
-            VueoSettingsSectionLabel("BACKUP & RESTORE")
+            VueoSectionLabel("BACKUP & RESTORE")
         }
 
         item {
@@ -1446,7 +1446,7 @@ internal fun DataStorageSettingsScreen(
         }
 
         item {
-            VueoSettingsSectionLabel("CACHE & HISTORY")
+            VueoSectionLabel("CACHE & HISTORY")
         }
 
         item {
@@ -1502,7 +1502,7 @@ internal fun DataStorageSettingsScreen(
         }
 
         item {
-            VueoSettingsSectionLabel("RESET")
+            VueoSectionLabel("RESET")
         }
 
         item {
