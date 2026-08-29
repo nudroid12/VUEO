@@ -11207,6 +11207,9 @@ private fun PlayerScreen(
             Context.AUDIO_SERVICE
         ) as AudioManager
     }
+    val seekGestureSensitivity = remember {
+        context.seekGestureSensitivity()
+    }
     val playbackStore = remember {
         PlaybackStore(
             context.applicationContext
@@ -12233,7 +12236,9 @@ private fun PlayerScreen(
                                             val seekWindowMs =
                                                 minOf(
                                                     span / 4L,
-                                                    5L * 60L * 1000L,
+                                                    seekGestureSensitivity
+                                                        .maxSeekMinutes *
+                                                        60L * 1000L,
                                                 )
                                             val preview =
                                                 (startPosition +

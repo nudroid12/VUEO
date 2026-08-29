@@ -93,6 +93,43 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+internal enum class SeekGestureSensitivity(
+    val label: String,
+    val maxSeekMinutes: Long,
+) {
+    LOW("Low", 5L),
+    NORMAL("Normal", 10L),
+    HIGH("High", 20L),
+}
+
+private const val PLAYER_GESTURE_PREFS = "vueo_player_gestures"
+private const val SEEK_SENSITIVITY_KEY = "seek_sensitivity"
+
+internal fun Context.seekGestureSensitivity(): SeekGestureSensitivity {
+    val stored = getSharedPreferences(
+        PLAYER_GESTURE_PREFS,
+        Context.MODE_PRIVATE,
+    ).getString(
+        SEEK_SENSITIVITY_KEY,
+        SeekGestureSensitivity.NORMAL.name,
+    )
+
+    return SeekGestureSensitivity.values()
+        .firstOrNull { it.name == stored }
+        ?: SeekGestureSensitivity.NORMAL
+}
+
+private fun Context.setSeekGestureSensitivity(
+    sensitivity: SeekGestureSensitivity,
+) {
+    getSharedPreferences(
+        PLAYER_GESTURE_PREFS,
+        Context.MODE_PRIVATE,
+    ).edit()
+        .putString(SEEK_SENSITIVITY_KEY, sensitivity.name)
+        .apply()
+}
+
 @Composable
 internal fun VueoSettingsHub(
     engine: UnifiedMediaEngine,
@@ -1865,6 +1902,7 @@ internal fun PlaybackSettingsScreen(
     settingsStore: SettingsStore,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
     var resume by remember {
         mutableStateOf(settingsStore.resumePlaybackEnabled())
     }
@@ -1885,6 +1923,12 @@ internal fun PlaybackSettingsScreen(
         )
     }
     var showOrientationDialog by remember {
+        mutableStateOf(false)
+    }
+    var seekSensitivity by remember {
+        mutableStateOf(context.seekGestureSensitivity())
+    }
+    var showSeekSensitivityDialog by remember {
         mutableStateOf(false)
     }
 
@@ -1961,6 +2005,57 @@ internal fun PlaybackSettingsScreen(
         )
     }
 
+    if (showSeekSensitivityDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showSeekSensitivityDialog = false
+            },
+            title = {
+                Text("Seek Gesture Sensitivity")
+            },
+            text = {
+                Column(
+                    verticalArrangement =
+                        Arrangement.spacedBy(4.dp),
+                ) {
+                    SeekGestureSensitivity.values()
+                        .forEach { option ->
+                            VueoChoiceRow(
+                                label = when (option) {
+                                    SeekGestureSensitivity.LOW ->
+                                        "Low • precise"
+                                    SeekGestureSensitivity.NORMAL ->
+                                        "Normal • balanced"
+                                    SeekGestureSensitivity.HIGH ->
+                                        "High • faster"
+                                },
+                                selected =
+                                    seekSensitivity == option,
+                                onClick = {
+                                    seekSensitivity = option
+                                    context
+                                        .setSeekGestureSensitivity(
+                                            option
+                                        )
+                                    showSeekSensitivityDialog =
+                                        false
+                                },
+                            )
+                        }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showSeekSensitivityDialog = false
+                    },
+                ) {
+                    Text("Close")
+                }
+            },
+        )
+    }
+
     VueoSettingsPage(
         title = "Playback",
         subtitle = "Player behavior and quality preference.",
@@ -1994,6 +2089,17 @@ internal fun PlaybackSettingsScreen(
                 value = orientation.label,
                 onClick = {
                     showOrientationDialog = true
+                },
+            )
+        }
+
+        item {
+            VueoSettingsValueCard(
+                title = "Seek Gesture Sensitivity",
+                subtitle = "Control how far horizontal swipes seek through a video.",
+                value = seekSensitivity.label,
+                onClick = {
+                    showSeekSensitivityDialog = true
                 },
             )
         }
