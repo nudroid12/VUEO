@@ -1,6 +1,7 @@
 package com.vueo.app.ui
 
 // VUEO DNA OPTIONAL SETTINGS PATCH - 2026-08-29
+// VUEO GEMINI V1.1 FLASH-LITE - 2026-08-29
 
 import android.content.Context
 import android.content.Intent
@@ -1313,18 +1314,14 @@ internal fun GeminiEnhancementSettingsScreen(
                                         "Testing..."
 
                                     scope.launch {
-                                        val ok =
+                                        val result =
                                             GeminiClient
                                                 .testConnection(
                                                     key
                                                 )
 
                                         connectionStatus =
-                                            if (ok) {
-                                                "Connected"
-                                            } else {
-                                                "Connection failed"
-                                            }
+                                            result.message
 
                                         testing = false
                                     }
@@ -1392,9 +1389,9 @@ internal fun GeminiEnhancementSettingsScreen(
             VueoStatusCard(
                 title = "Model",
                 value =
-                    "Gemini 3.7 Flash",
+                    "Gemini 3.5 Flash-Lite",
                 text =
-                    "VUEO uses gemini-3.7-flash with low thinking and a short output cap for concise title insights.",
+                    "VUEO uses gemini-3.5-flash-lite through the v1beta Interactions API with minimal thinking and a short output cap.",
             )
         }
 
