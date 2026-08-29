@@ -1,5 +1,7 @@
 package com.vueo.app.ui
 
+// VUEO DNA OPTIONAL SETTINGS PATCH - 2026-08-29
+
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -70,6 +72,7 @@ import com.vueo.app.core.extensions.UnifiedMediaEngine
 import com.vueo.app.core.enrichment.MdblistClient
 import com.vueo.app.core.enrichment.TmdbEnhancementClient
 import com.vueo.app.core.dna.UserDnaEngine
+import com.vueo.app.core.dna.UserDnaPreferences
 import com.vueo.app.core.plugin.PluginStore
 import com.vueo.app.core.storage.AppAccent
 import com.vueo.app.core.storage.LibraryStore
@@ -139,46 +142,57 @@ internal fun VueoSettingsHub(
             profileStore.profiles().size
         }
 
+    val userDnaPreferences =
+        remember {
+            UserDnaPreferences(
+                context.applicationContext
+            )
+        }
+
+    val dnaEnabled =
+        userDnaPreferences
+            .userDnaEnabled(
+                activeProfile.id
+            )
+
     val dnaSnapshot =
-        remember(
-            activeProfile.id,
-            profileVersion,
-        ) {
-            UserDnaEngine(
-                libraryStore
-            ).build()
+        if (dnaEnabled) {
+            remember(
+                activeProfile.id,
+                profileVersion,
+            ) {
+                UserDnaEngine(
+                    libraryStore
+                ).build()
+            }
+        } else {
+            null
         }
 
     val dnaStatus =
-        remember(
-            dnaSnapshot.readiness
-        ) {
-            dnaSnapshot
-                .readiness
-                .name
-                .lowercase(
+        dnaSnapshot
+            ?.readiness
+            ?.name
+            ?.lowercase(
+                Locale.US
+            )
+            ?.replaceFirstChar {
+                it.titlecase(
                     Locale.US
                 )
-                .replaceFirstChar {
-                    it.titlecase(
-                        Locale.US
-                    )
-                }
-        }
+            }
+            ?: "Off"
 
     val dnaTastePreview =
-        remember(
-            dnaSnapshot.topGenres
-        ) {
-            dnaSnapshot
-                .topGenres
-                .take(3)
-                .joinToString(
-                    " • "
-                ) {
-                    "${it.name} ${it.percent}%"
-                }
-        }
+        dnaSnapshot
+            ?.topGenres
+            ?.take(3)
+            ?.joinToString(
+                " • "
+            ) {
+                "${it.name} ${it.percent}%"
+            }
+            .orEmpty()
 
     var showUserDna by remember(
         activeProfile.id
@@ -186,7 +200,7 @@ internal fun VueoSettingsHub(
         mutableStateOf(false)
     }
 
-    if (showUserDna) {
+    if (showUserDna && dnaEnabled) {
         BackHandler {
             showUserDna = false
         }
@@ -439,7 +453,11 @@ internal fun VueoSettingsHub(
                                     )
                                 )
                                 .clickable {
-                                    showUserDna = true
+                                    if (dnaEnabled) {
+                                        showUserDna = true
+                                    } else {
+                                        onEnhancements()
+                                    }
                                 },
                         shape =
                             RoundedCornerShape(
@@ -534,7 +552,11 @@ internal fun VueoSettingsHub(
                                             .takeIf {
                                                 it.isNotBlank()
                                             }
-                                            ?: "Keep watching to build your taste profile.",
+                                            ?: if (dnaEnabled) {
+                                                "Keep watching to build your taste profile."
+                                            } else {
+                                                "Enable User DNA in Enhancements to use personalization."
+                                            },
                                     color =
                                         VueoPalette.Muted,
                                     fontSize = 10.sp,
@@ -783,47 +805,227 @@ internal fun EnhancementsSettingsScreen(
     onMdblist: () -> Unit,
 ) {
     val context = LocalContext.current
-    val pluginStore = remember {
-        PluginStore(context.applicationContext)
+
+    val pluginStore =
+        remember {
+            PluginStore(
+                context.applicationContext
+            )
+        }
+
+    val profileStore =
+        remember {
+            ProfileStore(
+                context.applicationContext
+            )
+        }
+
+    val activeProfile =
+        remember {
+            profileStore.activeProfile()
+        }
+
+    val userDnaPreferences =
+        remember {
+            UserDnaPreferences(
+                context.applicationContext
+            )
+        }
+
+    var userDnaEnabled by remember(
+        activeProfile.id
+    ) {
+        mutableStateOf(
+            userDnaPreferences
+                .userDnaEnabled(
+                    activeProfile.id
+                )
+        )
+    }
+
+    var showDnaMatch by remember(
+        activeProfile.id
+    ) {
+        mutableStateOf(
+            userDnaPreferences
+                .showDnaMatchEnabled(
+                    activeProfile.id
+                )
+        )
+    }
+
+    var personalizedRecommendations by remember(
+        activeProfile.id
+    ) {
+        mutableStateOf(
+            userDnaPreferences
+                .personalizedRecommendationsEnabled(
+                    activeProfile.id
+                )
+        )
     }
 
     VueoSettingsPage(
         title = "Enhancements",
-        subtitle = "Optional services only. VUEO core remains usable without them.",
+        subtitle =
+            "Optional features. VUEO core remains usable without them.",
         onBack = onBack,
     ) {
         item {
             VueoInfoCard(
                 title = "Optional by design",
-                text = "TMDB and MDBList enrich VUEO. They are not required for Home, Search, Content Manager, source discovery, playback, or Library.",
+                text =
+                    "User DNA, TMDB and MDBList are optional. Turning them off does not affect normal browsing, source discovery, playback, My List or Library.",
+            )
+        }
+
+        item {
+            VueoSectionLabel(
+                "PERSONALIZATION"
+            )
+        }
+
+        item {
+            VueoStatusCard(
+                title = "User DNA",
+                value =
+                    if (userDnaEnabled) {
+                        "On"
+                    } else {
+                        "Off"
+                    },
+                text =
+                    "Settings below apply only to ${activeProfile.name}. User DNA is calculated locally from this profile's viewing signals.",
+            )
+        }
+
+        item {
+            VueoSettingsToggleCard(
+                title = "User DNA",
+                subtitle =
+                    "Use this profile's History, playback progress and My List to build a local taste profile.",
+                checked =
+                    userDnaEnabled,
+                onCheckedChange = {
+                    enabled ->
+                    userDnaEnabled =
+                        enabled
+                    userDnaPreferences
+                        .setUserDnaEnabled(
+                            profileId =
+                                activeProfile.id,
+                            enabled =
+                                enabled,
+                        )
+                },
+            )
+        }
+
+        item {
+            VueoSettingsToggleCard(
+                title = "Show DNA Match",
+                subtitle =
+                    "Show a local taste-match score on supported movie and series details.",
+                checked =
+                    showDnaMatch,
+                enabled =
+                    userDnaEnabled,
+                onCheckedChange = {
+                    enabled ->
+                    showDnaMatch =
+                        enabled
+                    userDnaPreferences
+                        .setShowDnaMatchEnabled(
+                            profileId =
+                                activeProfile.id,
+                            enabled =
+                                enabled,
+                        )
+                },
+            )
+        }
+
+        item {
+            VueoSettingsToggleCard(
+                title = "Personalized Recommendations",
+                subtitle =
+                    "Allow VUEO to use User DNA as an extra ranking signal for recommendations.",
+                checked =
+                    personalizedRecommendations,
+                enabled =
+                    userDnaEnabled,
+                onCheckedChange = {
+                    enabled ->
+                    personalizedRecommendations =
+                        enabled
+                    userDnaPreferences
+                        .setPersonalizedRecommendationsEnabled(
+                            profileId =
+                                activeProfile.id,
+                            enabled =
+                                enabled,
+                        )
+                },
+            )
+        }
+
+        item {
+            VueoInfoCard(
+                title = "Your data stays yours",
+                text =
+                    "Turning User DNA off does not delete History, My List or playback progress. It only stops VUEO from using those signals for DNA personalization. No account or server is required.",
+            )
+        }
+
+        item {
+            VueoSectionLabel(
+                "METADATA & RATINGS"
             )
         }
 
         item {
             VueoSettingsNavigationCard(
                 title = "TMDB",
-                subtitle = "Richer metadata, discovery, recommendations, similar titles, and artwork.",
-                status = if (pluginStore.tmdbApiKey().isNotBlank()) {
-                    "Configured"
-                } else {
-                    "Not configured"
-                },
-                icon = Icons.Default.SettingsInputComponent,
-                onClick = onTmdb,
+                subtitle =
+                    "Richer metadata, discovery, recommendations, similar titles, and artwork.",
+                status =
+                    if (
+                        pluginStore
+                            .tmdbApiKey()
+                            .isNotBlank()
+                    ) {
+                        "Configured"
+                    } else {
+                        "Not configured"
+                    },
+                icon =
+                    Icons.Default
+                        .SettingsInputComponent,
+                onClick =
+                    onTmdb,
             )
         }
 
         item {
             VueoSettingsNavigationCard(
                 title = "MDBList",
-                subtitle = "Optional rating and score enrichment for title details.",
-                status = if (settingsStore.mdblistApiKey().isNotBlank()) {
-                    "Configured"
-                } else {
-                    "Not configured"
-                },
-                icon = Icons.Default.SettingsInputComponent,
-                onClick = onMdblist,
+                subtitle =
+                    "Optional rating and score enrichment for title details.",
+                status =
+                    if (
+                        settingsStore
+                            .mdblistApiKey()
+                            .isNotBlank()
+                    ) {
+                        "Configured"
+                    } else {
+                        "Not configured"
+                    },
+                icon =
+                    Icons.Default
+                        .SettingsInputComponent,
+                onClick =
+                    onMdblist,
             )
         }
     }
@@ -2991,6 +3193,7 @@ private fun VueoSettingsToggleCard(
     subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
 ) {
     Card(
         shape = RoundedCornerShape(18.dp),
@@ -3008,14 +3211,28 @@ private fun VueoSettingsToggleCard(
             ) {
                 Text(
                     title,
-                    color = Color.White,
+                    color =
+                        if (enabled) {
+                            Color.White
+                        } else {
+                            Color.White.copy(
+                                alpha = .45f
+                            )
+                        },
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                 )
 
                 Text(
                     subtitle,
-                    color = VueoPalette.Muted,
+                    color =
+                        if (enabled) {
+                            VueoPalette.Muted
+                        } else {
+                            VueoPalette.Muted.copy(
+                                alpha = .55f
+                            )
+                        },
                     fontSize = 11.sp,
                 )
             }
@@ -3025,6 +3242,7 @@ private fun VueoSettingsToggleCard(
             Switch(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
+                enabled = enabled,
             )
         }
     }
