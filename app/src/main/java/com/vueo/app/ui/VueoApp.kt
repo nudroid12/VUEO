@@ -3188,7 +3188,7 @@ private fun SearchScreen(
                 Text(
                     text = "Search",
                     color = Color.White,
-                    fontSize = 40.sp,
+                    fontSize = 34.sp,
                     fontWeight =
                         FontWeight.Black,
                 )
@@ -3942,12 +3942,27 @@ private fun LibraryScreen(
         store.watchlist()
     }
 
+    val context = LocalContext.current
+
     var cloudSelected by remember {
         mutableStateOf(false)
     }
 
+    val libraryUiPreferences =
+        remember {
+            context.getSharedPreferences(
+                "vueo_library_ui",
+                Context.MODE_PRIVATE,
+            )
+        }
+
     var gridView by remember {
-        mutableStateOf(true)
+        mutableStateOf(
+            libraryUiPreferences.getBoolean(
+                "grid_view",
+                true,
+            )
+        )
     }
 
     LazyColumn(
@@ -3975,7 +3990,7 @@ private fun LibraryScreen(
             Column(
                 verticalArrangement =
                     Arrangement.spacedBy(
-                        14.dp
+                        20.dp
                     ),
             ) {
                 Row(
@@ -3989,7 +4004,7 @@ private fun LibraryScreen(
                         modifier =
                             Modifier.weight(1f),
                         color = Color.White,
-                        fontSize = 40.sp,
+                        fontSize = 34.sp,
                         fontWeight =
                             FontWeight.Black,
                     )
@@ -3997,8 +4012,19 @@ private fun LibraryScreen(
                     LibraryViewModeButton(
                         gridView = gridView,
                         onToggle = {
-                            gridView =
+                            val nextGridView =
                                 !gridView
+
+                            gridView =
+                                nextGridView
+
+                            libraryUiPreferences
+                                .edit()
+                                .putBoolean(
+                                    "grid_view",
+                                    nextGridView,
+                                )
+                                .apply()
                         },
                     )
                 }
