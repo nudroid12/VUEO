@@ -3,6 +3,7 @@ package com.vueo.app.ui
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -68,6 +69,7 @@ import com.vueo.app.core.extensions.SourceDiscoveryCache
 import com.vueo.app.core.extensions.UnifiedMediaEngine
 import com.vueo.app.core.enrichment.MdblistClient
 import com.vueo.app.core.enrichment.TmdbEnhancementClient
+import com.vueo.app.core.dna.UserDnaEngine
 import com.vueo.app.core.plugin.PluginStore
 import com.vueo.app.core.storage.AppAccent
 import com.vueo.app.core.storage.LibraryStore
@@ -106,6 +108,10 @@ internal fun VueoSettingsHub(
     val pluginStore = remember {
         PluginStore(context.applicationContext)
     }
+    val libraryStore = remember {
+        LibraryStore(context.applicationContext)
+    }
+
     val addons = engine.stremioAddons()
     val repositories = pluginStore.repositories()
     val providers = pluginStore.totalProviderCount()
@@ -132,6 +138,69 @@ internal fun VueoSettingsHub(
         ) {
             profileStore.profiles().size
         }
+
+    val dnaSnapshot =
+        remember(
+            activeProfile.id,
+            profileVersion,
+        ) {
+            UserDnaEngine(
+                libraryStore
+            ).build()
+        }
+
+    val dnaStatus =
+        remember(
+            dnaSnapshot.readiness
+        ) {
+            dnaSnapshot
+                .readiness
+                .name
+                .lowercase(
+                    Locale.US
+                )
+                .replaceFirstChar {
+                    it.titlecase(
+                        Locale.US
+                    )
+                }
+        }
+
+    val dnaTastePreview =
+        remember(
+            dnaSnapshot.topGenres
+        ) {
+            dnaSnapshot
+                .topGenres
+                .take(3)
+                .joinToString(
+                    " • "
+                ) {
+                    "${it.name} ${it.percent}%"
+                }
+        }
+
+    var showUserDna by remember(
+        activeProfile.id
+    ) {
+        mutableStateOf(false)
+    }
+
+    if (showUserDna) {
+        BackHandler {
+            showUserDna = false
+        }
+
+        UserDnaScreen(
+            profile = activeProfile,
+            libraryStore = libraryStore,
+            dataVersion = profileVersion,
+            onBack = {
+                showUserDna = false
+            },
+        )
+        return
+    }
 
     val avatarDrawable =
         remember(
@@ -200,14 +269,10 @@ internal fun VueoSettingsHub(
         ) {
             Card(
                 modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable(
-                            onClick = onProfiles
-                        ),
+                    Modifier.fillMaxWidth(),
                 shape =
                     RoundedCornerShape(
-                        18.dp
+                        20.dp
                     ),
                 colors =
                     CardDefaults.cardColors(
@@ -216,140 +281,280 @@ internal fun VueoSettingsHub(
                                 .SurfaceElevated,
                     ),
             ) {
-                Row(
-                    modifier =
-                        Modifier.padding(
-                            horizontal = 14.dp,
-                            vertical = 12.dp,
-                        ),
-                    verticalAlignment =
-                        Alignment.CenterVertically,
-                ) {
-                    Box(
+                Column {
+                    Row(
                         modifier =
                             Modifier
-                                .size(
-                                    48.dp
+                                .fillMaxWidth()
+                                .clickable(
+                                    onClick = onProfiles
                                 )
-                                .clip(
-                                    RoundedCornerShape(
-                                        50
-                                    )
-                                )
-                                .background(
-                                    VueoPalette
-                                        .SurfaceStrong
+                                .padding(
+                                    horizontal = 16.dp,
+                                    vertical = 15.dp,
                                 ),
-                        contentAlignment =
-                            Alignment.Center,
+                        verticalAlignment =
+                            Alignment.CenterVertically,
                     ) {
-                        if (
-                            avatarDrawable != null
-                        ) {
-                            Image(
-                                painter =
-                                    painterResource(
-                                        avatarDrawable
+                        Box(
+                            modifier =
+                                Modifier
+                                    .size(
+                                        64.dp
+                                    )
+                                    .clip(
+                                        RoundedCornerShape(
+                                            50
+                                        )
+                                    )
+                                    .background(
+                                        VueoPalette
+                                            .SurfaceStrong
                                     ),
-                                contentDescription =
-                                    activeProfile.name,
-                                contentScale =
-                                    ContentScale.Crop,
-                                modifier =
-                                    Modifier
-                                        .fillMaxSize(),
+                            contentAlignment =
+                                Alignment.Center,
+                        ) {
+                            if (
+                                avatarDrawable != null
+                            ) {
+                                Image(
+                                    painter =
+                                        painterResource(
+                                            avatarDrawable
+                                        ),
+                                    contentDescription =
+                                        activeProfile.name,
+                                    contentScale =
+                                        ContentScale.Crop,
+                                    modifier =
+                                        Modifier
+                                            .fillMaxSize(),
+                                )
+                            } else {
+                                Text(
+                                    text =
+                                        activeProfile.name
+                                            .trim()
+                                            .firstOrNull()
+                                            ?.uppercase()
+                                            ?: "P",
+                                    color =
+                                        Color.White,
+                                    fontSize = 22.sp,
+                                    fontWeight =
+                                        FontWeight.Bold,
+                                )
+                            }
+                        }
+
+                        Spacer(
+                            Modifier.width(
+                                14.dp
                             )
-                        } else {
+                        )
+
+                        Column(
+                            modifier =
+                                Modifier.weight(
+                                    1f
+                                ),
+                            verticalArrangement =
+                                Arrangement.spacedBy(
+                                    3.dp
+                                ),
+                        ) {
                             Text(
                                 text =
-                                    activeProfile.name
-                                        .trim()
-                                        .firstOrNull()
-                                        ?.uppercase()
-                                        ?: "P",
+                                    activeProfile.name,
                                 color =
                                     Color.White,
-                                fontSize = 17.sp,
+                                fontSize = 19.sp,
+                                fontWeight =
+                                    FontWeight.Black,
+                            )
+
+                            Text(
+                                text =
+                                    buildString {
+                                        append(
+                                            if (
+                                                activeProfile
+                                                    .isKids
+                                            ) {
+                                                "Kids profile"
+                                            } else {
+                                                "Local profile"
+                                            }
+                                        )
+                                        append(" • ")
+                                        append(
+                                            profileCount
+                                        )
+                                        append(
+                                            if (
+                                                profileCount == 1
+                                            ) {
+                                                " profile"
+                                            } else {
+                                                " profiles"
+                                            }
+                                        )
+                                    },
+                                color =
+                                    VueoPalette.Muted,
+                                fontSize = 11.sp,
+                            )
+
+                            Text(
+                                text =
+                                    "Manage Profiles",
+                                color =
+                                    VueoPalette.Accent,
+                                fontSize = 11.sp,
                                 fontWeight =
                                     FontWeight.Bold,
                             )
                         }
-                    }
-
-                    Spacer(
-                        Modifier.width(
-                            12.dp
-                        )
-                    )
-
-                    Column(
-                        modifier =
-                            Modifier.weight(
-                                1f
-                            ),
-                        verticalArrangement =
-                            Arrangement.spacedBy(
-                                2.dp
-                            ),
-                    ) {
-                        Text(
-                            text =
-                                activeProfile.name,
-                            color = Color.White,
-                            fontSize = 17.sp,
-                            fontWeight =
-                                FontWeight.Black,
-                        )
 
                         Text(
-                            text =
-                                buildString {
-                                    append(
-                                        if (
-                                            activeProfile
-                                                .isKids
-                                        ) {
-                                            "Kids profile"
-                                        } else {
-                                            "Local profile"
-                                        }
-                                    )
-                                    append(" • ")
-                                    append(profileCount)
-                                    append(
-                                        if (
-                                            profileCount == 1
-                                        ) {
-                                            " profile"
-                                        } else {
-                                            " profiles"
-                                        }
-                                    )
-                                },
+                            text = "›",
                             color =
                                 VueoPalette.Muted,
-                            fontSize = 11.sp,
-                        )
-
-                        Text(
-                            text =
-                                "Manage Profiles",
-                            color =
-                                Color.White.copy(
-                                    alpha = .90f
-                                ),
-                            fontSize = 11.sp,
-                            fontWeight =
-                                FontWeight.Bold,
+                            fontSize = 26.sp,
                         )
                     }
 
-                    Text(
-                        text = "›",
+                    Surface(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    start = 14.dp,
+                                    end = 14.dp,
+                                    bottom = 14.dp,
+                                )
+                                .clip(
+                                    RoundedCornerShape(
+                                        16.dp
+                                    )
+                                )
+                                .clickable {
+                                    showUserDna = true
+                                },
+                        shape =
+                            RoundedCornerShape(
+                                16.dp
+                            ),
                         color =
-                            VueoPalette.Muted,
-                        fontSize = 24.sp,
-                    )
+                            VueoPalette.Accent
+                                .copy(
+                                    alpha = .08f
+                                ),
+                    ) {
+                        Row(
+                            modifier =
+                                Modifier.padding(
+                                    horizontal = 13.dp,
+                                    vertical = 11.dp,
+                                ),
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                        ) {
+                            Column(
+                                modifier =
+                                    Modifier.weight(
+                                        1f
+                                    ),
+                                verticalArrangement =
+                                    Arrangement.spacedBy(
+                                        3.dp
+                                    ),
+                            ) {
+                                Row(
+                                    verticalAlignment =
+                                        Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text =
+                                            "Your DNA",
+                                        color =
+                                            Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight =
+                                            FontWeight.Black,
+                                    )
+
+                                    Spacer(
+                                        Modifier.width(
+                                            8.dp
+                                        )
+                                    )
+
+                                    Surface(
+                                        shape =
+                                            RoundedCornerShape(
+                                                50
+                                            ),
+                                        color =
+                                            VueoPalette.Accent
+                                                .copy(
+                                                    alpha = .12f
+                                                ),
+                                    ) {
+                                        Text(
+                                            text =
+                                                dnaStatus,
+                                            modifier =
+                                                Modifier.padding(
+                                                    horizontal = 8.dp,
+                                                    vertical = 4.dp,
+                                                ),
+                                            color =
+                                                VueoPalette.Accent,
+                                            fontSize = 9.sp,
+                                            fontWeight =
+                                                FontWeight.Black,
+                                        )
+                                    }
+                                }
+
+                                Text(
+                                    text =
+                                        "${dnaSnapshot.confidencePercent}% DNA strength",
+                                    color =
+                                        VueoPalette.Accent,
+                                    fontSize = 10.sp,
+                                    fontWeight =
+                                        FontWeight.Bold,
+                                )
+
+                                Text(
+                                    text =
+                                        dnaTastePreview
+                                            .takeIf {
+                                                it.isNotBlank()
+                                            }
+                                            ?: "Keep watching to build your taste profile.",
+                                    color =
+                                        VueoPalette.Muted,
+                                    fontSize = 10.sp,
+                                )
+                            }
+
+                            Spacer(
+                                Modifier.width(
+                                    10.dp
+                                )
+                            )
+
+                            Text(
+                                text = "›",
+                                color =
+                                    VueoPalette.Accent,
+                                fontSize = 25.sp,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -569,6 +774,7 @@ internal fun VueoSettingsHub(
         }
     }
 }
+
 @Composable
 internal fun EnhancementsSettingsScreen(
     settingsStore: SettingsStore,
