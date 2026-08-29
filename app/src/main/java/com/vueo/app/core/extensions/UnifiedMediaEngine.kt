@@ -11,9 +11,12 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CopyOnWriteArraySet
 
 class UnifiedMediaEngine {
     private val extensions = CopyOnWriteArrayList<MediaExtension>()
+    private val disabledExtensionIds =
+        CopyOnWriteArraySet<String>()
 
     fun install(extension: MediaExtension) {
         extensions.removeAll { it.descriptor.id == extension.descriptor.id }
@@ -22,12 +25,36 @@ class UnifiedMediaEngine {
 
     fun uninstall(id: String) {
         extensions.removeAll { it.descriptor.id == id }
+        disabledExtensionIds.remove(id)
     }
+
+    fun setExtensionEnabled(
+        id: String,
+        enabled: Boolean,
+    ) {
+        if (enabled) {
+            disabledExtensionIds.remove(id)
+        } else {
+            disabledExtensionIds.add(id)
+        }
+    }
+
+    fun isExtensionEnabled(
+        id: String,
+    ): Boolean =
+        id !in disabledExtensionIds
 
     fun installed(): List<MediaExtension> = extensions.toList()
 
     fun stremioAddons(): List<MediaExtension> =
         extensions.filter { it.descriptor.kind == ExtensionKind.STREMIO_ADDON }
+
+    fun activeStremioAddons(): List<MediaExtension> =
+        stremioAddons().filter {
+            isExtensionEnabled(
+                it.descriptor.id
+            )
+        }
 
     fun extension(id: String?): MediaExtension? =
         id?.let { target -> extensions.firstOrNull { it.descriptor.id == target } }
@@ -35,17 +62,28 @@ class UnifiedMediaEngine {
     suspend fun loadCatalogRows(
         maxRows: Int = 10,
         forceRefresh: Boolean = false,
+        catalogOrder: List<String> = emptyList(),
     ): List<CatalogRow> = coroutineScope {
         if (!forceRefresh) {
             CatalogDiscoveryCache
                 .home()
                 ?.let {
-                    return@coroutineScope it.take(maxRows)
+                    return@coroutineScope orderCatalogRows(
+                        rows = it,
+                        catalogOrder = catalogOrder,
+                    ).take(maxRows)
                 }
         }
 
-        val rows =
-            stremioAddons()
+        val orderIndex =
+            catalogOrder
+                .withIndex()
+                .associate {
+                    it.value to it.index
+                }
+
+        val candidates =
+            activeStremioAddons()
                 .flatMap { extension ->
                     extension.descriptor.catalogs
                         .filter {
@@ -55,10 +93,23 @@ class UnifiedMediaEngine {
                             extension to catalog
                         }
                 }
+                .sortedBy {
+                    (extension, catalog) ->
+                    orderIndex[
+                        catalogKey(
+                            extensionId =
+                                extension.descriptor.id,
+                            type = catalog.type,
+                            catalogId = catalog.id,
+                        )
+                    ] ?: Int.MAX_VALUE
+                }
                 .take(maxRows)
+
+        val rows =
+            candidates
                 .map {
                     (extension, catalog) ->
-
                     async {
                         runCatching {
                             val page =
@@ -74,16 +125,21 @@ class UnifiedMediaEngine {
 
                             CatalogRow(
                                 id =
-                                    "${extension.descriptor.id}:" +
-                                    "${catalog.type}:" +
-                                    catalog.id,
+                                    catalogKey(
+                                        extensionId =
+                                            extension.descriptor.id,
+                                        type =
+                                            catalog.type,
+                                        catalogId =
+                                            catalog.id,
+                                    ),
                                 title =
                                     catalog.name
                                         ?: "${extension.descriptor.name} " +
-                                        catalog.type
-                                            .replaceFirstChar {
-                                                it.uppercase()
-                                            },
+                                            catalog.type
+                                                .replaceFirstChar {
+                                                    it.uppercase()
+                                                },
                                 providerName =
                                     extension
                                         .descriptor
@@ -99,12 +155,45 @@ class UnifiedMediaEngine {
                 .filter {
                     it.items.isNotEmpty()
                 }
+                .let {
+                    orderCatalogRows(
+                        rows = it,
+                        catalogOrder = catalogOrder,
+                    )
+                }
 
         CatalogDiscoveryCache.putHome(
             rows
         )
 
         rows
+    }
+
+    private fun catalogKey(
+        extensionId: String,
+        type: String,
+        catalogId: String,
+    ): String =
+        "$extensionId:$type:$catalogId"
+
+    private fun orderCatalogRows(
+        rows: List<CatalogRow>,
+        catalogOrder: List<String>,
+    ): List<CatalogRow> {
+        if (catalogOrder.isEmpty()) {
+            return rows
+        }
+
+        val index =
+            catalogOrder
+                .withIndex()
+                .associate {
+                    it.value to it.index
+                }
+
+        return rows.sortedBy {
+            index[it.id] ?: Int.MAX_VALUE
+        }
     }
 
     suspend fun search(
@@ -125,7 +214,7 @@ class UnifiedMediaEngine {
             }
 
         val searchableCatalogs =
-            stremioAddons()
+            activeStremioAddons()
                 .flatMap { extension ->
                     extension.descriptor.catalogs
                         .filter { catalog ->
@@ -215,6 +304,11 @@ class UnifiedMediaEngine {
             extension(
                 item.sourceExtensionId
             )
+                ?.takeIf {
+                    isExtensionEnabled(
+                        it.descriptor.id
+                    )
+                }
                 ?: return item
 
         return runCatching {
@@ -247,8 +341,11 @@ class UnifiedMediaEngine {
     ): List<StreamSource> = coroutineScope {
         val providers =
             extensions.filter {
-                "stream" in
-                    it.descriptor.resources
+                isExtensionEnabled(
+                    it.descriptor.id
+                ) &&
+                    "stream" in
+                        it.descriptor.resources
             }
 
         if (providers.isEmpty()) {
@@ -313,7 +410,13 @@ class UnifiedMediaEngine {
         videoId: String,
     ): List<SubtitleTrack> = coroutineScope {
         extensions
-            .filter { "subtitles" in it.descriptor.resources }
+            .filter {
+                isExtensionEnabled(
+                    it.descriptor.id
+                ) &&
+                    "subtitles" in
+                        it.descriptor.resources
+            }
             .map { extension ->
                 async {
                     runCatching {

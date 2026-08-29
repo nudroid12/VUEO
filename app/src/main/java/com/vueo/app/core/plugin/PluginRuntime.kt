@@ -106,6 +106,7 @@ suspend fun discoverProgressive(
 
         val targets =
             store.repositories()
+.filter(store::isRepositoryEnabled)
                 .flatMap { repository ->
                     repository.providers
                         .filter { provider ->

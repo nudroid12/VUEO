@@ -185,6 +185,7 @@ private enum class SettingsPage {
     CONTENT_MANAGER,
     ADDONS,
     PLUGINS,
+    CATALOG_ORDER,
     ENHANCEMENTS,
     TMDB,
     MDBLIST,
@@ -203,7 +204,8 @@ private fun parentSettingsPage(
 ): SettingsPage =
     when (page) {
         SettingsPage.ADDONS,
-        SettingsPage.PLUGINS ->
+        SettingsPage.PLUGINS,
+        SettingsPage.CATALOG_ORDER ->
             SettingsPage.CONTENT_MANAGER
 
         SettingsPage.TMDB,
@@ -385,7 +387,17 @@ fun VueoApp() {
         store.manifestUrls().forEach { manifestUrl ->
             runCatching {
                 ExtensionInstaller.installStremioAddon(manifestUrl)
-            }.onSuccess(engine::install)
+            }.onSuccess { extension ->
+                engine.install(extension)
+                engine.setExtensionEnabled(
+                    id =
+                        extension.descriptor.id,
+                    enabled =
+                        store.isAddonEnabled(
+                            manifestUrl
+                        ),
+                )
+            }
         }
 
         booting = false
@@ -838,6 +850,10 @@ fun VueoApp() {
                             onPlugins = {
                                 settingsPage = SettingsPage.PLUGINS
                             },
+                            onCatalogOrder = {
+                                settingsPage =
+                                    SettingsPage.CATALOG_ORDER
+                            },
                         )
 
                     SettingsPage.ADDONS ->
@@ -857,6 +873,20 @@ fun VueoApp() {
                         PluginsScreen(
                             onBack = {
                                 settingsPage = SettingsPage.CONTENT_MANAGER
+                            },
+                        )
+                    SettingsPage.CATALOG_ORDER ->
+                        CatalogOrderScreen(
+                            engine = engine,
+                            store = store,
+                            contentVersion =
+                                contentVersion,
+                            onContentChanged = {
+                                contentVersion++
+                            },
+                            onBack = {
+                                settingsPage =
+                                    SettingsPage.CONTENT_MANAGER
                             },
                         )
 
@@ -964,9 +994,19 @@ fun VueoApp() {
                                                 .installStremioAddon(
                                                     manifestUrl
                                                 )
-                                        }.onSuccess(
-                                            engine::install
-                                        )
+                                        }.onSuccess { extension ->
+                                    engine.install(
+                                        extension
+                                    )
+                                    engine.setExtensionEnabled(
+                                        id =
+                                            extension.descriptor.id,
+                                        enabled =
+                                            store.isAddonEnabled(
+                                                manifestUrl
+                                            ),
+                                    )
+                                }
                                     }
 
                                 providerCodeSync.syncMissing(
@@ -1235,6 +1275,21 @@ private fun HomeScreen(
 ) {
     val context =
         LocalContext.current
+    val homeAddonStore =
+        remember {
+            AddonStore(
+                context.applicationContext
+            )
+        }
+
+    val catalogOrder =
+        remember(
+            contentVersion
+        ) {
+            homeAddonStore
+                .catalogOrder()
+        }
+
 
     val profileStore =
         remember {
@@ -1276,13 +1331,21 @@ private fun HomeScreen(
         val listState =
         rememberLazyListState()
 
-    var rows by remember {
+    var rows by remember(
+        contentVersion,
+        catalogOrder,
+    ) {
         mutableStateOf(
-            CatalogDiscoveryCache
-                .home(
-                    allowStale = true
-                )
-                .orEmpty()
+            orderHomeCatalogRows(
+                rows =
+                    CatalogDiscoveryCache
+                        .home(
+                            allowStale = true
+                        )
+                        .orEmpty(),
+                catalogOrder =
+                    catalogOrder,
+            )
         )
     }
 
@@ -1307,7 +1370,12 @@ private fun HomeScreen(
                 it.isNotEmpty()
             }
             ?.let {
-                rows = it
+                rows =
+                    orderHomeCatalogRows(
+                        rows = it,
+                        catalogOrder =
+                            catalogOrder,
+                    )
             }
 
         if (booting) {
@@ -1323,13 +1391,20 @@ private fun HomeScreen(
             engine.loadCatalogRows(
                 forceRefresh =
                     rows.isNotEmpty(),
+                catalogOrder =
+                    catalogOrder,
             )
         }.onSuccess {
             fresh ->
             if (
                 fresh.isNotEmpty()
             ) {
-                rows = fresh
+                rows =
+                    orderHomeCatalogRows(
+                        rows = fresh,
+                        catalogOrder =
+                            catalogOrder,
+                    )
 
                 CatalogDiscoveryCache
                     .persistHome(
@@ -1348,12 +1423,17 @@ private fun HomeScreen(
                 rows.isEmpty()
             ) {
                 rows =
-                    CatalogDiscoveryCache
-                        .home(
-                            allowStale =
-                                true
-                        )
-                        .orEmpty()
+                    orderHomeCatalogRows(
+                        rows =
+                            CatalogDiscoveryCache
+                                .home(
+                                    allowStale =
+                                        true
+                                )
+                                .orEmpty(),
+                        catalogOrder =
+                            catalogOrder,
+                    )
             }
         }
 
@@ -2668,6 +2748,26 @@ private fun EmptyHomeCard(
                 )
             }
         }
+    }
+}
+
+private fun orderHomeCatalogRows(
+    rows: List<CatalogRow>,
+    catalogOrder: List<String>,
+): List<CatalogRow> {
+    if (catalogOrder.isEmpty()) {
+        return rows
+    }
+
+    val index =
+        catalogOrder
+            .withIndex()
+            .associate {
+                it.value to it.index
+            }
+
+    return rows.sortedBy {
+        index[it.id] ?: Int.MAX_VALUE
     }
 }
 
@@ -5260,70 +5360,107 @@ private fun ContentManagerScreen(
     onBack: () -> Unit,
     onAddons: () -> Unit,
     onPlugins: () -> Unit,
+    onCatalogOrder: () -> Unit,
 ) {
     val context = LocalContext.current
     val pluginStore = remember {
-        PluginStore(context.applicationContext)
+        PluginStore(
+            context.applicationContext
+        )
     }
     val healthStore = remember {
-        PluginHealthStore(context.applicationContext)
+        PluginHealthStore(
+            context.applicationContext
+        )
     }
-
-    val addons = engine.stremioAddons()
-    val repositoryCount = pluginStore.repositories().size
-    val providerCount = pluginStore.totalProviderCount()
-    val health = healthStore.records()
-
-    val onlineCount = health.count {
-        it.status == ProviderHealthStatus.ONLINE ||
-            it.status == ProviderHealthStatus.SLOW
-    }
-    val slowCount = health.count {
-        it.status == ProviderHealthStatus.SLOW ||
-            it.status == ProviderHealthStatus.TIMEOUT
-    }
-    val failedCount = health.count {
-        it.status == ProviderHealthStatus.FAILED ||
-            it.status == ProviderHealthStatus.BLOCKED ||
-            it.status == ProviderHealthStatus.UNAVAILABLE
-    }
+    val addons =
+        engine.stremioAddons()
+    val repositoryCount =
+        pluginStore.repositories().size
+    val providerCount =
+        pluginStore.totalProviderCount()
+    val catalogCount =
+        addons.sumOf {
+            it.descriptor.catalogs.count {
+                catalog ->
+                catalog.canLoadWithoutExtras
+            }
+        }
+    val health =
+        healthStore.records()
+    val onlineCount =
+        health.count {
+            it.status == ProviderHealthStatus.ONLINE ||
+                it.status == ProviderHealthStatus.SLOW
+        }
+    val slowCount =
+        health.count {
+            it.status == ProviderHealthStatus.SLOW ||
+                it.status == ProviderHealthStatus.TIMEOUT
+        }
+    val failedCount =
+        health.count {
+            it.status == ProviderHealthStatus.FAILED ||
+                it.status == ProviderHealthStatus.BLOCKED ||
+                it.status == ProviderHealthStatus.UNAVAILABLE
+        }
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(VueoPalette.Background),
-        contentPadding = PaddingValues(
-            horizontal = 20.dp,
-            vertical = 20.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(
+                    VueoPalette.Background
+                ),
+        contentPadding =
+            PaddingValues(
+                horizontal = 20.dp,
+                vertical = 14.dp,
+            ),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                14.dp
+            ),
     ) {
         item {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
+                modifier =
+                    Modifier.fillMaxWidth(),
+                verticalAlignment =
+                    Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(
+                    onClick = onBack
+                ) {
                     Icon(
                         Icons.Default.ArrowBack,
-                        contentDescription = "Back to Settings",
+                        contentDescription =
+                            "Back to Settings",
                         tint = Color.White,
                     )
                 }
 
                 Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier =
+                        Modifier.weight(
+                            1f
+                        ),
+                    verticalArrangement =
+                        Arrangement.spacedBy(
+                            3.dp
+                        ),
                 ) {
-                    VueoBrandLockup(compact = true)
                     Text(
                         "Content Manager",
                         color = Color.White,
                         fontSize = 30.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight =
+                            FontWeight.Black,
                     )
                     Text(
-                        "Manage addons, plugins, providers and health.",
-                        color = VueoPalette.Muted,
+                        "Manage addons, plugins, providers and catalogs.",
+                        color =
+                            VueoPalette.Muted,
                         fontSize = 12.sp,
                     )
                 }
@@ -5332,35 +5469,55 @@ private fun ContentManagerScreen(
 
         item {
             Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = VueoPalette.SurfaceElevated
-                ),
+                shape =
+                    RoundedCornerShape(
+                        20.dp
+                    ),
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor =
+                            VueoPalette
+                                .SurfaceElevated
+                    ),
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                16.dp
+                            ),
+                    horizontalArrangement =
+                        Arrangement.spacedBy(
+                            8.dp
+                        ),
                 ) {
                     ContentMetric(
-                        modifier = Modifier.weight(1f),
-                        value = addons.size.toString(),
+                        modifier =
+                            Modifier.weight(1f),
+                        value =
+                            addons.size.toString(),
                         label = "Installed",
                     )
                     ContentMetric(
-                        modifier = Modifier.weight(1f),
-                        value = onlineCount.toString(),
+                        modifier =
+                            Modifier.weight(1f),
+                        value =
+                            onlineCount.toString(),
                         label = "Online",
                     )
                     ContentMetric(
-                        modifier = Modifier.weight(1f),
-                        value = slowCount.toString(),
+                        modifier =
+                            Modifier.weight(1f),
+                        value =
+                            slowCount.toString(),
                         label = "Slow",
                     )
                     ContentMetric(
-                        modifier = Modifier.weight(1f),
-                        value = failedCount.toString(),
+                        modifier =
+                            Modifier.weight(1f),
+                        value =
+                            failedCount.toString(),
                         label = "Failed",
                     )
                 }
@@ -5370,33 +5527,367 @@ private fun ContentManagerScreen(
         item {
             ContentManagerCard(
                 title = "Addons",
-                subtitle = "Stremio compatible catalogs, metadata, streams and subtitles.",
-                status = "${addons.size} installed",
-                icon = Icons.Default.Extension,
+                subtitle =
+                    "Stremio compatible catalogs, metadata, streams and subtitles.",
+                status =
+                    "${addons.size} installed",
+                icon =
+                    Icons.Default.Extension,
                 onClick = onAddons,
             )
         }
 
         item {
             ContentManagerCard(
-                title = "Plugins & Providers",
-                subtitle = "QuickJS repositories, runtime providers, health and diagnostics.",
-                status = "$repositoryCount repos • $providerCount providers",
-                icon = Icons.Default.SettingsInputComponent,
+                title =
+                    "Plugins & Providers",
+                subtitle =
+                    "QuickJS repositories, runtime providers, health and diagnostics.",
+                status =
+                    "$repositoryCount repos • $providerCount providers",
+                icon =
+                    Icons.Default.SettingsInputComponent,
                 onClick = onPlugins,
             )
         }
 
         item {
+            ContentManagerCard(
+                title = "Catalog Order",
+                subtitle =
+                    "Choose the order catalogs appear on Home.",
+                status =
+                    "$catalogCount catalogs",
+                icon =
+                    Icons.Default.VideoLibrary,
+                onClick =
+                    onCatalogOrder,
+            )
+        }
+
+        item {
             Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = VueoPalette.Surface,
+                shape =
+                    RoundedCornerShape(
+                        18.dp
+                    ),
+                color =
+                    VueoPalette.Surface,
             ) {
                 Text(
                     "Provider Health feeds Smart Source ranking. Slow or failed providers never need to block faster sources.",
-                    modifier = Modifier.padding(16.dp),
-                    color = VueoPalette.Muted,
+                    modifier =
+                        Modifier.padding(
+                            16.dp
+                        ),
+                    color =
+                        VueoPalette.Muted,
                     fontSize = 11.sp,
+                )
+            }
+        }
+    }
+}
+
+private data class CatalogOrderEntry(
+    val key: String,
+    val title: String,
+    val providerName: String,
+    val type: String,
+    val addonEnabled: Boolean,
+)
+
+@Composable
+private fun CatalogOrderScreen(
+    engine: UnifiedMediaEngine,
+    store: AddonStore,
+    contentVersion: Int,
+    onContentChanged: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val entries =
+        remember(
+            contentVersion
+        ) {
+            engine.stremioAddons()
+                .flatMap {
+                    extension ->
+                    extension.descriptor
+                        .catalogs
+                        .filter {
+                            it.canLoadWithoutExtras
+                        }
+                        .map {
+                            catalog ->
+                            CatalogOrderEntry(
+                                key =
+                                    "${extension.descriptor.id}:${catalog.type}:${catalog.id}",
+                                title =
+                                    catalog.name
+                                        ?: catalog.id,
+                                providerName =
+                                    extension.descriptor.name,
+                                type =
+                                    catalog.type
+                                        .replaceFirstChar {
+                                            it.uppercase()
+                                        },
+                                addonEnabled =
+                                    engine.isExtensionEnabled(
+                                        extension.descriptor.id
+                                    ),
+                            )
+                        }
+                }
+        }
+
+    val entryByKey =
+        remember(entries) {
+            entries.associateBy {
+                it.key
+            }
+        }
+
+    var order by remember(
+        contentVersion,
+        entries,
+    ) {
+        mutableStateOf(
+            store.reconcileCatalogOrder(
+                entries.map {
+                    it.key
+                }
+            )
+        )
+    }
+
+    fun move(
+        index: Int,
+        delta: Int,
+    ) {
+        val target =
+            index + delta
+
+        if (
+            index !in order.indices ||
+            target !in order.indices
+        ) {
+            return
+        }
+
+        val next =
+            order.toMutableList()
+        val moved =
+            next.removeAt(index)
+
+        next.add(
+            target,
+            moved,
+        )
+
+        order = next
+        store.setCatalogOrder(next)
+        onContentChanged()
+    }
+
+    Column(
+        modifier =
+            Modifier.fillMaxSize(),
+    ) {
+        ScreenHeader(
+            title =
+                "Catalog Order",
+            subtitle =
+                "Arrange how catalogs appear on Home",
+            onBack =
+                onBack,
+        )
+
+        if (entries.isEmpty()) {
+            Box(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                contentAlignment =
+                    Alignment.Center,
+            ) {
+                Text(
+                    "No catalogs available",
+                    color =
+                        VueoPalette.Muted,
+                )
+            }
+            return@Column
+        }
+
+        LazyColumn(
+            modifier =
+                Modifier.weight(1f),
+            contentPadding =
+                PaddingValues(
+                    horizontal = 20.dp,
+                    vertical = 8.dp,
+                ),
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    10.dp
+                ),
+        ) {
+            item {
+                Text(
+                    "Top catalogs appear first on Home. Catalogs from disabled addons keep their position but are not loaded.",
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 11.sp,
+                )
+            }
+
+            order.forEachIndexed {
+                index,
+                key ->
+                val entry =
+                    entryByKey[key]
+                        ?: return@forEachIndexed
+
+                item(
+                    key =
+                        "catalog-order:$key"
+                ) {
+                    ElevatedCard(
+                        modifier =
+                            Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        horizontal = 14.dp,
+                                        vertical = 12.dp,
+                                    ),
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                        ) {
+                            Surface(
+                                modifier =
+                                    Modifier.size(
+                                        34.dp
+                                    ),
+                                shape =
+                                    CircleShape,
+                                color =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .primary
+                                        .copy(
+                                            alpha = .12f
+                                        ),
+                            ) {
+                                Box(
+                                    contentAlignment =
+                                        Alignment.Center,
+                                ) {
+                                    Text(
+                                        "${index + 1}",
+                                        color =
+                                            MaterialTheme
+                                                .colorScheme
+                                                .primary,
+                                        fontWeight =
+                                            FontWeight.Black,
+                                    )
+                                }
+                            }
+
+                            Spacer(
+                                Modifier.width(
+                                    12.dp
+                                )
+                            )
+
+                            Column(
+                                modifier =
+                                    Modifier.weight(1f),
+                                verticalArrangement =
+                                    Arrangement.spacedBy(
+                                        2.dp
+                                    ),
+                            ) {
+                                Text(
+                                    entry.title,
+                                    fontWeight =
+                                        FontWeight.Bold,
+                                    color =
+                                        if (
+                                            entry.addonEnabled
+                                        ) {
+                                            Color.White
+                                        } else {
+                                            VueoPalette.Muted
+                                        },
+                                )
+                                Text(
+                                    "${entry.providerName} • ${entry.type}",
+                                    color =
+                                        VueoPalette.Muted,
+                                    fontSize = 11.sp,
+                                )
+                                if (
+                                    !entry.addonEnabled
+                                ) {
+                                    Text(
+                                        "Addon disabled",
+                                        color =
+                                            VueoPalette.Muted,
+                                        fontSize = 10.sp,
+                                        fontWeight =
+                                            FontWeight.Bold,
+                                    )
+                                }
+                            }
+
+                            TextButton(
+                                enabled =
+                                    index > 0,
+                                onClick = {
+                                    move(
+                                        index,
+                                        -1,
+                                    )
+                                },
+                            ) {
+                                Text(
+                                    "↑",
+                                    fontSize = 20.sp,
+                                )
+                            }
+                            TextButton(
+                                enabled =
+                                    index <
+                                        order.lastIndex,
+                                onClick = {
+                                    move(
+                                        index,
+                                        1,
+                                    )
+                                },
+                            ) {
+                                Text(
+                                    "↓",
+                                    fontSize = 20.sp,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Spacer(
+                    Modifier.height(
+                        20.dp
+                    )
                 )
             }
         }
@@ -5657,6 +6148,24 @@ private fun AddonsScreen(
                     ) { addon ->
                         AddonCard(
                             addon = addon,
+                            enabled =
+                                store.isAddonEnabled(
+                                    addon.descriptor.baseUrl
+                                ),
+                            onEnabledChanged = {
+                                enabled ->
+                                store.setAddonEnabled(
+                                    addon.descriptor.baseUrl,
+                                    enabled,
+                                )
+                                engine.setExtensionEnabled(
+                                    addon.descriptor.id,
+                                    enabled,
+                                )
+                                installed =
+                                    engine.stremioAddons()
+                                onContentChanged()
+                            },
                             isDevelopmentDefault = store.isDevelopmentDefault(
                                 addon.descriptor.baseUrl
                             ),
@@ -5670,8 +6179,20 @@ private fun AddonsScreen(
                                             addon.descriptor.baseUrl
                                         )
                                     }.onSuccess {
-                                        engine.install(it)
-                                        installed = engine.stremioAddons()
+                                        refreshed ->
+                                        engine.install(
+                                            refreshed
+                                        )
+                                        engine.setExtensionEnabled(
+                                            id =
+                                                refreshed.descriptor.id,
+                                            enabled =
+                                                store.isAddonEnabled(
+                                                    addon.descriptor.baseUrl
+                                                ),
+                                        )
+                                        installed =
+                                            engine.stremioAddons()
                                         onContentChanged()
                                     }
 
@@ -5746,8 +6267,14 @@ private fun AddonsScreen(
                                     manifestUrl.trim()
                                 )
                             }.onSuccess { addon ->
+                                store.add(
+                                    addon.descriptor.baseUrl
+                                )
                                 engine.install(addon)
-                                store.add(addon.descriptor.baseUrl)
+                                engine.setExtensionEnabled(
+                                    addon.descriptor.id,
+                                    true,
+                                )
                                 installed = engine.stremioAddons()
                                 manifestUrl = ""
                                 showInstallDialog = false
@@ -5781,6 +6308,9 @@ private fun AddonsScreen(
 @Composable
 private fun AddonCard(
     addon: MediaExtension,
+    enabled: Boolean,
+    onEnabledChanged:
+        (Boolean) -> Unit,
     isDevelopmentDefault: Boolean,
     refreshing: Boolean,
     onRefresh: () -> Unit,
@@ -5848,6 +6378,16 @@ private fun AddonCard(
                     }
                 }
 
+                Switch(
+                    checked = enabled,
+                    onCheckedChange =
+                        onEnabledChanged,
+                )
+                Spacer(
+                    Modifier.width(
+                        6.dp
+                    )
+                )
                 IconButton(
                     onClick = onRefresh,
                     enabled = !refreshing,
@@ -5901,34 +6441,50 @@ private fun AddonCard(
 private fun PluginsScreen(
     onBack: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val store = remember {
-        PluginStore(
-            context.applicationContext
-        )
-    }
-    val scope = rememberCoroutineScope()
-    val healthStore = remember {
-        PluginHealthStore(context.applicationContext)
-    }
-    val codeStore = remember {
-        ProviderCodeStore(context.applicationContext)
-    }
-    val codeSync = remember {
-        ProviderCodeSyncManager(
-            context.applicationContext
-        )
-    }
+    val context =
+        LocalContext.current
+    val store =
+        remember {
+            PluginStore(
+                context.applicationContext
+            )
+        }
+    val scope =
+        rememberCoroutineScope()
+    val healthStore =
+        remember {
+            PluginHealthStore(
+                context.applicationContext
+            )
+        }
+    val codeStore =
+        remember {
+            ProviderCodeStore(
+                context.applicationContext
+            )
+        }
+    val codeSync =
+        remember {
+            ProviderCodeSyncManager(
+                context.applicationContext
+            )
+        }
+
     var healthRevision by remember {
         mutableIntStateOf(0)
     }
     var codeRevision by remember {
         mutableIntStateOf(0)
     }
-
     var repositories by remember {
         mutableStateOf(
             store.repositories()
+        )
+    }
+    var selectedRepositoryUrl by remember {
+        mutableStateOf<String?>(
+            repositories.firstOrNull()
+                ?.manifestUrl
         )
     }
     var pluginsEnabled by remember {
@@ -5946,25 +6502,51 @@ private fun PluginsScreen(
         mutableStateOf(false)
     }
     var message by remember {
-        mutableStateOf<String?>(null)
+        mutableStateOf<String?>(
+            null
+        )
     }
     var refreshingUrl by remember {
-        mutableStateOf<String?>(null)
+        mutableStateOf<String?>(
+            null
+        )
+    }
+
+    fun refreshRepositories() {
+        repositories =
+            store.repositories()
+
+        if (
+            selectedRepositoryUrl == null ||
+            repositories.none {
+                it.manifestUrl ==
+                    selectedRepositoryUrl
+            }
+        ) {
+            selectedRepositoryUrl =
+                repositories.firstOrNull()
+                    ?.manifestUrl
+        }
     }
 
     LaunchedEffect(Unit) {
         store.seedDevelopmentDefaultsIfNeeded()
-        repositories =
-            store.repositories()
-
+        refreshRepositories()
         codeSync.syncMissing(
             repositories
         )
         codeRevision++
     }
 
+    val selectedRepository =
+        repositories.firstOrNull {
+            it.manifestUrl ==
+                selectedRepositoryUrl
+        }
+
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier =
+            Modifier.fillMaxSize(),
     ) {
         ScreenHeader(
             title = "Plugins",
@@ -5987,14 +6569,17 @@ private fun PluginsScreen(
         )
 
         LazyColumn(
-            modifier = Modifier.weight(1f),
+            modifier =
+                Modifier.weight(1f),
             contentPadding =
                 PaddingValues(
                     horizontal = 20.dp,
                     vertical = 8.dp,
                 ),
             verticalArrangement =
-                Arrangement.spacedBy(14.dp),
+                Arrangement.spacedBy(
+                    14.dp
+                ),
         ) {
             item {
                 ElevatedCard(
@@ -6003,7 +6588,9 @@ private fun PluginsScreen(
                 ) {
                     Row(
                         modifier =
-                            Modifier.padding(18.dp),
+                            Modifier.padding(
+                                18.dp
+                            ),
                         verticalAlignment =
                             Alignment.CenterVertically,
                     ) {
@@ -6028,7 +6615,6 @@ private fun PluginsScreen(
                                 fontSize = 12.sp,
                             )
                         }
-
                         Switch(
                             checked =
                                 pluginsEnabled,
@@ -6044,41 +6630,61 @@ private fun PluginsScreen(
             }
 
             item {
-                val summary = healthStore.summary(
-                    repositories = repositories,
-                    pluginStore = store,
-                )
-
+                val summary =
+                    healthStore.summary(
+                        repositories =
+                            repositories,
+                        pluginStore =
+                            store,
+                    )
                 ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier =
+                        Modifier.fillMaxWidth(),
                 ) {
                     Column(
-                        modifier = Modifier.padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(9.dp),
+                        modifier =
+                            Modifier.padding(
+                                18.dp
+                            ),
+                        verticalArrangement =
+                            Arrangement.spacedBy(
+                                9.dp
+                            ),
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
+                            modifier =
+                                Modifier.fillMaxWidth(),
+                            verticalAlignment =
+                                Alignment.CenterVertically,
                         ) {
-                            Column(Modifier.weight(1f)) {
+                            Column(
+                                Modifier.weight(1f)
+                            ) {
                                 Text(
                                     "Provider Health",
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight =
+                                        FontWeight.Bold,
                                     fontSize = 18.sp,
                                 )
                                 Text(
                                     "Updated whenever VUEO runs source discovery.",
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f),
+                                    color =
+                                        MaterialTheme
+                                            .colorScheme
+                                            .onSurface
+                                            .copy(alpha = .58f),
                                     fontSize = 11.sp,
                                 )
                             }
-
                             IconButton(
-                                onClick = { healthRevision++ },
+                                onClick = {
+                                    healthRevision++
+                                },
                             ) {
                                 Icon(
                                     Icons.Default.Refresh,
-                                    contentDescription = "Refresh health",
+                                    contentDescription =
+                                        "Refresh health",
                                 )
                             }
                         }
@@ -6086,8 +6692,12 @@ private fun PluginsScreen(
                         Text(
                             "${summary.online} online • ${summary.slow} slow • " +
                                 "${summary.noResults} no results",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .primary,
+                            fontWeight =
+                                FontWeight.Bold,
                             fontSize = 12.sp,
                         )
 
@@ -6104,22 +6714,32 @@ private fun PluginsScreen(
                                     "${summary.blocked} blocked • " +
                                     "${summary.timeout} timeout • " +
                                     "${summary.failed} failed",
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f),
+                                color =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .onSurface
+                                        .copy(alpha = .5f),
                                 fontSize = 11.sp,
                             )
                         }
 
-                        if (summary.unknown > 0 || summary.disabled > 0) {
+                        if (
+                            summary.unknown > 0 ||
+                            summary.disabled > 0
+                        ) {
                             Text(
                                 "${summary.unknown} unknown • ${summary.disabled} disabled",
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f),
+                                color =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .onSurface
+                                        .copy(alpha = .5f),
                                 fontSize = 11.sp,
                             )
                         }
                     }
                 }
             }
-
 
             if (repositories.isEmpty()) {
                 item {
@@ -6129,7 +6749,9 @@ private fun PluginsScreen(
                     ) {
                         Column(
                             modifier =
-                                Modifier.padding(20.dp),
+                                Modifier.padding(
+                                    20.dp
+                                ),
                             verticalArrangement =
                                 Arrangement.spacedBy(
                                     10.dp
@@ -6147,14 +6769,11 @@ private fun PluginsScreen(
                                     MaterialTheme
                                         .colorScheme
                                         .onSurface
-                                        .copy(
-                                            alpha = .68f
-                                        ),
+                                        .copy(alpha = .68f),
                             )
                             Button(
                                 onClick = {
-                                    showAddDialog =
-                                        true
+                                    showAddDialog = true
                                 },
                             ) {
                                 Text(
@@ -6164,88 +6783,152 @@ private fun PluginsScreen(
                         }
                     }
                 }
-            }
+            } else {
+                item {
+                    Text(
+                        "REPOSITORIES",
+                        color =
+                            MaterialTheme
+                                .colorScheme
+                                .onSurface
+                                .copy(alpha = .52f),
+                        fontSize = 11.sp,
+                        fontWeight =
+                            FontWeight.Bold,
+                        letterSpacing = 1.2.sp,
+                    )
 
-            items(
-                repositories,
-                key = {
-                    it.manifestUrl
-                },
-            ) { repository ->
-                PluginRepositoryCard(
-                    repository = repository,
-                    store = store,
-                    healthStore = healthStore,
-                    healthRevision = healthRevision,
-                    codeStore = codeStore,
-                    codeRevision = codeRevision,
-                    isDevelopmentDefault =
-                        store.isDevelopmentDefault(
-                            repository.manifestUrl
-                        ),
-                    refreshing =
-                        refreshingUrl ==
-                        repository.manifestUrl,
-                    onRefresh = {
-                        scope.launch {
-                            refreshingUrl =
-                                repository
-                                    .manifestUrl
+                    Spacer(
+                        Modifier.height(
+                            8.dp
+                        )
+                    )
 
-                            runCatching {
-                                PluginRepositoryClient
-                                    .fetch(
-                                        repository
-                                            .manifestUrl
+                    LazyRow(
+                        horizontalArrangement =
+                            Arrangement.spacedBy(
+                                8.dp
+                            ),
+                    ) {
+                        items(
+                            repositories,
+                            key = {
+                                it.manifestUrl
+                            },
+                        ) {
+                            repository ->
+                            FilterChip(
+                                selected =
+                                    selectedRepositoryUrl ==
+                                        repository.manifestUrl,
+                                onClick = {
+                                    selectedRepositoryUrl =
+                                        repository.manifestUrl
+                                },
+                                label = {
+                                    Text(
+                                        repository.name,
+                                        maxLines = 1,
+                                        overflow =
+                                            TextOverflow.Ellipsis,
                                     )
-                            }.onSuccess {
-                                refreshed ->
-
-                                store.upsert(
-                                    refreshed
-                                )
-
-                                val syncResult =
-                                    codeSync.syncRepository(
-                                        repository =
-                                            refreshed,
-                                        force =
-                                            true,
-                                    )
-
-                                repositories =
-                                    store.repositories()
-                                codeRevision++
-
-                                message =
-                                    "Provider code ready " +
-                                    "${syncResult.readyProviders}/" +
-                                    "${refreshed.providers.size}"
-                            }.onFailure {
-                                message =
-                                    it.message
-                            }
-
-                            refreshingUrl = null
+                                },
+                            )
                         }
-                    },
-                    onDelete = {
-                        healthStore.removeRepository(
-                            repository.manifestUrl
-                        )
-                        store.remove(
-                            repository.manifestUrl
-                        )
-                        repositories =
-                            store.repositories()
-                        healthRevision++
-                    },
-                    onProviderChanged = {
-                        repositories =
-                            store.repositories()
-                        healthRevision++
-                    },
-                )
+                    }
+                }
+
+                selectedRepository
+                    ?.let {
+                        repository ->
+                        item(
+                            key =
+                                "repo-card:${repository.manifestUrl}"
+                        ) {
+                            PluginRepositoryCard(
+                                repository =
+                                    repository,
+                                store = store,
+                                healthStore =
+                                    healthStore,
+                                healthRevision =
+                                    healthRevision,
+                                codeStore =
+                                    codeStore,
+                                codeRevision =
+                                    codeRevision,
+                                repositoryEnabled =
+                                    store.isRepositoryEnabled(
+                                        repository
+                                    ),
+                                onRepositoryEnabledChanged = {
+                                    enabled ->
+                                    store.setRepositoryEnabled(
+                                        repository,
+                                        enabled,
+                                    )
+                                    refreshRepositories()
+                                    healthRevision++
+                                },
+                                isDevelopmentDefault =
+                                    store.isDevelopmentDefault(
+                                        repository.manifestUrl
+                                    ),
+                                refreshing =
+                                    refreshingUrl ==
+                                        repository.manifestUrl,
+                                onRefresh = {
+                                    scope.launch {
+                                        refreshingUrl =
+                                            repository.manifestUrl
+                                        runCatching {
+                                            PluginRepositoryClient
+                                                .fetch(
+                                                    repository.manifestUrl
+                                                )
+                                        }.onSuccess {
+                                            refreshed ->
+                                            store.upsert(
+                                                refreshed
+                                            )
+                                            val syncResult =
+                                                codeSync.syncRepository(
+                                                    repository =
+                                                        refreshed,
+                                                    force = true,
+                                                )
+                                            refreshRepositories()
+                                            selectedRepositoryUrl =
+                                                refreshed.manifestUrl
+                                            codeRevision++
+                                            message =
+                                                "Provider code ready " +
+                                                    "${syncResult.readyProviders}/" +
+                                                    "${refreshed.providers.size}"
+                                        }.onFailure {
+                                            message =
+                                                it.message
+                                        }
+                                        refreshingUrl = null
+                                    }
+                                },
+                                onDelete = {
+                                    healthStore.removeRepository(
+                                        repository.manifestUrl
+                                    )
+                                    store.remove(
+                                        repository.manifestUrl
+                                    )
+                                    refreshRepositories()
+                                    healthRevision++
+                                },
+                                onProviderChanged = {
+                                    refreshRepositories()
+                                    healthRevision++
+                                },
+                            )
+                        }
+                    }
             }
 
             item {
@@ -6255,7 +6938,9 @@ private fun PluginsScreen(
                 ) {
                     Column(
                         modifier =
-                            Modifier.padding(18.dp),
+                            Modifier.padding(
+                                18.dp
+                            ),
                         verticalArrangement =
                             Arrangement.spacedBy(
                                 7.dp
@@ -6267,10 +6952,7 @@ private fun PluginsScreen(
                                 FontWeight.Bold,
                         )
                         Text(
-                            "Provider runtime ACTIVE. " +
-                                "VUEO executes locally stored provider code " +
-                                "inside QuickJS. Plugin fetch() uses native OkHttp " +
-                                "with system DNS plus DNS-over-HTTPS fallback.",
+                            "Provider runtime ACTIVE. Disabled repositories are skipped completely during source discovery.",
                             color =
                                 MaterialTheme
                                     .colorScheme
@@ -6299,14 +6981,16 @@ private fun PluginsScreen(
             text = {
                 Column(
                     verticalArrangement =
-                        Arrangement.spacedBy(12.dp),
+                        Arrangement.spacedBy(
+                            12.dp
+                        ),
                 ) {
                     Text(
                         "Paste a repository base URL or direct manifest.json URL."
                     )
-
                     OutlinedTextField(
-                        value = repositoryUrl,
+                        value =
+                            repositoryUrl,
                         onValueChange = {
                             repositoryUrl = it
                             message = null
@@ -6324,7 +7008,6 @@ private fun PluginsScreen(
                         enabled = !busy,
                         singleLine = true,
                     )
-
                     message?.let {
                         Text(
                             it,
@@ -6335,7 +7018,6 @@ private fun PluginsScreen(
                             fontSize = 12.sp,
                         )
                     }
-
                     if (busy) {
                         LinearProgressIndicator(
                             Modifier.fillMaxWidth()
@@ -6347,12 +7029,11 @@ private fun PluginsScreen(
                 TextButton(
                     enabled =
                         repositoryUrl.isNotBlank() &&
-                        !busy,
+                            !busy,
                     onClick = {
                         scope.launch {
                             busy = true
                             message = null
-
                             runCatching {
                                 PluginRepositoryClient
                                     .fetch(
@@ -6360,36 +7041,35 @@ private fun PluginsScreen(
                                     )
                             }.onSuccess {
                                 repository ->
-
                                 store.upsert(
                                     repository
                                 )
-
+                                store.setRepositoryEnabled(
+                                    repository,
+                                    true,
+                                )
                                 val syncResult =
                                     codeSync.syncRepository(
                                         repository =
                                             repository,
-                                        force =
-                                            true,
+                                        force = true,
                                     )
-
-                                repositories =
-                                    store.repositories()
+                                refreshRepositories()
+                                selectedRepositoryUrl =
+                                    repository.manifestUrl
                                 codeRevision++
                                 repositoryUrl = ""
                                 showAddDialog = false
-
                                 message =
                                     "Installed ${repository.name}. " +
-                                    "Provider code ready " +
-                                    "${syncResult.readyProviders}/" +
-                                    "${repository.providers.size}"
+                                        "Provider code ready " +
+                                        "${syncResult.readyProviders}/" +
+                                        "${repository.providers.size}"
                             }.onFailure {
                                 message =
                                     it.message
-                                    ?: "Unable to install repository."
+                                        ?: "Unable to install repository."
                             }
-
                             busy = false
                         }
                     },
@@ -6420,6 +7100,9 @@ private fun PluginRepositoryCard(
     healthRevision: Int,
     codeStore: ProviderCodeStore,
     codeRevision: Int,
+    repositoryEnabled: Boolean,
+    onRepositoryEnabledChanged:
+        (Boolean) -> Unit,
     isDevelopmentDefault: Boolean,
     refreshing: Boolean,
     onRefresh: () -> Unit,
@@ -6569,6 +7252,17 @@ private fun PluginRepositoryCard(
                     )
                 }
 
+                Switch(
+                    checked =
+                        repositoryEnabled,
+                    onCheckedChange =
+                        onRepositoryEnabledChanged,
+                )
+                Spacer(
+                    Modifier.width(
+                        6.dp
+                    )
+                )
                 IconButton(
                     enabled = !refreshing,
                     onClick = onRefresh,
@@ -6598,6 +7292,19 @@ private fun PluginRepositoryCard(
             if (refreshing) {
                 LinearProgressIndicator(
                     Modifier.fillMaxWidth()
+                )
+            }
+            if (!repositoryEnabled) {
+                Text(
+                    "Repository disabled • provider preferences are preserved",
+                    color =
+                        MaterialTheme
+                            .colorScheme
+                            .onSurface
+                            .copy(alpha = .55f),
+                    fontSize = 11.sp,
+                    fontWeight =
+                        FontWeight.Bold,
                 )
             }
 

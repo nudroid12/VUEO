@@ -11,6 +11,83 @@ class AddonStore(context: Context) {
             .toList()
             .sorted()
 
+    fun isAddonEnabled(
+        manifestUrl: String,
+    ): Boolean =
+        prefs.getBoolean(
+            addonEnabledKey(manifestUrl),
+            true,
+        )
+
+    fun setAddonEnabled(
+        manifestUrl: String,
+        enabled: Boolean,
+    ) {
+        prefs.edit()
+            .putBoolean(
+                addonEnabledKey(manifestUrl),
+                enabled,
+            )
+            .apply()
+    }
+
+    fun catalogOrder(): List<String> =
+        prefs.getString(
+            KEY_CATALOG_ORDER,
+            "",
+        )
+            .orEmpty()
+            .lineSequence()
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+            .toList()
+
+    fun setCatalogOrder(
+        order: List<String>,
+    ) {
+        prefs.edit()
+            .putString(
+                KEY_CATALOG_ORDER,
+                order
+                    .map(String::trim)
+                    .filter(String::isNotBlank)
+                    .distinct()
+                    .joinToString("\n"),
+            )
+            .apply()
+    }
+
+    fun reconcileCatalogOrder(
+        availableKeys: List<String>,
+    ): List<String> {
+        val available =
+            availableKeys
+                .map(String::trim)
+                .filter(String::isNotBlank)
+                .distinct()
+
+        val current =
+            catalogOrder()
+                .filter {
+                    it in available
+                }
+
+        val next =
+            (
+                current +
+                    available.filterNot {
+                        it in current
+                    }
+            ).distinct()
+
+        if (next != catalogOrder()) {
+            setCatalogOrder(next)
+        }
+
+        return next
+    }
+
     /**
      * Seeds development defaults once per seed revision.
      *
@@ -39,21 +116,44 @@ class AddonStore(context: Context) {
     fun add(manifestUrl: String) {
         val next = manifestUrls().toMutableSet()
         next += manifestUrl
-        prefs.edit().putStringSet(KEY_MANIFEST_URLS, next).apply()
+        prefs.edit()
+            .putStringSet(
+                KEY_MANIFEST_URLS,
+                next,
+            )
+            .putBoolean(
+                addonEnabledKey(manifestUrl),
+                true,
+            )
+            .apply()
     }
 
     fun remove(manifestUrl: String) {
         val next = manifestUrls().toMutableSet()
         next -= manifestUrl
-        prefs.edit().putStringSet(KEY_MANIFEST_URLS, next).apply()
+        prefs.edit()
+            .putStringSet(
+                KEY_MANIFEST_URLS,
+                next,
+            )
+            .remove(
+                addonEnabledKey(manifestUrl)
+            )
+            .apply()
     }
 
     fun isDevelopmentDefault(manifestUrl: String): Boolean =
         manifestUrl in DEVELOPMENT_DEFAULT_MANIFESTS
 
+    private fun addonEnabledKey(
+        manifestUrl: String,
+    ): String =
+        "addon_enabled:$manifestUrl"
+
     companion object {
         private const val PREFS_NAME = "vueo_content_manager"
         private const val KEY_MANIFEST_URLS = "stremio_manifest_urls"
+        private const val KEY_CATALOG_ORDER = "catalog_order"
         private const val KEY_DEV_DEFAULTS_REVISION = "dev_defaults_revision"
 
         private const val DEV_DEFAULTS_REVISION = 1

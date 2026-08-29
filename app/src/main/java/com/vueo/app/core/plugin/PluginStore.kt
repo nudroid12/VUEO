@@ -22,6 +22,30 @@ class PluginStore(context: Context) {
             .apply()
     }
 
+    fun isRepositoryEnabled(
+        repository: PluginRepositoryDescriptor,
+    ): Boolean =
+        prefs.getBoolean(
+            repositoryEnabledKey(
+                repository.manifestUrl
+            ),
+            true,
+        )
+
+    fun setRepositoryEnabled(
+        repository: PluginRepositoryDescriptor,
+        enabled: Boolean,
+    ) {
+        prefs.edit()
+            .putBoolean(
+                repositoryEnabledKey(
+                    repository.manifestUrl
+                ),
+                enabled,
+            )
+            .apply()
+    }
+
     fun tmdbApiKey(): String =
         prefs.getString(KEY_TMDB_API_KEY, "")
             .orEmpty()
@@ -94,6 +118,13 @@ class PluginStore(context: Context) {
                 it.manifestUrl == manifestUrl
             }
         )
+        prefs.edit()
+            .remove(
+                repositoryEnabledKey(
+                    manifestUrl
+                )
+            )
+            .apply()
         codeStore.removeRepository(manifestUrl)
     }
 
@@ -130,14 +161,16 @@ class PluginStore(context: Context) {
         repositories().sumOf { it.providers.size }
 
     fun enabledProviderCount(): Int =
-        repositories().sumOf { repository ->
-            repository.providers.count { provider ->
-                isProviderEnabled(
-                    repository,
-                    provider,
-                )
+        repositories()
+            .filter(::isRepositoryEnabled)
+            .sumOf { repository ->
+                repository.providers.count { provider ->
+                    isProviderEnabled(
+                        repository,
+                        provider,
+                    )
+                }
             }
-        }
 
     private fun saveRepositories(
         repositories: List<PluginRepositoryDescriptor>,
@@ -155,6 +188,11 @@ class PluginStore(context: Context) {
             )
             .apply()
     }
+
+    private fun repositoryEnabledKey(
+        manifestUrl: String,
+    ): String =
+        "repository_enabled:$manifestUrl"
 
     private fun providerKey(
         repository: PluginRepositoryDescriptor,
