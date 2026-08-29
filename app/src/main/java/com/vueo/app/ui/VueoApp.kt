@@ -134,6 +134,8 @@ import com.vueo.app.core.enrichment.MdblistClient
 import com.vueo.app.core.enrichment.MediaRating
 import com.vueo.app.core.enrichment.RichDetailsClient
 import com.vueo.app.core.enrichment.TmdbEnhancementClient
+import com.vueo.app.core.dna.UserDnaEngine
+import com.vueo.app.core.dna.UserDnaPreferences
 import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.BuildConfig
 import com.vueo.app.core.storage.PlaybackStore
@@ -1219,7 +1221,44 @@ private fun HomeScreen(
     val context =
         LocalContext.current
 
-    val listState =
+    val profileStore =
+        remember {
+            ProfileStore(
+                context.applicationContext
+            )
+        }
+
+    val dnaPreferences =
+        remember {
+            UserDnaPreferences(
+                context.applicationContext
+            )
+        }
+
+    val dnaEngine =
+        remember(
+            libraryStore
+        ) {
+            UserDnaEngine(
+                libraryStore
+            )
+        }
+
+    val activeProfileId =
+        remember(
+            libraryVersion
+        ) {
+            profileStore
+                .activeProfileId()
+        }
+
+    val personalizedHomeEnabled =
+        dnaPreferences
+            .shouldPersonalizeRecommendations(
+                activeProfileId
+            )
+
+        val listState =
         rememberLazyListState()
 
     var rows by remember {
@@ -1357,7 +1396,217 @@ private fun HomeScreen(
                 .take(12)
         }
 
-    LazyColumn(
+    val watchHistory =
+        remember(
+            libraryVersion
+        ) {
+            libraryStore.history()
+        }
+
+    val dnaSnapshot =
+        remember(
+            activeProfileId,
+            libraryVersion,
+            personalizedHomeEnabled,
+        ) {
+            if (
+                personalizedHomeEnabled
+            ) {
+                dnaEngine.build()
+            } else {
+                null
+            }
+        }
+
+    val catalogCandidates =
+        remember(rows) {
+            rows
+                .asSequence()
+                .flatMap {
+                    it.items.asSequence()
+                }
+                .distinctBy {
+                    "${it.type}:${it.id}"
+                }
+                .toList()
+        }
+
+    val watchedTitleKeys =
+        remember(
+            watchHistory
+        ) {
+            watchHistory
+                .asSequence()
+                .map {
+                    "${it.media.type}:${it.media.id}"
+                }
+                .toSet()
+        }
+
+    val forYouItems =
+        remember(
+            catalogCandidates,
+            dnaSnapshot,
+            watchedTitleKeys,
+            personalizedHomeEnabled,
+        ) {
+            val snapshot =
+                dnaSnapshot
+
+            if (
+                !personalizedHomeEnabled ||
+                snapshot == null ||
+                !snapshot.hasUsefulData
+            ) {
+                emptyList()
+            } else {
+                catalogCandidates
+                    .asSequence()
+                    .filterNot {
+                        "${it.type}:${it.id}" in
+                            watchedTitleKeys
+                    }
+                    .mapNotNull {
+                        candidate ->
+                        dnaEngine
+                            .matchPercent(
+                                media =
+                                    candidate,
+                                dna =
+                                    snapshot,
+                            )
+                            ?.takeIf {
+                                it >= 55
+                            }
+                            ?.let {
+                                score ->
+                                candidate to score
+                            }
+                    }
+                    .sortedByDescending {
+                        it.second
+                    }
+                    .take(12)
+                    .map {
+                        it.first
+                    }
+                    .toList()
+            }
+        }
+
+    val becauseYouWatchedSeed =
+        remember(
+            watchHistory,
+            personalizedHomeEnabled,
+        ) {
+            if (
+                !personalizedHomeEnabled
+            ) {
+                null
+            } else {
+                watchHistory
+                    .asSequence()
+                    .filter {
+                        entry ->
+                        entry.isCompleted ||
+                            entry.positionMs >=
+                                120_000L ||
+                            entry.progressFraction >=
+                                .20f
+                    }
+                    .distinctBy {
+                        entry ->
+                        "${entry.media.type}:${entry.media.id}"
+                    }
+                    .firstOrNull()
+                    ?.media
+            }
+        }
+
+    val becauseYouWatchedItems =
+        remember(
+            becauseYouWatchedSeed,
+            catalogCandidates,
+            watchedTitleKeys,
+            forYouItems,
+            personalizedHomeEnabled,
+        ) {
+            val seed =
+                becauseYouWatchedSeed
+
+            if (
+                !personalizedHomeEnabled ||
+                seed == null
+            ) {
+                emptyList()
+            } else {
+                val seedGenres =
+                    seed.genres
+                        .map {
+                            it.trim()
+                                .lowercase()
+                        }
+                        .filter {
+                            it.isNotBlank()
+                        }
+                        .toSet()
+
+                val related =
+                    CatalogDiscoveryCache
+                        .related(
+                            seed,
+                            limit = 30,
+                        )
+
+                val fallback =
+                    catalogCandidates
+                        .filter {
+                            candidate ->
+                            candidate.type ==
+                                seed.type &&
+                                candidate.genres
+                                    .any {
+                                        genre ->
+                                        genre.trim()
+                                            .lowercase() in
+                                            seedGenres
+                                    }
+                        }
+
+                val forYouKeys =
+                    forYouItems
+                        .asSequence()
+                        .map {
+                            "${it.type}:${it.id}"
+                        }
+                        .toSet()
+
+                (
+                    related +
+                        fallback
+                )
+                    .asSequence()
+                    .distinctBy {
+                        "${it.type}:${it.id}"
+                    }
+                    .filterNot {
+                        candidate ->
+                        val key =
+                            "${candidate.type}:${candidate.id}"
+
+                        key ==
+                            "${seed.type}:${seed.id}" ||
+                            key in
+                                watchedTitleKeys ||
+                            key in
+                                forYouKeys
+                    }
+                    .take(12)
+                    .toList()
+            }
+        }
+
+        LazyColumn(
         state = listState,
         modifier =
             Modifier
@@ -1441,7 +1690,52 @@ private fun HomeScreen(
             }
         }
 
-        items(
+        if (
+        forYouItems.size >= 4
+    ) {
+        item(
+            key =
+                "home_for_you"
+        ) {
+            HomePersonalizedSection(
+                title =
+                    "For You",
+                contextLabel =
+                    "Your DNA",
+                items =
+                    forYouItems,
+                onMediaClick =
+                    onMediaClick,
+            )
+        }
+    }
+
+    if (
+        becauseYouWatchedSeed !=
+            null &&
+        becauseYouWatchedItems
+            .size >= 4
+    ) {
+        item(
+            key =
+                "home_because_you_watched"
+        ) {
+            HomePersonalizedSection(
+                title =
+                    "Because You Watched " +
+                        becauseYouWatchedSeed
+                            .name,
+                contextLabel =
+                    "Recent viewing",
+                items =
+                    becauseYouWatchedItems,
+                onMediaClick =
+                    onMediaClick,
+            )
+        }
+    }
+
+            items(
             items = rows,
             key = {
                 "catalog:${it.id}"
@@ -2393,6 +2687,57 @@ private fun homeCatalogTypeLabel(
             type.replaceFirstChar {
                 it.uppercase()
             }
+    }
+}
+
+@Composable
+private fun HomePersonalizedSection(
+    title: String,
+    contextLabel: String,
+    items: List<MediaItem>,
+    onMediaClick:
+        (MediaItem) -> Unit,
+) {
+    Column(
+        verticalArrangement =
+            Arrangement.spacedBy(
+                10.dp
+            ),
+    ) {
+        HomeSectionHeader(
+            title = title,
+            contextLabel =
+                contextLabel,
+        )
+
+        LazyRow(
+            contentPadding =
+                PaddingValues(
+                    horizontal =
+                        16.dp
+                ),
+            horizontalArrangement =
+                Arrangement.spacedBy(
+                    10.dp
+                ),
+        ) {
+            items(
+                items = items,
+                key = {
+                    "personalized:${it.type}:${it.id}"
+                },
+            ) {
+                item ->
+                MediaPoster(
+                    item = item,
+                    onClick = {
+                        onMediaClick(
+                            item
+                        )
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -6432,7 +6777,59 @@ private fun MediaDetailsScreen(
             context.applicationContext
         )
     }
-    val pluginEngine = remember {
+    val detailsProfileStore =
+        remember {
+            ProfileStore(
+                context.applicationContext
+            )
+        }
+
+    val detailsDnaPreferences =
+        remember {
+            UserDnaPreferences(
+                context.applicationContext
+            )
+        }
+
+    val detailsDnaEngine =
+        remember(
+            libraryStore
+        ) {
+            UserDnaEngine(
+                libraryStore
+            )
+        }
+
+    val detailsProfileId =
+        remember {
+            detailsProfileStore
+                .activeProfileId()
+        }
+
+    val showDnaMatch =
+        detailsDnaPreferences
+            .shouldShowDnaMatch(
+                detailsProfileId
+            )
+
+    val detailsDnaSnapshot =
+        remember(
+            detailsProfileId,
+            showDnaMatch,
+            initialItem.id,
+            initialItem.type,
+        ) {
+            if (
+                showDnaMatch
+            ) {
+                detailsDnaEngine
+                    .build()
+            } else {
+                null
+            }
+        }
+
+        val pluginEngine = remember {
         PluginSourceEngine(
             context = context,
             store = pluginStore,
@@ -7449,7 +7846,25 @@ private fun MediaDetailsScreen(
                 },
         )
 
-    LazyColumn(
+    val dnaMatchPercent =
+        if (
+            !loadingMeta &&
+            showDnaMatch &&
+            detailsDnaSnapshot
+                ?.hasUsefulData ==
+                true
+        ) {
+            detailsDnaEngine
+                .matchPercent(
+                    media = item,
+                    dna =
+                        detailsDnaSnapshot,
+                )
+        } else {
+            null
+        }
+
+        LazyColumn(
         modifier =
             Modifier
                 .fillMaxSize()
@@ -7677,7 +8092,22 @@ private fun MediaDetailsScreen(
                 DetailsLoadingSkeleton()
             }
         }
+        if (
+        dnaMatchPercent !=
+            null
+    ) {
+        item(
+            key =
+                "details_dna_match"
+        ) {
+            DetailsDnaMatchCard(
+                percent =
+                    dnaMatchPercent
+            )
+        }
+    }
 
+    
         item {
             Column(
                 modifier =
@@ -8310,6 +8740,94 @@ private fun formatDetailsRuntime(
         hours <= 0 -> "${minutes}m"
         remaining <= 0 -> "${hours}h"
         else -> "${hours}h ${remaining}m"
+    }
+}
+
+@Composable
+private fun DetailsDnaMatchCard(
+    percent: Int,
+) {
+    Surface(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal =
+                        18.dp
+                ),
+        shape =
+            RoundedCornerShape(
+                16.dp
+            ),
+        color =
+            VueoPalette.Accent
+                .copy(
+                    alpha = .08f
+                ),
+        border =
+            androidx.compose
+                .foundation
+                .BorderStroke(
+                    width = 1.dp,
+                    color =
+                        VueoPalette.Accent
+                            .copy(
+                                alpha = .22f
+                            ),
+                ),
+    ) {
+        Row(
+            modifier =
+                Modifier.padding(
+                    horizontal =
+                        14.dp,
+                    vertical =
+                        12.dp,
+                ),
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier =
+                    Modifier.weight(
+                        1f
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        3.dp
+                    ),
+            ) {
+                Text(
+                    text =
+                        "YOUR DNA",
+                    color =
+                        VueoPalette.Accent,
+                    fontSize = 9.sp,
+                    fontWeight =
+                        FontWeight.Black,
+                    letterSpacing =
+                        1.2.sp,
+                )
+
+                Text(
+                    text =
+                        "Based on your local viewing profile",
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 10.sp,
+                )
+            }
+
+            Text(
+                text =
+                    "$percent% Match",
+                color =
+                    VueoPalette.Accent,
+                fontSize = 17.sp,
+                fontWeight =
+                    FontWeight.Black,
+            )
+        }
     }
 }
 
