@@ -48,6 +48,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Home
@@ -220,6 +221,24 @@ private enum class HomeMediaFilter(
     SERIES("Series"),
 }
 
+
+private enum class SearchTypeFilter(
+    val label: String,
+) {
+    ALL("All"),
+    MOVIES("Movies"),
+    SERIES("Series"),
+    ANIME("Anime"),
+}
+
+private enum class SearchSortMode(
+    val label: String,
+) {
+    POPULAR("Popular"),
+    TRENDING("Trending"),
+    NEWEST("Newest"),
+}
+
 @Composable
 fun VueoApp() {
     val context = LocalContext.current
@@ -259,6 +278,26 @@ fun VueoApp() {
 
     var selectedTab by remember { mutableStateOf(AppTab.HOME) }
     var settingsPage by remember { mutableStateOf(SettingsPage.ROOT) }
+    var searchQuery by remember {
+        mutableStateOf("")
+    }
+    var searchTypeFilter by remember {
+        mutableStateOf(
+            SearchTypeFilter.ALL
+        )
+    }
+    var searchSortMode by remember {
+        mutableStateOf(
+            SearchSortMode.POPULAR
+        )
+    }
+    var searchGenre by remember {
+        mutableStateOf<String?>(
+            null
+        )
+    }
+    val searchListState =
+        rememberLazyListState()
     var contentVersion by remember { mutableIntStateOf(0) }
     var booting by remember {
         mutableStateOf(true)
@@ -660,6 +699,26 @@ fun VueoApp() {
                     contentVersion =
                         contentVersion,
                     booting = booting,
+                    query = searchQuery,
+                    onQueryChange = {
+                        searchQuery = it
+                    },
+                    typeFilter =
+                        searchTypeFilter,
+                    onTypeFilterChange = {
+                        searchTypeFilter = it
+                    },
+                    sortMode =
+                        searchSortMode,
+                    onSortModeChange = {
+                        searchSortMode = it
+                    },
+                    genre = searchGenre,
+                    onGenreChange = {
+                        searchGenre = it
+                    },
+                    listState =
+                        searchListState,
                     onMediaClick = {
                         mediaBackStack =
                             emptyList()
@@ -2683,186 +2742,708 @@ private fun SearchScreen(
     engine: UnifiedMediaEngine,
     contentVersion: Int,
     booting: Boolean,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    typeFilter: SearchTypeFilter,
+    onTypeFilterChange:
+        (SearchTypeFilter) -> Unit,
+    sortMode: SearchSortMode,
+    onSortModeChange:
+        (SearchSortMode) -> Unit,
+    genre: String?,
+    onGenreChange: (String?) -> Unit,
+    listState:
+        androidx.compose.foundation.lazy.LazyListState,
     onMediaClick: (MediaItem) -> Unit,
 ) {
-    var query by remember { mutableStateOf("") }
-    var results by remember {
-        mutableStateOf<List<MediaItem>>(emptyList())
-    }
-    var searching by remember { mutableStateOf(false) }
-    var status by remember {
-        mutableStateOf("Search connected VUEO catalogs.")
-    }
-    var filter by remember {
-        mutableStateOf(HomeMediaFilter.ALL)
+    val context =
+        LocalContext.current
+
+    var searchResults by remember {
+        mutableStateOf<List<MediaItem>>(
+            emptyList()
+        )
     }
 
-    LaunchedEffect(query, contentVersion, booting) {
-        val normalized = query.trim()
+    var discoverRows by remember {
+        mutableStateOf(
+            CatalogDiscoveryCache
+                .home(
+                    allowStale = true
+                )
+                .orEmpty()
+        )
+    }
 
-        if (booting || normalized.length < 2) {
-            searching = false
-            results = if (normalized.length >= 2) {
-                CatalogDiscoveryCache.searchLocal(normalized)
-            } else {
-                emptyList()
+    var searching by remember {
+        mutableStateOf(false)
+    }
+
+    var discovering by remember {
+        mutableStateOf(
+            discoverRows.isEmpty()
+        )
+    }
+
+    var typeDialog by remember {
+        mutableStateOf(false)
+    }
+    var sortDialog by remember {
+        mutableStateOf(false)
+    }
+    var genreDialog by remember {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(
+        contentVersion,
+        booting,
+    ) {
+        CatalogDiscoveryCache
+            .home(
+                allowStale = true
+            )
+            ?.takeIf {
+                it.isNotEmpty()
+            }
+            ?.let {
+                discoverRows = it
             }
 
-            status = if (normalized.isBlank()) {
-                "Search movies and series across connected catalogs."
-            } else {
-                "Type at least 2 characters."
-            }
+        if (
+            booting ||
+            discoverRows.isNotEmpty()
+        ) {
+            discovering = false
             return@LaunchedEffect
         }
 
-        results = CatalogDiscoveryCache.searchLocal(normalized)
-        status = if (results.isEmpty()) {
-            "Searching connected catalogs..."
-        } else {
-            "${results.size} cached matches • refreshing..."
+        discovering = true
+
+        runCatching {
+            engine.loadCatalogRows(
+                forceRefresh = false,
+            )
+        }.onSuccess {
+            fresh ->
+            if (fresh.isNotEmpty()) {
+                discoverRows = fresh
+
+                CatalogDiscoveryCache
+                    .persistHome(
+                        context =
+                            context
+                                .applicationContext,
+                        rows = fresh,
+                    )
+            }
+        }.onFailure {
+            discoverRows =
+                CatalogDiscoveryCache
+                    .home(
+                        allowStale = true
+                    )
+                    .orEmpty()
         }
+
+        discovering = false
+    }
+
+    LaunchedEffect(
+        query,
+        contentVersion,
+        booting,
+    ) {
+        val normalized =
+            query.trim()
+
+        if (
+            booting ||
+            normalized.length < 2
+        ) {
+            searching = false
+            searchResults =
+                if (
+                    normalized.length >= 2
+                ) {
+                    CatalogDiscoveryCache
+                        .searchLocal(
+                            normalized
+                        )
+                } else {
+                    emptyList()
+                }
+            return@LaunchedEffect
+        }
+
+        searchResults =
+            CatalogDiscoveryCache
+                .searchLocal(
+                    normalized
+                )
+                .distinctBy {
+                    "${it.type}:${it.id}"
+                }
 
         searching = true
-        delay(450)
+        delay(380)
 
-        val remote = runCatching {
-            engine.search(normalized)
-        }.getOrElse { emptyList() }
+        val remote =
+            runCatching {
+                engine.search(
+                    normalized
+                )
+            }.getOrElse {
+                emptyList()
+            }
 
-        if (remote.isNotEmpty()) {
-            results = remote
-        }
+        searchResults =
+            (
+                remote +
+                    searchResults
+            )
+                .distinctBy {
+                    "${it.type}:${it.id}"
+                }
 
         searching = false
-        status = if (results.isEmpty()) {
-            "No results for \"$normalized\"."
+    }
+
+    val normalizedQuery =
+        query.trim()
+
+    val searchingMode =
+        normalizedQuery.isNotBlank()
+
+    val animeCatalogKeys =
+        remember(discoverRows) {
+            discoverRows
+                .filter {
+                    row ->
+                    listOf(
+                        row.id,
+                        row.title,
+                        row.providerName,
+                    ).any {
+                        value ->
+                        value.contains(
+                            "anime",
+                            ignoreCase = true,
+                        )
+                    }
+                }
+                .flatMap {
+                    it.items
+                }
+                .map {
+                    "${it.type}:${it.id}"
+                }
+                .toSet()
+        }
+
+    val discoverBaseItems =
+        remember(
+            discoverRows,
+            sortMode,
+        ) {
+            discoverRows
+                .sortedByDescending {
+                    row ->
+                    searchCatalogPriority(
+                        row = row,
+                        mode = sortMode,
+                    )
+                }
+                .flatMap {
+                    it.items
+                }
+                .distinctBy {
+                    "${it.type}:${it.id}"
+                }
+        }
+
+    val sourceItems =
+        if (searchingMode) {
+            searchResults
         } else {
-            "${results.size} results"
+            discoverBaseItems
+        }
+
+    val availableGenres =
+        remember(
+            sourceItems,
+            typeFilter,
+            animeCatalogKeys,
+        ) {
+            sourceItems
+                .filter {
+                    item ->
+                    searchMatchesType(
+                        item = item,
+                        filter =
+                            typeFilter,
+                        animeCatalogKeys =
+                            animeCatalogKeys,
+                    )
+                }
+                .flatMap {
+                    it.genres
+                }
+                .map {
+                    it.trim()
+                }
+                .filter {
+                    it.isNotBlank() &&
+                        !it.equals(
+                            "anime",
+                            ignoreCase = true,
+                        )
+                }
+                .distinctBy {
+                    it.lowercase()
+                }
+                .sortedBy {
+                    it.lowercase()
+                }
+        }
+
+    LaunchedEffect(
+        availableGenres,
+        genre,
+    ) {
+        if (
+            genre != null &&
+            availableGenres.none {
+                it.equals(
+                    genre,
+                    ignoreCase = true,
+                )
+            }
+        ) {
+            onGenreChange(null)
         }
     }
 
-    val filtered = results.filter { item ->
-        when (filter) {
-            HomeMediaFilter.ALL -> true
-            HomeMediaFilter.MOVIES -> item.type == "movie"
-            HomeMediaFilter.SERIES -> item.type == "series"
+    val filteredItems =
+        remember(
+            sourceItems,
+            typeFilter,
+            genre,
+            sortMode,
+            searchingMode,
+            animeCatalogKeys,
+        ) {
+            val filtered =
+                sourceItems
+                    .filter {
+                        item ->
+                        searchMatchesType(
+                            item = item,
+                            filter =
+                                typeFilter,
+                            animeCatalogKeys =
+                                animeCatalogKeys,
+                        ) &&
+                            searchMatchesGenre(
+                                item = item,
+                                genre = genre,
+                            )
+                    }
+
+            if (searchingMode) {
+                searchSortItems(
+                    items = filtered,
+                    mode = sortMode,
+                )
+            } else {
+                if (
+                    sortMode ==
+                    SearchSortMode.NEWEST
+                ) {
+                    searchSortItems(
+                        items = filtered,
+                        mode = sortMode,
+                    )
+                } else {
+                    filtered
+                }
+            }
         }
+
+    if (typeDialog) {
+        SearchChoiceDialog(
+            title = "Type",
+            options =
+                SearchTypeFilter
+                    .values()
+                    .map {
+                        it.label
+                    },
+            selected =
+                typeFilter.label,
+            onDismiss = {
+                typeDialog = false
+            },
+            onSelected = {
+                label ->
+                SearchTypeFilter
+                    .values()
+                    .firstOrNull {
+                        it.label == label
+                    }
+                    ?.let(
+                        onTypeFilterChange
+                    )
+                typeDialog = false
+            },
+        )
+    }
+
+    if (sortDialog) {
+        SearchChoiceDialog(
+            title = "Discover",
+            options =
+                SearchSortMode
+                    .values()
+                    .map {
+                        it.label
+                    },
+            selected =
+                sortMode.label,
+            onDismiss = {
+                sortDialog = false
+            },
+            onSelected = {
+                label ->
+                SearchSortMode
+                    .values()
+                    .firstOrNull {
+                        it.label == label
+                    }
+                    ?.let(
+                        onSortModeChange
+                    )
+                sortDialog = false
+            },
+        )
+    }
+
+    if (genreDialog) {
+        SearchChoiceDialog(
+            title = "Genre",
+            options =
+                listOf(
+                    "All Genres"
+                ) + availableGenres,
+            selected =
+                genre ?: "All Genres",
+            onDismiss = {
+                genreDialog = false
+            },
+            onSelected = {
+                label ->
+                onGenreChange(
+                    label.takeUnless {
+                        it == "All Genres"
+                    }
+                )
+                genreDialog = false
+            },
+        )
     }
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(VueoPalette.Background),
-        contentPadding = PaddingValues(bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        state = listState,
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(
+                    VueoPalette.Background
+                )
+                .statusBarsPadding(),
+        contentPadding =
+            PaddingValues(
+                bottom = 30.dp
+            ),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                14.dp
+            ),
     ) {
-        item {
+        item(
+            key = "search_header"
+        ) {
             Column(
-                modifier = Modifier.padding(
-                    horizontal = 20.dp,
-                    vertical = 18.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier =
+                    Modifier.padding(
+                        start = 20.dp,
+                        end = 20.dp,
+                        top = 24.dp,
+                        bottom = 2.dp,
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        20.dp
+                    ),
             ) {
-                VueoBrandLockup(compact = true)
-
                 Text(
-                    "Search",
+                    text = "Search",
                     color = Color.White,
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.Black,
+                    fontSize = 34.sp,
+                    fontWeight =
+                        FontWeight.Black,
                 )
 
                 OutlinedTextField(
                     value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
+                    onValueChange =
+                        onQueryChange,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(
+                                min = 64.dp
+                            ),
                     placeholder = {
-                        Text("Search movies, series, people")
+                        Text(
+                            text =
+                                "Search movies, shows...",
+                            color =
+                                VueoPalette.Muted,
+                        )
                     },
                     leadingIcon = {
                         Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
+                            imageVector =
+                                Icons.Default.Search,
+                            contentDescription =
+                                null,
+                            tint =
+                                VueoPalette.Muted,
                         )
                     },
+                    trailingIcon = {
+                        if (
+                            query.isNotEmpty()
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    onQueryChange("")
+                                }
+                            ) {
+                                Icon(
+                                    imageVector =
+                                        Icons.Default.Close,
+                                    contentDescription =
+                                        "Clear search",
+                                    tint =
+                                        VueoPalette.Muted,
+                                )
+                            }
+                        }
+                    },
                     singleLine = true,
-                    shape = RoundedCornerShape(18.dp),
+                    shape =
+                        RoundedCornerShape(
+                            18.dp
+                        ),
+                )
+
+                if (
+                    searching ||
+                    discovering
+                ) {
+                    LinearProgressIndicator(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .height(2.dp),
+                    )
+                }
+            }
+        }
+
+        item(
+            key = "search_discover_header"
+        ) {
+            Column(
+                modifier =
+                    Modifier.padding(
+                        horizontal = 20.dp
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        14.dp
+                    ),
+            ) {
+                Text(
+                    text =
+                        if (searchingMode) {
+                            "Search Results"
+                        } else {
+                            "Discover"
+                        },
+                    color = Color.White,
+                    fontSize = 28.sp,
+                    fontWeight =
+                        FontWeight.SemiBold,
                 )
 
                 LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement =
+                        Arrangement.spacedBy(
+                            10.dp
+                        ),
                 ) {
-                    items(HomeMediaFilter.values().toList()) { option ->
-                        FilterChip(
-                            selected = filter == option,
-                            onClick = { filter = option },
-                            label = {
-                                Text(
-                                    option.label,
-                                    fontWeight = FontWeight.Bold,
-                                )
+                    item {
+                        SearchFilterButton(
+                            label =
+                                typeFilter.label,
+                            onClick = {
+                                typeDialog = true
+                            },
+                        )
+                    }
+
+                    item {
+                        SearchFilterButton(
+                            label =
+                                sortMode.label,
+                            onClick = {
+                                sortDialog = true
+                            },
+                        )
+                    }
+
+                    item {
+                        SearchFilterButton(
+                            label =
+                                genre
+                                    ?: "All Genres",
+                            onClick = {
+                                genreDialog = true
                             },
                         )
                     }
                 }
 
-                if (searching) {
-                    LinearProgressIndicator(
-                        modifier = Modifier.fillMaxWidth()
+                if (
+                    searchingMode &&
+                    normalizedQuery.length < 2
+                ) {
+                    Text(
+                        text =
+                            "Type at least 2 characters.",
+                        color =
+                            VueoPalette.Muted,
+                        fontSize = 12.sp,
+                    )
+                } else if (
+                    searchingMode &&
+                    !searching
+                ) {
+                    Text(
+                        text =
+                            if (
+                                filteredItems
+                                    .isEmpty()
+                            ) {
+                                "No results for \"$normalizedQuery\"."
+                            } else {
+                                "${filteredItems.size} results"
+                            },
+                        color =
+                            VueoPalette.Muted,
+                        fontSize = 12.sp,
                     )
                 }
-
-                Text(
-                    status,
-                    color = VueoPalette.Muted,
-                    fontSize = 12.sp,
-                )
             }
         }
 
-        if (filtered.isNotEmpty()) {
-            item {
-                Text(
-                    "Search Results",
-                    modifier = Modifier.padding(horizontal = 20.dp),
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Black,
+        if (
+            !searchingMode &&
+            discoverRows.isEmpty() &&
+            !discovering
+        ) {
+            item(
+                key = "search_empty_discover"
+            ) {
+                SearchEmptyState(
+                    title =
+                        "Nothing to discover yet",
+                    body =
+                        "Enable a catalog in Content Manager to populate Discover.",
                 )
             }
-
-            item {
-                SearchResultCard(
-                    item = filtered.first(),
-                    onClick = { onMediaClick(filtered.first()) },
+        } else if (
+            searchingMode &&
+            normalizedQuery.length >= 2 &&
+            filteredItems.isEmpty() &&
+            !searching
+        ) {
+            item(
+                key = "search_empty_results"
+            ) {
+                SearchEmptyState(
+                    title = "No matches",
+                    body =
+                        "Try another title or change the filters.",
                 )
             }
-
+        } else if (
+            filteredItems.isNotEmpty()
+        ) {
             items(
-                filtered.drop(1).chunked(2),
-                key = { row ->
-                    row.joinToString("|") {
+                items =
+                    filteredItems
+                        .chunked(3),
+                key = {
+                    row ->
+                    row.joinToString(
+                        "|"
+                    ) {
                         "${it.type}:${it.id}"
                     }
                 },
-            ) { row ->
+            ) {
+                row ->
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                horizontal =
+                                    20.dp
+                            ),
+                    horizontalArrangement =
+                        Arrangement.spacedBy(
+                            12.dp
+                        ),
                 ) {
-                    row.forEach { item ->
+                    row.forEach {
+                        item ->
                         SearchPosterTile(
                             item = item,
-                            modifier = Modifier.weight(1f),
-                            onClick = { onMediaClick(item) },
+                            modifier =
+                                Modifier.weight(
+                                    1f
+                                ),
+                            onClick = {
+                                onMediaClick(
+                                    item
+                                )
+                            },
                         )
                     }
-                    if (row.size == 1) {
-                        Spacer(Modifier.weight(1f))
+
+                    repeat(
+                        3 - row.size
+                    ) {
+                        Spacer(
+                            Modifier.weight(
+                                1f
+                            )
+                        )
                     }
                 }
             }
@@ -2870,100 +3451,386 @@ private fun SearchScreen(
     }
 }
 
-@Composable
-private fun SearchResultCard(
+private fun searchCatalogPriority(
+    row: CatalogRow,
+    mode: SearchSortMode,
+): Int {
+    val value =
+        "${row.id} ${row.title}"
+            .lowercase()
+
+    return when (mode) {
+        SearchSortMode.POPULAR ->
+            when {
+                "popular" in value -> 100
+                "top" in value -> 80
+                else -> 0
+            }
+
+        SearchSortMode.TRENDING ->
+            when {
+                "trending" in value -> 100
+                "trend" in value -> 100
+                "popular" in value -> 60
+                else -> 0
+            }
+
+        SearchSortMode.NEWEST ->
+            when {
+                "new" in value -> 100
+                "latest" in value -> 100
+                "recent" in value -> 90
+                "release" in value -> 80
+                else -> 0
+            }
+    }
+}
+
+private fun searchMatchesType(
     item: MediaItem,
+    filter: SearchTypeFilter,
+    animeCatalogKeys: Set<String>,
+): Boolean =
+    when (filter) {
+        SearchTypeFilter.ALL ->
+            true
+
+        SearchTypeFilter.MOVIES ->
+            item.type.equals(
+                "movie",
+                ignoreCase = true,
+            ) &&
+                !searchIsAnime(
+                    item = item,
+                    animeCatalogKeys =
+                        animeCatalogKeys,
+                )
+
+        SearchTypeFilter.SERIES ->
+            item.type.equals(
+                "series",
+                ignoreCase = true,
+            ) &&
+                !searchIsAnime(
+                    item = item,
+                    animeCatalogKeys =
+                        animeCatalogKeys,
+                )
+
+        SearchTypeFilter.ANIME ->
+            searchIsAnime(
+                item = item,
+                animeCatalogKeys =
+                    animeCatalogKeys,
+            )
+    }
+
+private fun searchIsAnime(
+    item: MediaItem,
+    animeCatalogKeys: Set<String>,
+): Boolean {
+    if (
+        item.type.equals(
+            "anime",
+            ignoreCase = true,
+        ) ||
+        item.genres.any {
+            it.equals(
+                "anime",
+                ignoreCase = true,
+            )
+        }
+    ) {
+        return true
+    }
+
+    val key =
+        "${item.type}:${item.id}"
+
+    if (key in animeCatalogKeys) {
+        return true
+    }
+
+    return listOfNotNull(
+        item.sourceExtensionId,
+        item.id,
+    ).any {
+        it.contains(
+            "anime",
+            ignoreCase = true,
+        )
+    }
+}
+
+private fun searchMatchesGenre(
+    item: MediaItem,
+    genre: String?,
+): Boolean {
+    if (genre == null) {
+        return true
+    }
+
+    return item.genres.any {
+        it.equals(
+            genre,
+            ignoreCase = true,
+        )
+    }
+}
+
+private fun searchSortItems(
+    items: List<MediaItem>,
+    mode: SearchSortMode,
+): List<MediaItem> =
+    when (mode) {
+        SearchSortMode.POPULAR ->
+            items.sortedByDescending {
+                it.imdbRating
+                    ?: it.tmdbRating
+                    ?: 0.0
+            }
+
+        SearchSortMode.TRENDING ->
+            items
+
+        SearchSortMode.NEWEST ->
+            items.sortedByDescending {
+                searchReleaseYear(it)
+            }
+    }
+
+private fun searchReleaseYear(
+    item: MediaItem,
+): Int =
+    item.releaseInfo
+        ?.let {
+            Regex(
+                """\b(19|20)\d{2}\b"""
+            )
+                .find(it)
+                ?.value
+                ?.toIntOrNull()
+        }
+        ?: 0
+
+@Composable
+private fun SearchFilterButton(
+    label: String,
     onClick: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = VueoPalette.SurfaceElevated
-        ),
+    Surface(
+        modifier =
+            Modifier.clickable(
+                onClick = onClick
+            ),
+        shape =
+            RoundedCornerShape(
+                14.dp
+            ),
+        color =
+            VueoPalette.SurfaceElevated,
+        border =
+            androidx.compose.foundation
+                .BorderStroke(
+                    width = 1.dp,
+                    color =
+                        VueoPalette.Stroke
+                            .copy(
+                                alpha = .45f
+                            ),
+                ),
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            modifier =
+                Modifier.padding(
+                    horizontal = 16.dp,
+                    vertical = 11.dp,
+                ),
+            horizontalArrangement =
+                Arrangement.spacedBy(
+                    8.dp
+                ),
+            verticalAlignment =
+                Alignment.CenterVertically,
         ) {
-            NetworkImage(
-                url = item.poster,
-                contentDescription = item.name,
-                modifier = Modifier
-                    .width(104.dp)
-                    .height(154.dp)
-                    .clip(RoundedCornerShape(14.dp)),
-                contentScale = ContentScale.Crop,
-                fallbackText = item.name,
+            Text(
+                text = label,
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight =
+                    FontWeight.Bold,
+                maxLines = 1,
+                overflow =
+                    TextOverflow.Ellipsis,
             )
 
-            Spacer(Modifier.width(14.dp))
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                Text(
-                    item.name,
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Black,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-
-                Text(
-                    listOfNotNull(
-                        item.releaseInfo,
-                        item.type.replaceFirstChar { it.uppercase() },
-                    ).joinToString(" • "),
-                    color = VueoPalette.Muted,
-                    fontSize = 11.sp,
-                )
-
-                if (item.genres.isNotEmpty()) {
-                    Text(
-                        item.genres.take(3).joinToString(" • "),
-                        color = VueoPalette.Accent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-
-                item.description
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let {
-                        Text(
-                            it,
-                            color = Color.White.copy(alpha = .62f),
-                            fontSize = 11.sp,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-            }
-
-            Surface(
-                shape = RoundedCornerShape(50),
-                color = VueoPalette.Accent,
-            ) {
-                Box(
-                    modifier = Modifier.size(42.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        tint = VueoPalette.Background,
-                    )
-                }
-            }
+            Text(
+                text = "⌄",
+                color =
+                    VueoPalette.Muted,
+                fontSize = 16.sp,
+                fontWeight =
+                    FontWeight.Bold,
+            )
         }
+    }
+}
+
+@Composable
+private fun SearchChoiceDialog(
+    title: String,
+    options: List<String>,
+    selected: String,
+    onDismiss: () -> Unit,
+    onSelected: (String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest =
+            onDismiss,
+        title = {
+            Text(
+                text = title,
+                color = Color.White,
+                fontWeight =
+                    FontWeight.Black,
+            )
+        },
+        text = {
+            LazyColumn(
+                modifier =
+                    Modifier.heightIn(
+                        max = 420.dp
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        4.dp
+                    ),
+            ) {
+                items(
+                    options,
+                    key = { it },
+                ) {
+                    option ->
+                    Surface(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onSelected(
+                                        option
+                                    )
+                                },
+                        shape =
+                            RoundedCornerShape(
+                                12.dp
+                            ),
+                        color =
+                            if (
+                                option ==
+                                selected
+                            ) {
+                                VueoPalette.Accent
+                                    .copy(
+                                        alpha = .13f
+                                    )
+                            } else {
+                                Color.Transparent
+                            },
+                    ) {
+                        Row(
+                            modifier =
+                                Modifier.padding(
+                                    horizontal =
+                                        12.dp,
+                                    vertical =
+                                        11.dp,
+                                ),
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected =
+                                    option ==
+                                        selected,
+                                onClick = {
+                                    onSelected(
+                                        option
+                                    )
+                                },
+                            )
+
+                            Spacer(
+                                Modifier.width(
+                                    8.dp
+                                )
+                            )
+
+                            Text(
+                                text = option,
+                                color =
+                                    Color.White,
+                                fontWeight =
+                                    if (
+                                        option ==
+                                        selected
+                                    ) {
+                                        FontWeight.Bold
+                                    } else {
+                                        FontWeight.Medium
+                                    },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss
+            ) {
+                Text(
+                    text = "Done"
+                )
+            }
+        },
+        containerColor =
+            VueoPalette.SurfaceElevated,
+    )
+}
+
+@Composable
+private fun SearchEmptyState(
+    title: String,
+    body: String,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = 28.dp,
+                    vertical = 36.dp,
+                ),
+        horizontalAlignment =
+            Alignment.CenterHorizontally,
+        verticalArrangement =
+            Arrangement.spacedBy(
+                8.dp
+            ),
+    ) {
+        Text(
+            text = title,
+            color = Color.White,
+            fontWeight =
+                FontWeight.Bold,
+            fontSize = 16.sp,
+        )
+        Text(
+            text = body,
+            color =
+                VueoPalette.Muted,
+            fontSize = 12.sp,
+        )
     }
 }
 
@@ -2974,38 +3841,91 @@ private fun SearchPosterTile(
     onClick: () -> Unit,
 ) {
     Column(
-        modifier = modifier.clickable(onClick = onClick),
-        verticalArrangement = Arrangement.spacedBy(7.dp),
+        modifier =
+            modifier.clickable(
+                onClick = onClick
+            ),
     ) {
         NetworkImage(
             url = item.poster,
-            contentDescription = item.name,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(230.dp)
-                .clip(RoundedCornerShape(16.dp)),
-            contentScale = ContentScale.Crop,
-            fallbackText = item.name,
+            contentDescription =
+                item.name,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(
+                        2f / 3f
+                    )
+                    .clip(
+                        RoundedCornerShape(
+                            14.dp
+                        )
+                    ),
+            contentScale =
+                ContentScale.Crop,
+            fallbackText =
+                item.name,
         )
+
+        Spacer(
+            Modifier.height(
+                7.dp
+            )
+        )
+
         Text(
-            item.name,
+            text = item.name,
             color = Color.White,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            fontSize = 12.sp,
+            fontWeight =
+                FontWeight.SemiBold,
+            maxLines = 2,
+            overflow =
+                TextOverflow.Ellipsis,
         )
+
+        Spacer(
+            Modifier.height(
+                3.dp
+            )
+        )
+
         Text(
-            listOfNotNull(
-                item.releaseInfo,
-                item.type.replaceFirstChar { it.uppercase() },
-            ).joinToString(" • "),
-            color = VueoPalette.Muted,
-            fontSize = 10.sp,
+            text =
+                listOfNotNull(
+                    item.releaseInfo,
+                    searchTypeLabel(
+                        item
+                    ),
+                ).joinToString(
+                    " • "
+                ),
+            color =
+                VueoPalette.Muted,
+            fontSize = 9.sp,
             maxLines = 1,
+            overflow =
+                TextOverflow.Ellipsis,
         )
     }
 }
+
+private fun searchTypeLabel(
+    item: MediaItem,
+): String =
+    when (
+        item.type.lowercase()
+    ) {
+        "movie" -> "Movie"
+        "series", "tv" ->
+            "Series"
+        "anime" -> "Anime"
+        else ->
+            item.type
+                .replaceFirstChar {
+                    it.uppercase()
+                }
+    }
 
 @Composable
 private fun LibraryScreen(
