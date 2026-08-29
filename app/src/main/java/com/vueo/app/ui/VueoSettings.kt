@@ -538,7 +538,11 @@ internal fun VueoSettingsHub(
 
                                 Text(
                                     text =
-                                        "${dnaSnapshot.confidencePercent}% DNA strength",
+                                        dnaSnapshot
+                                            ?.let {
+                                                "${it.confidencePercent}% DNA strength"
+                                            }
+                                            ?: "User DNA is turned off",
                                     color =
                                         VueoPalette.Accent,
                                     fontSize = 10.sp,
