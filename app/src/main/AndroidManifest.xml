@@ -6,6 +6,8 @@
     <application
         android:allowBackup="true"
         android:icon="@drawable/ic_vueo"
+        android:roundIcon="@drawable/ic_vueo"
+        android:logo="@drawable/vueo_logo_mark"
         android:label="VUEO"
         android:supportsRtl="true"
         android:theme="@style/Theme.VUEO"

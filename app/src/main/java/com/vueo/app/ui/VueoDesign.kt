@@ -1,11 +1,12 @@
 package com.vueo.app.ui
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -13,11 +14,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.Text
+import com.vueo.app.R
 import com.vueo.app.core.storage.AppAccent
 
 internal object VueoPalette {
@@ -29,8 +31,10 @@ internal object VueoPalette {
     val Stroke = Color(0xFF2A323A)
     val Muted = Color(0xFFA2AAB3)
 
-    // VUEO brand identity. This never follows the user's interface accent.
-    val BrandLime = Color(0xFF8CE66A)
+    // Official VUEO identity:
+    // lime V/play mark + clean white wordmark.
+    // Brand identity never follows the user's UI accent.
+    val BrandLime = Color(0xFFB6FF00)
 
     private var accentState by mutableStateOf(
         Color(AppAccent.WHITE.argb)
@@ -56,31 +60,17 @@ internal fun AppAccent.composeColor(): Color = Color(argb)
 @Composable
 internal fun VueoBrandMark(
     modifier: Modifier = Modifier,
-    color: Color = VueoPalette.Accent,
+    @Suppress("UNUSED_PARAMETER")
+    color: Color = VueoPalette.BrandLime,
 ) {
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-
-        // Approved v0.9.6 mark: a clean cinematic V made from two ribbons.
-        val left = Path().apply {
-            moveTo(w * .08f, h * .15f)
-            lineTo(w * .39f, h * .15f)
-            lineTo(w * .57f, h * .52f)
-            lineTo(w * .36f, h * .88f)
-            close()
-        }
-
-        val right = Path().apply {
-            moveTo(w * .43f, h * .15f)
-            lineTo(w * .91f, h * .15f)
-            lineTo(w * .60f, h * .58f)
-            close()
-        }
-
-        drawPath(left, color)
-        drawPath(right, color)
-    }
+    Image(
+        painter = painterResource(
+            R.drawable.vueo_logo_mark
+        ),
+        contentDescription = "VUEO",
+        modifier = modifier,
+        contentScale = ContentScale.Fit,
+    )
 }
 
 @Composable
@@ -95,16 +85,22 @@ internal fun VueoBrandLockup(
     ) {
         VueoBrandMark(
             modifier = Modifier.size(
-                if (compact) 28.dp else 34.dp
+                if (compact) 29.dp else 36.dp
             )
         )
-        Spacer(Modifier.width(if (compact) 8.dp else 10.dp))
+
+        Spacer(
+            Modifier.width(
+                if (compact) 8.dp else 11.dp
+            )
+        )
+
         Text(
-            "VUEO",
-            color = VueoPalette.Accent,
-            fontWeight = FontWeight.Black,
-            fontSize = if (compact) 19.sp else 24.sp,
-            letterSpacing = if (compact) 2.6.sp else 3.6.sp,
+            text = "VUEO",
+            color = Color.White,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = if (compact) 18.sp else 23.sp,
+            letterSpacing = if (compact) 2.2.sp else 3.0.sp,
         )
     }
 }

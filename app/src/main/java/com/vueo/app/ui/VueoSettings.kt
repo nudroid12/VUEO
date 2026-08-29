@@ -2361,7 +2361,7 @@ internal fun AppearanceSettingsScreen(
         item {
             VueoInfoCard(
                 title = "Brand stays consistent",
-                text = "The VUEO logo remains Lime Green even when the interface accent is White, Ocean, Violet, Amber, or Coral.",
+                text = "The official VUEO mark stays Lime Green and the wordmark stays White, even when the interface accent changes.",
             )
         }
     }
@@ -3354,10 +3354,10 @@ private fun VueoSettingsTitle(
     ) {
         Text(
             "VUEO",
-            color = VueoPalette.BrandLime,
+            color = Color.White,
             fontSize = 10.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 1.4.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.8.sp,
         )
 
         Text(
