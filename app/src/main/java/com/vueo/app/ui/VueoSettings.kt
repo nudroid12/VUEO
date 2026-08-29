@@ -430,8 +430,8 @@ internal fun VueoSettingsHub(
                                 .padding(
                                     start = 16.dp,
                                     end = 16.dp,
-                                    top = 16.dp,
-                                    bottom = 10.dp,
+                                    top = 15.dp,
+                                    bottom = 8.dp,
                                 ),
                         verticalAlignment =
                             Alignment.CenterVertically,
@@ -505,7 +505,7 @@ internal fun VueoSettingsHub(
                         ) {
                             Text(
                                 text =
-                                    activeProfile.name,
+                                    "VUEO • ${activeProfile.name}",
                                 color =
                                     Color.White,
                                 fontSize = 20.sp,
@@ -523,32 +523,6 @@ internal fun VueoSettingsHub(
                                     FontWeight.Medium,
                             )
 
-                            Text(
-                                text =
-                                    buildString {
-                                        append(
-                                            "Manage Profiles"
-                                        )
-                                        append(" • ")
-                                        append(
-                                            profileCount
-                                        )
-                                        append(
-                                            if (
-                                                profileCount == 1
-                                            ) {
-                                                " profile"
-                                            } else {
-                                                " profiles"
-                                            }
-                                        )
-                                    },
-                                color =
-                                    VueoPalette.Accent,
-                                fontSize = 10.sp,
-                                fontWeight =
-                                    FontWeight.Bold,
-                            )
                         }
 
                         Text(
@@ -661,57 +635,30 @@ internal fun VueoSettingsHub(
                             verticalAlignment =
                                 Alignment.CenterVertically,
                         ) {
-                            Column(
+                            Text(
+                                text =
+                                    dnaTastePreview
+                                        .takeIf {
+                                            it.isNotBlank()
+                                        }
+                                        ?: if (
+                                            dnaEnabled
+                                        ) {
+                                            "Keep watching to shape your DNA class."
+                                        } else {
+                                            "Enable User DNA in Personalization."
+                                        },
                                 modifier =
                                     Modifier.weight(
                                         1f
                                     ),
-                                verticalArrangement =
-                                    Arrangement.spacedBy(
-                                        2.dp
-                                    ),
-                            ) {
-                                Text(
-                                    text =
-                                        if (
-                                            dnaEnabled
-                                        ) {
-                                            dnaClass
-                                        } else {
-                                            "User DNA is off"
-                                        },
-                                    color =
-                                        if (
-                                            dnaEnabled
-                                        ) {
-                                            Color.White
-                                        } else {
-                                            VueoPalette.Muted
-                                        },
-                                    fontSize = 11.sp,
-                                    fontWeight =
-                                        FontWeight.Bold,
-                                )
-
-                                Text(
-                                    text =
-                                        dnaTastePreview
-                                            .takeIf {
-                                                it.isNotBlank()
-                                            }
-                                            ?: if (
-                                                dnaEnabled
-                                            ) {
-                                                "Keep watching to shape your DNA class."
-                                            } else {
-                                                "Enable User DNA in Personalization."
-                                            },
-                                    color =
-                                        VueoPalette.Muted,
-                                    fontSize = 10.sp,
-                                    maxLines = 1,
-                                )
-                            }
+                                color =
+                                    VueoPalette.Muted,
+                                fontSize = 10.sp,
+                                fontWeight =
+                                    FontWeight.Medium,
+                                maxLines = 1,
+                            )
 
                             Text(
                                 text = "›",
@@ -736,12 +683,7 @@ internal fun VueoSettingsHub(
                 title = "Personalization",
                 subtitle =
                     "User DNA, DNA Match & recommendations.",
-                status =
-                    if (dnaEnabled) {
-                        "$dnaClass • ${dnaSnapshot?.confidencePercent ?: 0}% DNA"
-                    } else {
-                        "User DNA off"
-                    },
+                status = "",
                 icon =
                     Icons.Default.Settings,
                 onClick = {
@@ -3941,14 +3883,18 @@ private fun VueoSettingsNavigationCard(
                     fontSize = 11.sp,
                 )
 
-                Text(
-                    text = status,
-                    color =
-                        VueoPalette.Accent,
-                    fontSize = 10.sp,
-                    fontWeight =
-                        FontWeight.Bold,
-                )
+                if (
+                    status.isNotBlank()
+                ) {
+                    Text(
+                        text = status,
+                        color =
+                            VueoPalette.Accent,
+                        fontSize = 10.sp,
+                        fontWeight =
+                            FontWeight.Bold,
+                    )
+                }
             }
 
             Text(
