@@ -1852,204 +1852,306 @@ internal fun UpdatesSettingsScreen(
     settingsStore: SettingsStore,
     onBack: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val updateStore = remember {
-        VueoUpdateStore(context.applicationContext)
-    }
+    val context =
+        LocalContext.current
+    val scope =
+        rememberCoroutineScope()
+    val updateStore =
+        remember(context) {
+            VueoUpdateStore(
+                context.applicationContext
+            )
+        }
 
     var automaticChecks by remember {
         mutableStateOf(
-            settingsStore.automaticUpdateChecksEnabled()
+            settingsStore
+                .automaticUpdateChecksEnabled()
         )
     }
-    var latestRelease by remember {
+    var release by remember {
         mutableStateOf(
             updateStore.latestRelease()
-        )
-    }
-    var lastCheckedAt by remember {
-        mutableStateOf(
-            updateStore.lastCheckedAt()
-        )
-    }
-    var feedback by remember {
-        mutableStateOf(
-            updateStore.lastError()
         )
     }
     var checking by remember {
         mutableStateOf(false)
     }
+    var downloading by remember {
+        mutableStateOf(false)
+    }
+    var downloadProgress by remember {
+        mutableStateOf(0)
+    }
+    var statusMessage by remember {
+        mutableStateOf<String?>(
+            null
+        )
+    }
+    var errorMessage by remember {
+        mutableStateOf<String?>(
+            updateStore.lastError()
+        )
+    }
+
+    val updateAvailable: Boolean =
+        release
+            ?.isNewerThanCurrent()
+            ?: false
 
     VueoSettingsPage(
         title = "Updates",
-        subtitle = "Check VUEO releases and open the delivery link provided by the release feed.",
+        subtitle =
+            "Fast VUEO development updates.",
         onBack = onBack,
     ) {
         item {
             VueoStatusCard(
-                title = "Current Version",
-                value = BuildConfig.VERSION_NAME,
-                text = "Build ${BuildConfig.VERSION_CODE}. VUEO can use a release feed without locking APK delivery to one platform.",
+                title =
+                    "Current Version",
+                value =
+                    BuildConfig.VERSION_NAME,
+                text =
+                    "Build ${BuildConfig.VERSION_CODE}. Updates install over the existing app and keep local VUEO data.",
             )
         }
 
         item {
             VueoSettingsToggleCard(
-                title = "Automatic Update Checks",
-                subtitle = "Check the VUEO release feed in the background at most once every six hours.",
-                checked = automaticChecks,
+                title =
+                    "Automatic Update Checks",
+                subtitle =
+                    "Check the VUEO Dev channel in the background. Checks are rate-limited to avoid unnecessary network use.",
+                checked =
+                    automaticChecks,
                 onCheckedChange = {
                     automaticChecks = it
-                    settingsStore.setAutomaticUpdateChecksEnabled(it)
+                    settingsStore
+                        .setAutomaticUpdateChecksEnabled(
+                            it
+                        )
                 },
             )
         }
 
         item {
             VueoSettingsActionCard(
-                title = "Check for Updates",
-                subtitle = if (checking) {
-                    "Checking the VUEO release feed..."
-                } else {
-                    "Check now instead of waiting for the next background check."
-                },
-                action = if (checking) {
-                    "Checking"
-                } else {
-                    "Check"
-                },
+                title =
+                    "Check for Updates",
+                subtitle =
+                    if (
+                        updateAvailable
+                    ) {
+                        "VUEO ${release?.versionName} is available."
+                    } else {
+                        "Check the latest green VUEO Dev build."
+                    },
+                action =
+                    if (checking) {
+                        "Checking..."
+                    } else {
+                        "Check"
+                    },
                 onClick = {
-                    if (!checking) {
+                    if (
+                        !checking
+                    ) {
+                        checking = true
+                        statusMessage =
+                            null
+                        errorMessage =
+                            null
+
                         scope.launch {
-                            checking = true
-                            feedback = null
+                            val result =
+                                VueoUpdateManager
+                                    .check(
+                                        context =
+                                            context.applicationContext,
+                                        force =
+                                            true,
+                                    )
 
-                            val result = VueoUpdateManager.check(
-                                context = context.applicationContext,
-                                force = true,
-                            )
-
-                            latestRelease = result.release
-                            lastCheckedAt = result.checkedAtEpochMs
-                            feedback = result.error
-                                ?: if (
-                                    result.release
-                                        ?.isNewerThanCurrent() == true
-                                ) {
-                                    "VUEO ${result.release.versionName} is available."
-                                } else {
-                                    "You are up to date."
-                                }
-
+                            release =
+                                result.release
                             checking = false
+
+                            val hasNewerRelease: Boolean =
+                                result.release
+                                    ?.isNewerThanCurrent()
+                                    ?: false
+
+                            if (
+                                result.error !=
+                                null
+                            ) {
+                                errorMessage =
+                                    result.error
+                            } else if (
+                                hasNewerRelease
+                            ) {
+                                statusMessage =
+                                    "Update ready."
+                            } else {
+                                statusMessage =
+                                    "You're up to date."
+                            }
                         }
                     }
                 },
             )
         }
 
-        feedback?.let { message ->
-            item {
-                VueoInfoCard(
-                    title = "Update Status",
-                    text = message,
-                )
-            }
-        }
+        val availableRelease =
+            release
+                ?.takeIf {
+                    it.isNewerThanCurrent()
+                }
 
-        if (lastCheckedAt > 0L) {
+        if (
+            availableRelease != null
+        ) {
             item {
                 VueoStatusCard(
-                    title = "Last Checked",
-                    value = formatUpdateCheckTime(lastCheckedAt),
-                    text = "The last successful release data remains cached so the Updates page stays useful offline.",
+                    title =
+                        "Update Available",
+                    value =
+                        availableRelease
+                            .versionName,
+                    text =
+                        availableRelease
+                            .changelog
+                            .take(4)
+                            .takeIf {
+                                it.isNotEmpty()
+                            }
+                            ?.joinToString(
+                                "\n• ",
+                                prefix = "• ",
+                            )
+                            ?: "Latest green VUEO development build.",
                 )
             }
-        }
 
-        latestRelease?.let { release ->
             item {
-                VueoStatusCard(
-                    title = if (release.isNewerThanCurrent()) {
-                        "Update Available"
-                    } else {
-                        "Latest Release"
-                    },
-                    value = release.versionName,
-                    text = buildString {
-                        append(release.title)
-                        release.publishedAt?.let {
-                            append(" • ")
-                            append(it)
+                VueoSettingsActionCard(
+                    title =
+                        "Download & Install",
+                    subtitle =
+                        if (
+                            downloading
+                        ) {
+                            "Downloading signed APK. Keep VUEO open until Android's installer appears."
+                        } else {
+                            "Download the verified APK and hand it to Android's system installer."
+                        },
+                    action =
+                        when {
+                            downloading ->
+                                "$downloadProgress%"
+
+                            VueoUpdateManager
+                                .needsInstallPermission(
+                                    context
+                                ) ->
+                                "Allow"
+
+                            else ->
+                                "Update"
+                        },
+                    onClick = downloadClick@{
+                        if (downloading) {
+                            return@downloadClick
+                        }
+
+                        if (
+                            VueoUpdateManager
+                                .needsInstallPermission(
+                                    context
+                                )
+                        ) {
+                            VueoUpdateManager
+                                .openInstallPermissionSettings(
+                                    context
+                                )
+                            statusMessage =
+                                "Allow installs for VUEO, then return and tap Update again."
+                            return@downloadClick
+                        }
+
+                        val target =
+                            availableRelease
+
+                        downloading =
+                            true
+                        downloadProgress =
+                            0
+                        errorMessage =
+                            null
+                        statusMessage =
+                            null
+
+                        scope.launch {
+                            val result =
+                                VueoUpdateManager
+                                    .downloadAndInstall(
+                                        context =
+                                            context.applicationContext,
+                                        release =
+                                            target,
+                                        onProgress = {
+                                            progress ->
+                                            downloadProgress =
+                                                progress
+                                        },
+                                    )
+
+                            downloading =
+                                false
+
+                            result
+                                .onFailure {
+                                    failure ->
+                                    errorMessage =
+                                        failure.message
+                                            ?: "Unable to install update."
+                                }
                         }
                     },
                 )
             }
+        }
 
-            if (release.changelog.isNotEmpty()) {
+        statusMessage
+            ?.let {
+                message ->
                 item {
                     VueoInfoCard(
-                        title = "What's New",
-                        text = release.changelog.joinToString(
-                            separator = "\n"
-                        ) {
-                            "• $it"
-                        },
+                        title = "Status",
+                        text = message,
                     )
                 }
             }
 
-            if (release.isNewerThanCurrent()) {
-                release.downloadUrl?.let { url ->
-                    item {
-                        VueoSettingsActionCard(
-                            title = "Download Update",
-                            subtitle = "Open the APK delivery link from the VUEO release feed.",
-                            action = "Open",
-                            onClick = {
-                                if (!openVueoReleaseUrl(context, url)) {
-                                    feedback = "Unable to open the update link."
-                                }
-                            },
-                        )
-                    }
-                }
-
-                release.telegramUrl?.let { url ->
-                    item {
-                        VueoSettingsActionCard(
-                            title = "Open Telegram Release",
-                            subtitle = "Open the Telegram release or channel link supplied by the VUEO release feed.",
-                            action = "Telegram",
-                            onClick = {
-                                if (!openVueoReleaseUrl(context, url)) {
-                                    feedback = "Unable to open the Telegram link."
-                                }
-                            },
-                        )
-                    }
-                }
-
-                if (
-                    release.downloadUrl == null &&
-                    release.telegramUrl == null
-                ) {
-                    item {
-                        VueoInfoCard(
-                            title = "Release detected",
-                            text = "This release feed does not publish an APK or Telegram delivery link yet. VUEO will not redirect to an untrusted download source.",
-                        )
-                    }
+        errorMessage
+            ?.let {
+                message ->
+                item {
+                    VueoInfoCard(
+                        title =
+                            "Update Error",
+                        text =
+                            message,
+                    )
                 }
             }
-        }
 
         item {
             VueoInfoCard(
-                title = "VUEO 0.9.3",
-                text = "Backup and restore, optional API-key backup, update checking, Telegram-ready release links, data reset, and versioned data migration.",
+                title =
+                    "Android confirmation",
+                text =
+                    "Android requires a final system confirmation before an APK update is installed. The first update may also ask you to allow installs from VUEO.",
             )
         }
     }

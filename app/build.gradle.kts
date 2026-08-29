@@ -3,6 +3,19 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val vueoCiVersionCode =
+    System.getenv("VUEO_VERSION_CODE")
+        ?.toIntOrNull()
+val vueoCiVersionName =
+    System.getenv("VUEO_VERSION_NAME")
+        ?.takeIf { it.isNotBlank() }
+val vueoKeystorePath =
+    System.getenv("VUEO_KEYSTORE_PATH")
+        ?.takeIf { it.isNotBlank() }
+val vueoKeystorePassword =
+    System.getenv("VUEO_KEYSTORE_PASSWORD")
+        ?.takeIf { it.isNotBlank() }
+
 android {
     namespace = "com.vueo.app"
     compileSdk = 36
@@ -11,8 +24,35 @@ android {
         applicationId = "com.vueo.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 23
-        versionName = "0.9.6"
+        versionCode = vueoCiVersionCode ?: 23
+        versionName = vueoCiVersionName ?: "0.9.6"
+    }
+
+    signingConfigs {
+        create("vueoRelease") {
+            if (
+                vueoKeystorePath != null &&
+                vueoKeystorePassword != null
+            ) {
+                storeFile = file(vueoKeystorePath)
+                storePassword = vueoKeystorePassword
+                keyAlias = "vueo"
+                keyPassword = vueoKeystorePassword
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            if (
+                vueoKeystorePath != null &&
+                vueoKeystorePassword != null
+            ) {
+                signingConfig =
+                    signingConfigs.getByName("vueoRelease")
+            }
+            isMinifyEnabled = false
+        }
     }
 
     buildFeatures {
