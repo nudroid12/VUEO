@@ -76,6 +76,7 @@ import com.vueo.app.core.enrichment.MdblistClient
 import com.vueo.app.core.enrichment.TmdbEnhancementClient
 import com.vueo.app.core.dna.UserDnaEngine
 import com.vueo.app.core.dna.UserDnaPreferences
+import com.vueo.app.core.dna.UserDnaSnapshot
 import com.vueo.app.core.plugin.PluginStore
 import com.vueo.app.core.storage.AppAccent
 import com.vueo.app.core.storage.LibraryStore
@@ -236,6 +237,61 @@ internal fun VueoSettingsHub(
             }
             .orEmpty()
 
+    val myListCount =
+        remember(
+            activeProfile.id,
+            profileVersion,
+        ) {
+            libraryStore
+                .watchlist()
+                .size
+        }
+
+    val watchedTitlesCount =
+        remember(
+            activeProfile.id,
+            profileVersion,
+        ) {
+            libraryStore
+                .history()
+                .filter {
+                    it.positionMs > 5_000L
+                }
+                .map {
+                    "${it.media.type}:${it.media.id}"
+                }
+                .distinct()
+                .size
+        }
+
+    val vueoClass =
+        remember(
+            watchedTitlesCount
+        ) {
+            vueoViewingClass(
+                watchedTitlesCount
+            )
+        }
+
+    val dnaClass =
+        remember(
+            dnaEnabled,
+            dnaSnapshot,
+        ) {
+            when {
+                !dnaEnabled ->
+                    "DNA Off"
+
+                dnaSnapshot == null ->
+                    "Finding Your Taste"
+
+                else ->
+                    vueoDnaClass(
+                        dnaSnapshot
+                    )
+            }
+        }
+
     var showPersonalization by remember(
         activeProfile.id
     ) {
@@ -360,7 +416,10 @@ internal fun VueoSettingsHub(
                                 .SurfaceElevated,
                     ),
             ) {
-                Column {
+                Column(
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                ) {
                     Row(
                         modifier =
                             Modifier
@@ -369,8 +428,10 @@ internal fun VueoSettingsHub(
                                     onClick = onProfiles
                                 )
                                 .padding(
-                                    horizontal = 16.dp,
-                                    vertical = 15.dp,
+                                    start = 16.dp,
+                                    end = 16.dp,
+                                    top = 16.dp,
+                                    bottom = 10.dp,
                                 ),
                         verticalAlignment =
                             Alignment.CenterVertically,
@@ -379,7 +440,7 @@ internal fun VueoSettingsHub(
                             modifier =
                                 Modifier
                                     .size(
-                                        64.dp
+                                        68.dp
                                     )
                                     .clip(
                                         RoundedCornerShape(
@@ -439,7 +500,7 @@ internal fun VueoSettingsHub(
                                 ),
                             verticalArrangement =
                                 Arrangement.spacedBy(
-                                    3.dp
+                                    5.dp
                                 ),
                         ) {
                             Text(
@@ -447,23 +508,26 @@ internal fun VueoSettingsHub(
                                     activeProfile.name,
                                 color =
                                     Color.White,
-                                fontSize = 19.sp,
+                                fontSize = 20.sp,
                                 fontWeight =
                                     FontWeight.Black,
                             )
 
                             Text(
                                 text =
+                                    "$vueoClass • $dnaClass",
+                                color =
+                                    VueoPalette.Muted,
+                                fontSize = 11.sp,
+                                fontWeight =
+                                    FontWeight.Medium,
+                            )
+
+                            Text(
+                                text =
                                     buildString {
                                         append(
-                                            if (
-                                                activeProfile
-                                                    .isKids
-                                            ) {
-                                                "Kids profile"
-                                            } else {
-                                                "Local profile"
-                                            }
+                                            "Manage Profiles"
                                         )
                                         append(" • ")
                                         append(
@@ -480,16 +544,8 @@ internal fun VueoSettingsHub(
                                         )
                                     },
                                 color =
-                                    VueoPalette.Muted,
-                                fontSize = 11.sp,
-                            )
-
-                            Text(
-                                text =
-                                    "Manage Profiles",
-                                color =
                                     VueoPalette.Accent,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 fontWeight =
                                     FontWeight.Bold,
                             )
@@ -499,7 +555,68 @@ internal fun VueoSettingsHub(
                             text = "›",
                             color =
                                 VueoPalette.Muted,
-                            fontSize = 26.sp,
+                            fontSize = 27.sp,
+                        )
+                    }
+
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (dnaEnabled) {
+                                        showUserDna = true
+                                    } else {
+                                        showPersonalization = true
+                                    }
+                                }
+                                .padding(
+                                    horizontal = 16.dp,
+                                    vertical = 10.dp,
+                                ),
+                        horizontalArrangement =
+                            Arrangement.spacedBy(
+                                8.dp
+                            ),
+                    ) {
+                        VueoProfileStat(
+                            modifier =
+                                Modifier.weight(
+                                    1f
+                                ),
+                            label = "My List",
+                            value =
+                                myListCount
+                                    .toString(),
+                        )
+
+                        VueoProfileStat(
+                            modifier =
+                                Modifier.weight(
+                                    1f
+                                ),
+                            label = "Watched",
+                            value =
+                                watchedTitlesCount
+                                    .toString(),
+                        )
+
+                        VueoProfileStat(
+                            modifier =
+                                Modifier.weight(
+                                    1f
+                                ),
+                            label = "DNA",
+                            value =
+                                dnaSnapshot
+                                    ?.let {
+                                        "${it.confidencePercent}%"
+                                    }
+                                    ?: "Off",
+                            highlighted =
+                                dnaEnabled &&
+                                    dnaSnapshot !=
+                                    null,
                         )
                     }
 
@@ -508,13 +625,13 @@ internal fun VueoSettingsHub(
                             Modifier
                                 .fillMaxWidth()
                                 .padding(
-                                    start = 14.dp,
-                                    end = 14.dp,
-                                    bottom = 14.dp,
+                                    start = 16.dp,
+                                    end = 16.dp,
+                                    bottom = 16.dp,
                                 )
                                 .clip(
                                     RoundedCornerShape(
-                                        16.dp
+                                        14.dp
                                     )
                                 )
                                 .clickable {
@@ -526,19 +643,20 @@ internal fun VueoSettingsHub(
                                 },
                         shape =
                             RoundedCornerShape(
-                                16.dp
+                                14.dp
                             ),
                         color =
-                            VueoPalette.Accent
+                            VueoPalette
+                                .SurfaceStrong
                                 .copy(
-                                    alpha = .08f
+                                    alpha = .72f
                                 ),
                     ) {
                         Row(
                             modifier =
                                 Modifier.padding(
-                                    horizontal = 13.dp,
-                                    vertical = 11.dp,
+                                    horizontal = 12.dp,
+                                    vertical = 10.dp,
                                 ),
                             verticalAlignment =
                                 Alignment.CenterVertically,
@@ -550,67 +668,27 @@ internal fun VueoSettingsHub(
                                     ),
                                 verticalArrangement =
                                     Arrangement.spacedBy(
-                                        3.dp
+                                        2.dp
                                     ),
                             ) {
-                                Row(
-                                    verticalAlignment =
-                                        Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text =
-                                            "Your DNA",
-                                        color =
-                                            Color.White,
-                                        fontSize = 14.sp,
-                                        fontWeight =
-                                            FontWeight.Black,
-                                    )
-
-                                    Spacer(
-                                        Modifier.width(
-                                            8.dp
-                                        )
-                                    )
-
-                                    Surface(
-                                        shape =
-                                            RoundedCornerShape(
-                                                50
-                                            ),
-                                        color =
-                                            VueoPalette.Accent
-                                                .copy(
-                                                    alpha = .12f
-                                                ),
-                                    ) {
-                                        Text(
-                                            text =
-                                                dnaStatus,
-                                            modifier =
-                                                Modifier.padding(
-                                                    horizontal = 8.dp,
-                                                    vertical = 4.dp,
-                                                ),
-                                            color =
-                                                VueoPalette.Accent,
-                                            fontSize = 9.sp,
-                                            fontWeight =
-                                                FontWeight.Black,
-                                        )
-                                    }
-                                }
-
                                 Text(
                                     text =
-                                        dnaSnapshot
-                                            ?.let {
-                                                "${it.confidencePercent}% DNA strength"
-                                            }
-                                            ?: "User DNA is turned off",
+                                        if (
+                                            dnaEnabled
+                                        ) {
+                                            dnaClass
+                                        } else {
+                                            "User DNA is off"
+                                        },
                                     color =
-                                        VueoPalette.Accent,
-                                    fontSize = 10.sp,
+                                        if (
+                                            dnaEnabled
+                                        ) {
+                                            Color.White
+                                        } else {
+                                            VueoPalette.Muted
+                                        },
+                                    fontSize = 11.sp,
                                     fontWeight =
                                         FontWeight.Bold,
                                 )
@@ -621,28 +699,31 @@ internal fun VueoSettingsHub(
                                             .takeIf {
                                                 it.isNotBlank()
                                             }
-                                            ?: if (dnaEnabled) {
-                                                "Keep watching to build your taste profile."
+                                            ?: if (
+                                                dnaEnabled
+                                            ) {
+                                                "Keep watching to shape your DNA class."
                                             } else {
-                                                "Enable User DNA in Personalization to use these features."
+                                                "Enable User DNA in Personalization."
                                             },
                                     color =
                                         VueoPalette.Muted,
                                     fontSize = 10.sp,
+                                    maxLines = 1,
                                 )
                             }
-
-                            Spacer(
-                                Modifier.width(
-                                    10.dp
-                                )
-                            )
 
                             Text(
                                 text = "›",
                                 color =
-                                    VueoPalette.Accent,
-                                fontSize = 25.sp,
+                                    if (
+                                        dnaEnabled
+                                    ) {
+                                        VueoPalette.Accent
+                                    } else {
+                                        VueoPalette.Muted
+                                    },
+                                fontSize = 23.sp,
                             )
                         }
                     }
@@ -657,9 +738,9 @@ internal fun VueoSettingsHub(
                     "User DNA, DNA Match & recommendations.",
                 status =
                     if (dnaEnabled) {
-                        "$dnaStatus • Local profile"
+                        "$dnaClass • ${dnaSnapshot?.confidencePercent ?: 0}% DNA"
                     } else {
-                        "Off • Optional"
+                        "User DNA off"
                     },
                 icon =
                     Icons.Default.Settings,
@@ -3478,6 +3559,225 @@ private fun VueoSettingsTitle(
             color = VueoPalette.Muted,
             fontSize = 12.sp,
         )
+    }
+}
+
+@Composable
+private fun VueoProfileStat(
+    modifier: Modifier = Modifier,
+    label: String,
+    value: String,
+    highlighted: Boolean = false,
+) {
+    Surface(
+        modifier =
+            modifier,
+        shape =
+            RoundedCornerShape(
+                14.dp
+            ),
+        color =
+            if (highlighted) {
+                VueoPalette.Accent
+                    .copy(
+                        alpha = .10f
+                    )
+            } else {
+                VueoPalette.Surface
+            },
+    ) {
+        Column(
+            modifier =
+                Modifier.padding(
+                    horizontal = 10.dp,
+                    vertical = 10.dp,
+                ),
+            horizontalAlignment =
+                Alignment.CenterHorizontally,
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    2.dp
+                ),
+        ) {
+            Text(
+                text = value,
+                color =
+                    if (highlighted) {
+                        VueoPalette.Accent
+                    } else {
+                        Color.White
+                    },
+                fontSize = 15.sp,
+                fontWeight =
+                    FontWeight.Black,
+            )
+
+            Text(
+                text = label,
+                color =
+                    VueoPalette.Muted,
+                fontSize = 9.sp,
+                fontWeight =
+                    FontWeight.Medium,
+            )
+        }
+    }
+}
+
+private fun vueoViewingClass(
+    watchedTitles: Int,
+): String =
+    when {
+        watchedTitles < 10 ->
+            "Baby VUEO"
+
+        watchedTitles < 30 ->
+            "Explorer"
+
+        watchedTitles < 75 ->
+            "Binger"
+
+        watchedTitles < 150 ->
+            "Cinephile"
+
+        watchedTitles < 300 ->
+            "Screen Veteran"
+
+        else ->
+            "VUEO Legend"
+    }
+
+private fun vueoDnaClass(
+    snapshot: UserDnaSnapshot,
+): String {
+    if (
+        snapshot.confidencePercent < 20 ||
+        snapshot.topGenres.isEmpty()
+    ) {
+        return "Finding Your Taste"
+    }
+
+    val genres =
+        snapshot.topGenres
+            .associate {
+                it.name.lowercase(
+                    Locale.US
+                ) to it.percent
+            }
+
+    fun score(
+        vararg names: String,
+    ): Int =
+        names.sumOf {
+            genres[
+                it.lowercase(
+                    Locale.US
+                )
+            ] ?: 0
+        }
+
+    val topGenrePercent =
+        snapshot.topGenres
+            .firstOrNull()
+            ?.percent
+            ?: 0
+
+    if (
+        snapshot.topGenres.size >= 5 &&
+        topGenrePercent <= 30
+    ) {
+        return "The Explorer"
+    }
+
+    val classes =
+        listOf(
+            "The Adventurer" to
+                score(
+                    "Action",
+                    "Adventure",
+                    "Fantasy",
+                ),
+            "The Detective" to
+                score(
+                    "Crime",
+                    "Mystery",
+                    "Thriller",
+                ),
+            "The Thrill Seeker" to
+                score(
+                    "Horror",
+                    "Thriller",
+                    "Action",
+                ),
+            "The Romantic" to
+                score(
+                    "Romance",
+                    "Drama",
+                ),
+            "The Dreamer" to
+                score(
+                    "Science Fiction",
+                    "Fantasy",
+                    "Animation",
+                ),
+            "The Mood Lifter" to
+                score(
+                    "Comedy",
+                    "Family",
+                    "Animation",
+                ),
+            "The Story Hunter" to
+                score(
+                    "Drama",
+                    "History",
+                    "Documentary",
+                ),
+        )
+
+    val best =
+        classes.maxByOrNull {
+            it.second
+        }
+
+    if (
+        best != null &&
+        best.second >= 20
+    ) {
+        return best.first
+    }
+
+    return when (
+        snapshot.topGenres
+            .firstOrNull()
+            ?.name
+            ?.lowercase(
+                Locale.US
+            )
+    ) {
+        "crime",
+        "mystery" ->
+            "The Detective"
+
+        "horror",
+        "thriller" ->
+            "The Thrill Seeker"
+
+        "romance" ->
+            "The Romantic"
+
+        "science fiction",
+        "fantasy" ->
+            "The Dreamer"
+
+        "comedy" ->
+            "The Mood Lifter"
+
+        "action",
+        "adventure" ->
+            "The Adventurer"
+
+        else ->
+            "The Story Hunter"
     }
 }
 
