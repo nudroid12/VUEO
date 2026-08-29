@@ -13,10 +13,13 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -73,6 +76,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -88,7 +92,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -114,6 +117,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -6008,7 +6012,9 @@ private fun ContentManagerCard(
                     ),
             ) {
                 Text(
-                    title,
+                    episode?.let {
+                        "S${it.season} E${it.episode} • ${it.title}"
+                    } ?: title,
                     color = Color.White,
                     fontSize = 18.sp,
                     fontWeight =
@@ -11171,7 +11177,11 @@ private fun StreamSourceCard(
     }
 }
 
+private val VueoPlayerAccent =
+    Color(0xFFB9FF3A)
+
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun PlayerScreen(
     settingsStore: SettingsStore,
     title: String,
@@ -11263,6 +11273,9 @@ private fun PlayerScreen(
     }
     var gestureMessage by remember {
         mutableStateOf<String?>(null)
+    }
+    var gestureActive by remember {
+        mutableStateOf(false)
     }
     var gestureSeekPositionMs by remember {
         mutableStateOf<Long?>(null)
@@ -11609,11 +11622,13 @@ private fun PlayerScreen(
         controlsVisible,
         isPlaying,
         controlsLocked,
+        gestureActive,
     ) {
         if (
             controlsVisible &&
             isPlaying &&
-            !controlsLocked
+            !controlsLocked &&
+            !gestureActive
         ) {
             delay(3_000L)
             controlsVisible = false
@@ -11631,6 +11646,22 @@ private fun PlayerScreen(
         ) {
             nextEpisodeCountdown = null
             onNextEpisode(nextEpisode)
+        }
+    }
+
+    LaunchedEffect(
+        gestureMessage,
+        gestureActive,
+    ) {
+        val message = gestureMessage
+        if (message != null && !gestureActive) {
+            delay(700L)
+            if (
+                gestureMessage == message &&
+                !gestureActive
+            ) {
+                gestureMessage = null
+            }
         }
     }
 
@@ -12059,169 +12090,7 @@ private fun PlayerScreen(
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(Color.Black)
-                .pointerInput(
-                    player,
-                    durationMs,
-                    controlsLocked,
-                ) {
-                    if (controlsLocked) {
-                        return@pointerInput
-                    }
-
-                    var totalX = 0f
-                    var totalY = 0f
-                    var startX = 0f
-                    var startPosition = 0L
-                    var startVolume = 0
-                    var startBrightness = 0.5f
-                    var horizontal = false
-
-                    detectDragGestures(
-                        onDragStart = { offset ->
-                            totalX = 0f
-                            totalY = 0f
-                            startX = offset.x
-                            startPosition =
-                                player.currentPosition
-                            startVolume =
-                                audioManager
-                                    .getStreamVolume(
-                                        AudioManager.STREAM_MUSIC
-                                    )
-                            startBrightness =
-                                activity?.window
-                                    ?.attributes
-                                    ?.screenBrightness
-                                    ?.takeIf {
-                                        it >= 0f
-                                    }
-                                    ?: 0.5f
-                            horizontal = false
-                        },
-                        onDrag = { change, amount ->
-                            change.consume()
-                            totalX += amount.x
-                            totalY += amount.y
-
-                            if (
-                                kotlin.math.abs(totalX) > 18f ||
-                                kotlin.math.abs(totalY) > 18f
-                            ) {
-                                horizontal =
-                                    kotlin.math.abs(totalX) >=
-                                        kotlin.math.abs(totalY)
-                            }
-
-                            if (horizontal) {
-                                val fraction =
-                                    totalX / size.width
-                                val span =
-                                    if (durationMs > 0L) {
-                                        durationMs
-                                    } else {
-                                        60L * 60L * 1000L
-                                    }
-                                val preview =
-                                    (startPosition +
-                                        (span * fraction).toLong())
-                                        .coerceIn(
-                                            0L,
-                                            durationMs
-                                                .takeIf {
-                                                    it > 0L
-                                                }
-                                                ?: Long.MAX_VALUE,
-                                        )
-                                gestureSeekPositionMs =
-                                    preview
-                                gestureMessage =
-                                    formatPlaybackTime(
-                                        preview
-                                    ) +
-                                        " / " +
-                                        formatPlaybackTime(
-                                            durationMs
-                                        )
-                            } else {
-                                val delta =
-                                    -totalY / size.height
-                                if (startX < size.width / 2f) {
-                                    val brightness =
-                                        (startBrightness + delta)
-                                            .coerceIn(
-                                                0.02f,
-                                                1f,
-                                            )
-                                    activity?.window?.let {
-                                        window ->
-                                        val attrs =
-                                            window.attributes
-                                        attrs.screenBrightness =
-                                            brightness
-                                        window.attributes = attrs
-                                    }
-                                    gestureMessage =
-                                        "Brightness " +
-                                            "${(brightness * 100).toInt()}%"
-                                } else {
-                                    val maxVolume =
-                                        audioManager
-                                            .getStreamMaxVolume(
-                                                AudioManager.STREAM_MUSIC
-                                            )
-                                    val volume =
-                                        (startVolume +
-                                            delta * maxVolume)
-                                            .toInt()
-                                            .coerceIn(
-                                                0,
-                                                maxVolume,
-                                            )
-                                    audioManager
-                                        .setStreamVolume(
-                                            AudioManager.STREAM_MUSIC,
-                                            volume,
-                                            0,
-                                        )
-                                    gestureMessage =
-                                        "Volume " +
-                                            "${(volume * 100 / maxVolume.coerceAtLeast(1))}%"
-                                }
-                            }
-                        },
-                        onDragEnd = {
-                            gestureSeekPositionMs
-                                ?.let {
-                                    player.seekTo(it)
-                                }
-                            gestureSeekPositionMs = null
-                            gestureMessage = null
-                        },
-                        onDragCancel = {
-                            gestureSeekPositionMs = null
-                            gestureMessage = null
-                        },
-                    )
-                }
-                .pointerInput(controlsLocked) {
-                    if (controlsLocked) {
-                        return@pointerInput
-                    }
-                    detectTransformGestures {
-                        _,
-                        _,
-                        zoom,
-                        _ ->
-                        if (zoom > 1.04f) {
-                            zoomed = true
-                            gestureMessage = "Zoom"
-                        } else if (zoom < 0.96f) {
-                            zoomed = false
-                            gestureMessage = "Fit"
-                        }
-                    }
-                },
+                .background(Color.Black),
     ) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -12230,6 +12099,8 @@ private fun PlayerScreen(
                     this.player = player
                     useController = false
                     keepScreenOn = true
+                    subtitleView
+                        ?.setBottomPaddingFraction(.22f)
                     resizeMode =
                         if (zoomed) {
                             AspectRatioFrameLayout
@@ -12243,6 +12114,8 @@ private fun PlayerScreen(
             update = { view ->
                 view.player = player
                 view.useController = false
+                view.subtitleView
+                    ?.setBottomPaddingFraction(.22f)
                 view.resizeMode =
                     if (zoomed) {
                         AspectRatioFrameLayout
@@ -12255,54 +12128,252 @@ private fun PlayerScreen(
         )
 
         if (!controlsLocked) {
-            Row(
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                PlayerTapZone(
-                    modifier = Modifier.weight(1f),
-                    onTap = {
-                        controlsVisible =
-                            !controlsVisible
-                    },
-                    onDoubleTap = {
-                        player.seekTo(
-                            (player.currentPosition -
-                                10_000L)
-                                .coerceAtLeast(0L)
-                        )
-                        gestureMessage = "-10 sec"
-                    },
-                )
-                PlayerTapZone(
-                    modifier = Modifier.weight(1f),
-                    onTap = {
-                        controlsVisible =
-                            !controlsVisible
-                    },
-                    onDoubleTap = {
-                        if (player.isPlaying) {
-                            player.pause()
-                        } else {
-                            player.play()
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(
+                        player,
+                        durationMs,
+                        controlsLocked,
+                    ) {
+                        try {
+                            awaitEachGesture {
+                            val down = awaitFirstDown(
+                                requireUnconsumed = false
+                            )
+                            var totalX = 0f
+                            var totalY = 0f
+                            var mode = 0
+                            var zoomAmount = 1f
+                            var seekPreview: Long? = null
+                            val startX = down.position.x
+                            val startPosition =
+                                player.currentPosition
+                            val startVolume =
+                                audioManager
+                                    .getStreamVolume(
+                                        AudioManager.STREAM_MUSIC
+                                    )
+                            val startBrightness =
+                                activity?.window
+                                    ?.attributes
+                                    ?.screenBrightness
+                                    ?.takeIf {
+                                        it >= 0f
+                                    }
+                                    ?: 0.5f
+
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val pressed =
+                                    event.changes.filter {
+                                        it.pressed
+                                    }
+
+                                if (pressed.size >= 2) {
+                                    if (mode != 3) {
+                                        mode = 3
+                                        gestureActive = true
+                                        gestureSeekPositionMs = null
+                                    }
+                                    zoomAmount *=
+                                        event.calculateZoom()
+
+                                    if (zoomAmount > 1.06f) {
+                                        zoomed = true
+                                        gestureMessage = "Zoom"
+                                    } else if (
+                                        zoomAmount < .94f
+                                    ) {
+                                        zoomed = false
+                                        gestureMessage = "Fit"
+                                    }
+
+                                    event.changes.forEach {
+                                        it.consume()
+                                    }
+                                } else if (
+                                    pressed.size == 1 &&
+                                    mode != 3
+                                ) {
+                                    val change = pressed.first()
+                                    val movement =
+                                        change.positionChange()
+                                    totalX += movement.x
+                                    totalY += movement.y
+
+                                    if (
+                                        mode == 0 &&
+                                        (
+                                            kotlin.math.abs(totalX) >
+                                                viewConfiguration.touchSlop ||
+                                                kotlin.math.abs(totalY) >
+                                                viewConfiguration.touchSlop
+                                        )
+                                    ) {
+                                        mode =
+                                            if (
+                                                kotlin.math.abs(totalX) >=
+                                                kotlin.math.abs(totalY)
+                                            ) {
+                                                1
+                                            } else {
+                                                2
+                                            }
+                                        gestureActive = true
+                                    }
+
+                                    when (mode) {
+                                        1 -> {
+                                            val span =
+                                                durationMs
+                                                    .takeIf {
+                                                        it > 0L
+                                                    }
+                                                    ?: 60L * 60L * 1000L
+                                            val preview =
+                                                (startPosition +
+                                                    (
+                                                        span *
+                                                            (totalX / size.width)
+                                                    ).toLong())
+                                                    .coerceIn(
+                                                        0L,
+                                                        durationMs
+                                                            .takeIf {
+                                                                it > 0L
+                                                            }
+                                                            ?: Long.MAX_VALUE,
+                                                    )
+                                            seekPreview = preview
+                                            gestureSeekPositionMs = preview
+                                            gestureMessage =
+                                                formatPlaybackTime(preview) +
+                                                    " / " +
+                                                    formatPlaybackTime(
+                                                        durationMs
+                                                    )
+                                            change.consume()
+                                        }
+
+                                        2 -> {
+                                            val delta =
+                                                -totalY / size.height
+                                            if (
+                                                startX < size.width / 2f
+                                            ) {
+                                                val brightness =
+                                                    (startBrightness + delta)
+                                                        .coerceIn(
+                                                            .02f,
+                                                            1f,
+                                                        )
+                                                activity?.window?.let {
+                                                    window ->
+                                                    val attributes =
+                                                        window.attributes
+                                                    attributes.screenBrightness =
+                                                        brightness
+                                                    window.attributes =
+                                                        attributes
+                                                }
+                                                gestureMessage =
+                                                    "Brightness " +
+                                                        "${(brightness * 100).toInt()}%"
+                                            } else {
+                                                val maxVolume =
+                                                    audioManager
+                                                        .getStreamMaxVolume(
+                                                            AudioManager.STREAM_MUSIC
+                                                        )
+                                                val volume =
+                                                    (startVolume +
+                                                        delta * maxVolume)
+                                                        .toInt()
+                                                        .coerceIn(
+                                                            0,
+                                                            maxVolume,
+                                                        )
+                                                audioManager
+                                                    .setStreamVolume(
+                                                        AudioManager.STREAM_MUSIC,
+                                                        volume,
+                                                        0,
+                                                    )
+                                                gestureMessage =
+                                                    "Volume " +
+                                                        "${(volume * 100 / maxVolume.coerceAtLeast(1))}%"
+                                            }
+                                            change.consume()
+                                        }
+                                    }
+                                }
+
+                                if (
+                                    event.changes.none {
+                                        it.pressed
+                                    }
+                                ) {
+                                    break
+                                }
+                            }
+
+                            if (mode == 1) {
+                                seekPreview?.let {
+                                    player.seekTo(it)
+                                }
+                            }
+                                gestureSeekPositionMs = null
+                                gestureActive = false
+                            }
+                        } finally {
+                            gestureSeekPositionMs = null
+                            gestureActive = false
                         }
-                        controlsVisible = true
-                    },
-                )
-                PlayerTapZone(
-                    modifier = Modifier.weight(1f),
-                    onTap = {
-                        controlsVisible =
-                            !controlsVisible
-                    },
-                    onDoubleTap = {
-                        player.seekTo(
-                            player.currentPosition +
-                                10_000L
+                    }
+                    .pointerInput(
+                        player,
+                        controlsLocked,
+                    ) {
+                        detectTapGestures(
+                            onTap = {
+                                controlsVisible =
+                                    !controlsVisible
+                            },
+                            onDoubleTap = { offset ->
+                                when {
+                                    offset.x <
+                                        size.width * .34f -> {
+                                        player.seekTo(
+                                            (player.currentPosition -
+                                                10_000L)
+                                                .coerceAtLeast(0L)
+                                        )
+                                        gestureMessage = "-10 sec"
+                                    }
+
+                                    offset.x >
+                                        size.width * .66f -> {
+                                        player.seekTo(
+                                            player.currentPosition +
+                                                10_000L
+                                        )
+                                        gestureMessage = "+10 sec"
+                                    }
+
+                                    else -> {
+                                        if (player.isPlaying) {
+                                            player.pause()
+                                        } else {
+                                            player.play()
+                                        }
+                                    }
+                                }
+                                controlsVisible = true
+                            },
                         )
-                        gestureMessage = "+10 sec"
                     },
-                )
-            }
+            )
         }
 
         if (controlsVisible && !controlsLocked) {
@@ -12313,11 +12384,11 @@ private fun PlayerScreen(
                         Brush.verticalGradient(
                             listOf(
                                 Color.Black.copy(
-                                    alpha = .72f
+                                    alpha = .62f
                                 ),
                                 Color.Transparent,
                                 Color.Black.copy(
-                                    alpha = .82f
+                                    alpha = .70f
                                 ),
                             )
                         )
@@ -12329,8 +12400,8 @@ private fun PlayerScreen(
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
                     .padding(
-                        horizontal = 10.dp,
-                        vertical = 8.dp,
+                        horizontal = 18.dp,
+                        vertical = 14.dp,
                     ),
                 verticalAlignment =
                     Alignment.CenterVertically,
@@ -12348,36 +12419,15 @@ private fun PlayerScreen(
                     )
                 }
 
-                Column(
+                Text(
+                    title,
                     modifier = Modifier.weight(1f),
-                ) {
-                    Text(
-                        title,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        buildString {
-                            episode?.let {
-                                append(
-                                    "S${it.season} E${it.episode} • "
-                                )
-                            }
-                            append(source.providerName)
-                            append(" • ")
-                            append(
-                                source.quality ?: "Auto"
-                            )
-                        },
-                        color = Color.White.copy(
-                            alpha = .68f
-                        ),
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                    )
-                }
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
 
                 if (isBuffering) {
                     Text(
@@ -12388,35 +12438,30 @@ private fun PlayerScreen(
                     )
                 }
 
-                IconButton(
+                PlayerTopAction(
+                    icon =
+                        Icons.Default.PictureInPictureAlt,
+                    contentDescription =
+                        "Picture in picture",
                     enabled = Build.VERSION.SDK_INT >= 26,
                     onClick = {
                         enterVueoPictureInPicture(
                             activity
                         )
                     },
-                ) {
-                    Icon(
-                        Icons.Default.PictureInPictureAlt,
-                        contentDescription =
-                            "Picture in picture",
-                        tint = Color.White,
-                    )
-                }
+                )
 
-                IconButton(
+                Spacer(Modifier.width(8.dp))
+
+                PlayerTopAction(
+                    icon = Icons.Default.Lock,
+                    contentDescription =
+                        "Lock controls",
                     onClick = {
                         controlsLocked = true
                         controlsVisible = false
                     },
-                ) {
-                    Icon(
-                        Icons.Default.Lock,
-                        contentDescription =
-                            "Lock controls",
-                        tint = Color.White,
-                    )
-                }
+                )
             }
 
             Row(
@@ -12477,11 +12522,11 @@ private fun PlayerScreen(
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
                     .padding(
-                        horizontal = 14.dp,
-                        vertical = 10.dp,
+                        horizontal = 24.dp,
+                        vertical = 16.dp,
                     ),
                 verticalArrangement =
-                    Arrangement.spacedBy(7.dp),
+                    Arrangement.spacedBy(6.dp),
             ) {
                 playbackError?.let { error ->
                     Surface(
@@ -12578,17 +12623,28 @@ private fun PlayerScreen(
                     }
                 }
 
+                val displayedPosition =
+                    gestureSeekPositionMs
+                        ?: currentPositionMs
+                val progressFraction =
+                    if (durationMs > 0L) {
+                        (
+                            displayedPosition.toFloat() /
+                                durationMs.toFloat()
+                        ).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+
                 Slider(
-                    value =
-                        (gestureSeekPositionMs
-                            ?: currentPositionMs)
-                            .toFloat()
-                            .coerceIn(
-                                0f,
-                                durationMs
-                                    .coerceAtLeast(1L)
-                                    .toFloat(),
-                            ),
+                    value = displayedPosition
+                        .toFloat()
+                        .coerceIn(
+                            0f,
+                            durationMs
+                                .coerceAtLeast(1L)
+                                .toFloat(),
+                        ),
                     onValueChange = { value ->
                         gestureSeekPositionMs =
                             value.toLong()
@@ -12604,12 +12660,43 @@ private fun PlayerScreen(
                         0f..durationMs
                             .coerceAtLeast(1L)
                             .toFloat(),
-                    colors = SliderDefaults.colors(
-                        thumbColor = VueoPalette.Accent,
-                        activeTrackColor = VueoPalette.Accent,
-                        inactiveTrackColor =
-                            Color.White.copy(alpha = .34f),
-                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(24.dp),
+                    thumb = {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .background(
+                                    VueoPlayerAccent,
+                                    CircleShape,
+                                )
+                        )
+                    },
+                    track = {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(3.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    Color.White.copy(
+                                        alpha = .30f
+                                    )
+                                )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(
+                                        progressFraction
+                                    )
+                                    .fillMaxHeight()
+                                    .background(
+                                        VueoPlayerAccent
+                                    )
+                            )
+                        }
+                    },
                 )
 
                 Row(
@@ -12619,15 +12706,14 @@ private fun PlayerScreen(
                 ) {
                     Text(
                         formatPlaybackTime(
-                            gestureSeekPositionMs
-                                ?: currentPositionMs
+                            displayedPosition
                         ),
                         color = Color.White,
                         fontSize = 11.sp,
                     )
                     Spacer(Modifier.weight(1f))
                     Text(
-                        "-${formatPlaybackTime((durationMs - currentPositionMs).coerceAtLeast(0L))}",
+                        formatPlaybackTime(durationMs),
                         color = Color.White.copy(
                             alpha = .72f
                         ),
@@ -12636,12 +12722,23 @@ private fun PlayerScreen(
                 }
 
                 Box(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 2.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Surface(
+                        modifier = Modifier.border(
+                            width = 1.dp,
+                            color = Color.White.copy(
+                                alpha = .16f
+                            ),
+                            shape = RoundedCornerShape(30.dp),
+                        ),
                         shape = RoundedCornerShape(30.dp),
-                        color = Color.Black.copy(alpha = .68f),
+                        color = Color(
+                            0xD9161719
+                        ),
                     ) {
                         Row(
                             modifier = Modifier.padding(
@@ -12749,22 +12846,6 @@ private fun PlayerScreen(
 }
 
 @Composable
-private fun PlayerTapZone(
-    modifier: Modifier,
-    onTap: () -> Unit,
-    onDoubleTap: () -> Unit,
-) {
-    Box(
-        modifier = modifier
-            .fillMaxHeight()
-            .combinedClickable(
-                onClick = onTap,
-                onDoubleClick = onDoubleTap,
-            ),
-    )
-}
-
-@Composable
 private fun PlayerRoundAction(
     icon: ImageVector,
     contentDescription: String,
@@ -12786,6 +12867,34 @@ private fun PlayerRoundAction(
             ),
             tint = Color.White,
         )
+    }
+}
+
+@Composable
+private fun PlayerTopAction(
+    icon: ImageVector,
+    contentDescription: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.size(44.dp),
+        shape = CircleShape,
+        color = Color.Black.copy(alpha = .42f),
+    ) {
+        IconButton(
+            enabled = enabled,
+            onClick = onClick,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                modifier = Modifier.size(22.dp),
+                tint = Color.White.copy(
+                    alpha = if (enabled) .94f else .38f
+                ),
+            )
+        }
     }
 }
 
