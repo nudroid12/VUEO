@@ -6012,9 +6012,7 @@ private fun ContentManagerCard(
                     ),
             ) {
                 Text(
-                    episode?.let {
-                        "S${it.season} E${it.episode} • ${it.title}"
-                    } ?: title,
+                    title,
                     color = Color.White,
                     fontSize = 18.sp,
                     fontWeight =
@@ -12420,7 +12418,9 @@ private fun PlayerScreen(
                 }
 
                 Text(
-                    title,
+                    episode?.let {
+                        "S${it.season} E${it.episode} • ${it.title}"
+                    } ?: title,
                     modifier = Modifier.weight(1f),
                     color = Color.White,
                     fontSize = 16.sp,
