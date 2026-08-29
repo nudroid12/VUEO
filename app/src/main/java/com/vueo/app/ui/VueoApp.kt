@@ -130,6 +130,7 @@ import com.vueo.app.core.extensions.SourceRanker
 import com.vueo.app.core.extensions.SourceCleaner
 import com.vueo.app.core.extensions.SourceDiscoveryCache
 import com.vueo.app.core.extensions.CatalogDiscoveryCache
+import com.vueo.app.core.enrichment.GeminiClient
 import com.vueo.app.core.enrichment.MdblistClient
 import com.vueo.app.core.enrichment.MediaRating
 import com.vueo.app.core.enrichment.RichDetailsClient
@@ -187,6 +188,7 @@ private enum class SettingsPage {
     ENHANCEMENTS,
     TMDB,
     MDBLIST,
+    GEMINI,
     PLAYBACK,
     SUBTITLES,
     SOURCES,
@@ -205,7 +207,8 @@ private fun parentSettingsPage(
             SettingsPage.CONTENT_MANAGER
 
         SettingsPage.TMDB,
-        SettingsPage.MDBLIST ->
+        SettingsPage.MDBLIST,
+        SettingsPage.GEMINI ->
             SettingsPage.ENHANCEMENTS
 
         SettingsPage.ROOT ->
@@ -869,6 +872,9 @@ fun VueoApp() {
                             onMdblist = {
                                 settingsPage = SettingsPage.MDBLIST
                             },
+                            onGemini = {
+                                settingsPage = SettingsPage.GEMINI
+                            },
                         )
 
                     SettingsPage.TMDB ->
@@ -884,6 +890,15 @@ fun VueoApp() {
                             settingsStore = settingsStore,
                             onBack = {
                                 settingsPage = SettingsPage.ENHANCEMENTS
+                            },
+                        )
+
+                    SettingsPage.GEMINI ->
+                        GeminiEnhancementSettingsScreen(
+                            settingsStore = settingsStore,
+                            onBack = {
+                                settingsPage =
+                                    SettingsPage.ENHANCEMENTS
                             },
                         )
 
@@ -6866,6 +6881,31 @@ private fun MediaDetailsScreen(
             List<MediaRating>
         >(emptyList())
     }
+    var geminiInsight by remember(
+        initialItem.id,
+        initialItem.type,
+    ) {
+        mutableStateOf<String?>(
+            null
+        )
+    }
+
+    var geminiInsightLoading by remember(
+        initialItem.id,
+        initialItem.type,
+    ) {
+        mutableStateOf(false)
+    }
+
+    var geminiInsightError by remember(
+        initialItem.id,
+        initialItem.type,
+    ) {
+        mutableStateOf<String?>(
+            null
+        )
+    }
+
     var inWatchlist by remember(
         initialItem.id,
         initialItem.type,
@@ -7864,6 +7904,16 @@ private fun MediaDetailsScreen(
             null
         }
 
+    val geminiApiKey =
+        settingsStore
+            .geminiApiKey()
+
+    val geminiAvailable =
+        geminiApiKey
+            .isNotBlank() &&
+            settingsStore
+                .geminiInsightsEnabled()
+
         LazyColumn(
         modifier =
             Modifier
@@ -8355,6 +8405,102 @@ private fun MediaDetailsScreen(
                 }
             }
 
+        if (
+            geminiAvailable &&
+            !loadingMeta
+        ) {
+            item(
+                key =
+                    "details_gemini_insight"
+            ) {
+                GeminiInsightCard(
+                    insight =
+                        geminiInsight,
+                    loading =
+                        geminiInsightLoading,
+                    error =
+                        geminiInsightError,
+                    onGenerate = {
+                        if (
+                            !geminiInsightLoading
+                        ) {
+                            geminiInsightLoading =
+                                true
+                            geminiInsightError =
+                                null
+
+                            scope.launch {
+                                val dnaForInsight =
+                                    if (
+                                        detailsDnaPreferences
+                                            .userDnaEnabled(
+                                                detailsProfileId
+                                            )
+                                    ) {
+                                        detailsDnaEngine
+                                            .build()
+                                    } else {
+                                        null
+                                    }
+
+                                val visibleMatch =
+                                    if (
+                                        showDnaMatch &&
+                                        dnaForInsight
+                                            ?.hasUsefulData ==
+                                            true
+                                    ) {
+                                        detailsDnaEngine
+                                            .matchPercent(
+                                                media =
+                                                    item,
+                                                dna =
+                                                    dnaForInsight,
+                                            )
+                                    } else {
+                                        null
+                                    }
+
+                                runCatching {
+                                    GeminiClient
+                                        .titleInsight(
+                                            media =
+                                                item,
+                                            dna =
+                                                dnaForInsight,
+                                            dnaMatchPercent =
+                                                visibleMatch,
+                                            apiKey =
+                                                geminiApiKey,
+                                        )
+                                }
+                                    .onSuccess {
+                                        result ->
+                                        geminiInsight =
+                                            result
+                                    }
+                                    .onFailure {
+                                        error ->
+                                        geminiInsightError =
+                                            error.message
+                                                ?.take(
+                                                    180
+                                                )
+                                                ?.takeIf {
+                                                    it.isNotBlank()
+                                                }
+                                                ?: "Gemini could not generate an insight. Try again."
+                                    }
+
+                                geminiInsightLoading =
+                                    false
+                            }
+                        }
+                    },
+                )
+            }
+        }
+
         val featuredCompanies =
             if (item.type == "series") {
                 item.networks
@@ -8827,6 +8973,178 @@ private fun DetailsDnaMatchCard(
                 fontWeight =
                     FontWeight.Black,
             )
+        }
+    }
+}
+
+@Composable
+private fun GeminiInsightCard(
+    insight: String?,
+    loading: Boolean,
+    error: String?,
+    onGenerate: () -> Unit,
+) {
+    Surface(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal =
+                        18.dp
+                ),
+        shape =
+            RoundedCornerShape(
+                16.dp
+            ),
+        color =
+            VueoPalette
+                .SurfaceElevated,
+        border =
+            androidx.compose
+                .foundation
+                .BorderStroke(
+                    width = 1.dp,
+                    color =
+                        VueoPalette.Accent
+                            .copy(
+                                alpha =
+                                    .16f
+                            ),
+                ),
+    ) {
+        Column(
+            modifier =
+                Modifier.padding(
+                    14.dp
+                ),
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    9.dp
+                ),
+        ) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth(),
+                verticalAlignment =
+                    Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier =
+                        Modifier.weight(
+                            1f
+                        ),
+                    verticalArrangement =
+                        Arrangement.spacedBy(
+                            2.dp
+                        ),
+                ) {
+                    Text(
+                        text =
+                            "Gemini Insight",
+                        color =
+                            Color.White,
+                        fontSize =
+                            17.sp,
+                        fontWeight =
+                            FontWeight.Black,
+                    )
+
+                    Text(
+                        text =
+                            "Optional AI • generated on demand",
+                        color =
+                            VueoPalette.Muted,
+                        fontSize =
+                            10.sp,
+                    )
+                }
+
+                Surface(
+                    shape =
+                        RoundedCornerShape(
+                            50
+                        ),
+                    color =
+                        VueoPalette.Accent
+                            .copy(
+                                alpha =
+                                    .10f
+                            ),
+                ) {
+                    Text(
+                        text =
+                            "GEMINI",
+                        modifier =
+                            Modifier.padding(
+                                horizontal =
+                                    8.dp,
+                                vertical =
+                                    4.dp,
+                            ),
+                        color =
+                            VueoPalette.Accent,
+                        fontSize =
+                            9.sp,
+                        fontWeight =
+                            FontWeight.Black,
+                    )
+                }
+            }
+
+            insight
+                ?.takeIf {
+                    it.isNotBlank()
+                }
+                ?.let {
+                    Text(
+                        text = it,
+                        color =
+                            Color.White
+                                .copy(
+                                    alpha =
+                                        .76f
+                                ),
+                        fontSize =
+                            12.sp,
+                        lineHeight =
+                            18.sp,
+                    )
+                }
+
+            error
+                ?.takeIf {
+                    it.isNotBlank()
+                }
+                ?.let {
+                    Text(
+                        text = it,
+                        color =
+                            VueoPalette.Muted,
+                        fontSize =
+                            11.sp,
+                    )
+                }
+
+            OutlinedButton(
+                enabled =
+                    !loading,
+                onClick =
+                    onGenerate,
+            ) {
+                Text(
+                    if (loading) {
+                        "Generating..."
+                    } else if (
+                        insight
+                            .isNullOrBlank()
+                    ) {
+                        "Generate Insight"
+                    } else {
+                        "Refresh Insight"
+                    }
+                )
+            }
         }
     }
 }

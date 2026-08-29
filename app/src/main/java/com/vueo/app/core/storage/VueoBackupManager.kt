@@ -45,6 +45,7 @@ object VueoBackupManager {
         ),
         "vueo_settings" to setOf(
             "mdblist_api_key",
+            "gemini_api_key",
         ),
     )
 
