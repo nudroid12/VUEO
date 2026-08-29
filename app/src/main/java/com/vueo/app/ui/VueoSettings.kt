@@ -194,6 +194,12 @@ internal fun VueoSettingsHub(
             }
             .orEmpty()
 
+    var showPersonalization by remember(
+        activeProfile.id
+    ) {
+        mutableStateOf(false)
+    }
+
     var showUserDna by remember(
         activeProfile.id
     ) {
@@ -211,6 +217,23 @@ internal fun VueoSettingsHub(
             dataVersion = profileVersion,
             onBack = {
                 showUserDna = false
+            },
+        )
+        return
+    }
+
+    if (showPersonalization) {
+        BackHandler {
+            showPersonalization = false
+        }
+
+        PersonalizationSettingsScreen(
+            profileStore = profileStore,
+            onBack = {
+                showPersonalization = false
+            },
+            onViewDna = {
+                showUserDna = true
             },
         )
         return
@@ -456,7 +479,7 @@ internal fun VueoSettingsHub(
                                     if (dnaEnabled) {
                                         showUserDna = true
                                     } else {
-                                        onEnhancements()
+                                        showPersonalization = true
                                     }
                                 },
                         shape =
@@ -559,7 +582,7 @@ internal fun VueoSettingsHub(
                                             ?: if (dnaEnabled) {
                                                 "Keep watching to build your taste profile."
                                             } else {
-                                                "Enable User DNA in Enhancements to use personalization."
+                                                "Enable User DNA in Personalization to use these features."
                                             },
                                     color =
                                         VueoPalette.Muted,
@@ -587,6 +610,26 @@ internal fun VueoSettingsHub(
 
         item {
             VueoSettingsNavigationCard(
+                title = "Personalization",
+                subtitle =
+                    "User DNA, DNA Match & recommendations.",
+                status =
+                    if (dnaEnabled) {
+                        "$dnaStatus • Local profile"
+                    } else {
+                        "Off • Optional"
+                    },
+                icon =
+                    Icons.Default.Settings,
+                onClick = {
+                    showPersonalization = true
+                },
+                compact = true,
+            )
+        }
+
+        item {
+            VueoSettingsNavigationCard(
                 title = "Content Manager",
                 subtitle =
                     "Addons, repos & providers.",
@@ -606,7 +649,7 @@ internal fun VueoSettingsHub(
             VueoSettingsNavigationCard(
                 title = "Enhancements",
                 subtitle =
-                    "Metadata & optional services.",
+                    "Metadata, ratings & external services.",
                 status =
                     buildString {
                         append("TMDB ")
@@ -802,30 +845,16 @@ internal fun VueoSettingsHub(
 }
 
 @Composable
-internal fun EnhancementsSettingsScreen(
-    settingsStore: SettingsStore,
+internal fun PersonalizationSettingsScreen(
+    profileStore: ProfileStore,
     onBack: () -> Unit,
-    onTmdb: () -> Unit,
-    onMdblist: () -> Unit,
+    onViewDna: () -> Unit,
 ) {
     val context = LocalContext.current
-
-    val pluginStore =
-        remember {
-            PluginStore(
-                context.applicationContext
-            )
-        }
-
-    val profileStore =
-        remember {
-            ProfileStore(
-                context.applicationContext
-            )
-        }
-
     val activeProfile =
-        remember {
+        remember(
+            profileStore
+        ) {
             profileStore.activeProfile()
         }
 
@@ -870,36 +899,53 @@ internal fun EnhancementsSettingsScreen(
     }
 
     VueoSettingsPage(
-        title = "Enhancements",
+        title = "Personalization",
         subtitle =
-            "Optional features. VUEO core remains usable without them.",
+            "Local, per-profile controls for how VUEO adapts to you.",
         onBack = onBack,
     ) {
         item {
-            VueoInfoCard(
-                title = "Optional by design",
+            VueoStatusCard(
+                title = activeProfile.name,
+                value =
+                    if (userDnaEnabled) {
+                        "User DNA on"
+                    } else {
+                        "User DNA off"
+                    },
                 text =
-                    "User DNA, TMDB and MDBList are optional. Turning them off does not affect normal browsing, source discovery, playback, My List or Library.",
+                    "These settings apply only to this profile. VUEO builds User DNA locally from viewing signals on this device.",
+            )
+        }
+
+        item {
+            VueoSettingsNavigationCard(
+                title = "Your DNA",
+                subtitle =
+                    if (userDnaEnabled) {
+                        "View genres, taste signals and DNA strength for this profile."
+                    } else {
+                        "Enable User DNA below to build and view a taste profile."
+                    },
+                status =
+                    if (userDnaEnabled) {
+                        "View profile"
+                    } else {
+                        "Unavailable while off"
+                    },
+                icon =
+                    Icons.Default.Settings,
+                onClick = {
+                    if (userDnaEnabled) {
+                        onViewDna()
+                    }
+                },
             )
         }
 
         item {
             VueoSectionLabel(
-                "PERSONALIZATION"
-            )
-        }
-
-        item {
-            VueoStatusCard(
-                title = "User DNA",
-                value =
-                    if (userDnaEnabled) {
-                        "On"
-                    } else {
-                        "Off"
-                    },
-                text =
-                    "Settings below apply only to ${activeProfile.name}. User DNA is calculated locally from this profile's viewing signals.",
+                "USER DNA"
             )
         }
 
@@ -953,7 +999,7 @@ internal fun EnhancementsSettingsScreen(
             VueoSettingsToggleCard(
                 title = "Personalized Recommendations",
                 subtitle =
-                    "Allow VUEO to use User DNA as an extra ranking signal for recommendations.",
+                    "Use User DNA for For You and Because You Watched recommendations. More Like This stays title-based.",
                 checked =
                     personalizedRecommendations,
                 enabled =
@@ -975,9 +1021,40 @@ internal fun EnhancementsSettingsScreen(
 
         item {
             VueoInfoCard(
-                title = "Your data stays yours",
+                title = "Local by design",
                 text =
-                    "Turning User DNA off does not delete History, My List or playback progress. It only stops VUEO from using those signals for DNA personalization. No account or server is required.",
+                    "Turning User DNA off does not delete History, My List or playback progress. It only stops VUEO from using those signals for DNA Match and personalized recommendations. No account or server is required.",
+            )
+        }
+    }
+}
+
+@Composable
+internal fun EnhancementsSettingsScreen(
+    settingsStore: SettingsStore,
+    onBack: () -> Unit,
+    onTmdb: () -> Unit,
+    onMdblist: () -> Unit,
+) {
+    val context = LocalContext.current
+    val pluginStore =
+        remember {
+            PluginStore(
+                context.applicationContext
+            )
+        }
+
+    VueoSettingsPage(
+        title = "Enhancements",
+        subtitle =
+            "Optional external services that enrich VUEO.",
+        onBack = onBack,
+    ) {
+        item {
+            VueoInfoCard(
+                title = "External and optional",
+                text =
+                    "Enhancements add metadata, ratings or other external capabilities. VUEO core and local Personalization continue to work without them.",
             )
         }
 
