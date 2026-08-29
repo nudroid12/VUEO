@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -12229,10 +12230,15 @@ private fun PlayerScreen(
                                                         it > 0L
                                                     }
                                                     ?: 60L * 60L * 1000L
+                                            val seekWindowMs =
+                                                minOf(
+                                                    span / 4L,
+                                                    5L * 60L * 1000L,
+                                                )
                                             val preview =
                                                 (startPosition +
                                                     (
-                                                        span *
+                                                        seekWindowMs *
                                                             (totalX / size.width)
                                                     ).toLong())
                                                     .coerceIn(
@@ -12723,7 +12729,8 @@ private fun PlayerScreen(
 
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(),
+                        .fillMaxWidth()
+                        .offset(y = (-6).dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Surface(
