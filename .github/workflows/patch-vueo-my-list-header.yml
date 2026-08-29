@@ -1,0 +1,321 @@
+name: Patch VUEO My List and Header Alignment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vueo-ui-small-patch
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply My List and Search header patch
+        id: patch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path(
+              "app/src/main/java/com/vueo/app/ui/VueoApp.kt"
+          )
+
+          if not path.exists():
+              raise SystemExit("VueoApp.kt not found.")
+
+          text = path.read_text(encoding="utf-8")
+          original = text
+
+          replacements = [
+              (
+                  'label = "Saved",',
+                  'label = "My List",',
+              ),
+              (
+                  '"Cloud sync is not connected yet. Your locally saved titles stay available in Saved.",',
+                  '"Cloud sync is not connected yet. Your locally saved titles stay available in My List.",',
+              ),
+              (
+                  '"Saved titles will appear here after you tap Save on a details screen.",',
+                  '"Titles added to My List will appear here.",',
+              ),
+          ]
+
+          for old, new in replacements:
+              if old in text:
+                  text = text.replace(old, new, 1)
+
+          search_start = text.find(
+              "private fun SearchScreen("
+          )
+          library_start = text.find(
+              "private fun LibraryScreen("
+          )
+
+          if search_start < 0:
+              raise SystemExit("SearchScreen not found.")
+
+          if library_start < 0:
+              raise SystemExit("LibraryScreen not found.")
+
+          if library_start <= search_start:
+              raise SystemExit(
+                  "Unexpected Search/Library ordering."
+              )
+
+          search_block = text[
+              search_start:library_start
+          ]
+
+          old_modifier = (
+              "                .background(\n"
+              "                    VueoPalette.Background\n"
+              "                )\n"
+              "                .statusBarsPadding(),"
+          )
+
+          new_modifier = (
+              "                .background(\n"
+              "                    VueoPalette.Background\n"
+              "                ),"
+          )
+
+          if old_modifier in search_block:
+              search_block = search_block.replace(
+                  old_modifier,
+                  new_modifier,
+                  1,
+              )
+
+          old_search_title = (
+              '                Text(\n'
+              '                    text = "Search",\n'
+              '                    color = Color.White,\n'
+              '                    fontSize = 34.sp,\n'
+              '                    fontWeight =\n'
+              '                        FontWeight.Black,\n'
+              '                )'
+          )
+
+          new_search_title = (
+              '                Text(\n'
+              '                    text = "Search",\n'
+              '                    color = Color.White,\n'
+              '                    fontSize = 40.sp,\n'
+              '                    fontWeight =\n'
+              '                        FontWeight.Black,\n'
+              '                )'
+          )
+
+          if old_search_title in search_block:
+              search_block = search_block.replace(
+                  old_search_title,
+                  new_search_title,
+                  1,
+              )
+
+          text = (
+              text[:search_start]
+              + search_block
+              + text[library_start:]
+          )
+
+          current_search_start = text.find(
+              "private fun SearchScreen("
+          )
+          current_library_start = text.find(
+              "private fun LibraryScreen("
+          )
+
+          search_block = text[
+              current_search_start:
+              current_library_start
+          ]
+
+          library_end = text.find(
+              "@Composable\nprivate fun LibraryTab(",
+              current_library_start,
+          )
+
+          if library_end < 0:
+              raise SystemExit(
+                  "LibraryTab boundary not found."
+              )
+
+          library_block = text[
+              current_library_start:
+              library_end
+          ]
+
+          required_search = [
+              'text = "Search"',
+              'fontSize = 40.sp',
+              'top = 24.dp',
+          ]
+
+          for token in required_search:
+              if token not in search_block:
+                  raise SystemExit(
+                      "Search patch verification failed: "
+                      + token
+                  )
+
+          if ".statusBarsPadding()" in search_block:
+              raise SystemExit(
+                  "Search still has extra statusBarsPadding()."
+              )
+
+          required_library = [
+              'label = "My List"',
+              '"Titles added to My List will appear here."',
+          ]
+
+          for token in required_library:
+              if token not in library_block:
+                  raise SystemExit(
+                      "Library patch verification failed: "
+                      + token
+                  )
+
+          if 'label = "Saved"' in library_block:
+              raise SystemExit(
+                  'Library still contains label "Saved".'
+              )
+
+          changed = text != original
+
+          if changed:
+              path.write_text(
+                  text,
+                  encoding="utf-8",
+              )
+              print(
+                  "My List and Search header patch applied."
+              )
+          else:
+              print("Patch is already applied.")
+
+          with open(
+              os.environ["GITHUB_OUTPUT"],
+              "a",
+              encoding="utf-8",
+          ) as output:
+              output.write(
+                  "changed="
+                  + ("true" if changed else "false")
+                  + "\n"
+              )
+          PY
+
+      - name: Verify patch boundary
+        if: steps.patch.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git diff -- \
+            app/src/main/java/com/vueo/app/ui/VueoApp.kt
+
+          if git status --short | \
+             grep -E '^.. \.github/workflows/'; then
+            echo "::error::Patch modified workflow files."
+            exit 1
+          fi
+
+      - name: Set up JDK 17
+        if: steps.patch.outputs.changed == 'true'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Verify Gradle wrapper
+        if: steps.patch.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f ./gradlew
+          test -f ./gradle/wrapper/gradle-wrapper.properties
+          chmod +x ./gradlew
+
+      - name: Set up Gradle
+        if: steps.patch.outputs.changed == 'true'
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Compile Kotlin
+        if: steps.patch.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./gradlew \
+            :app:compileDebugKotlin \
+            --stacktrace \
+            --no-daemon
+
+      - name: Commit verified patch
+        if: steps.patch.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name \
+            "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            app/src/main/java/com/vueo/app/ui/VueoApp.kt
+
+          git commit -m \
+            "Align VUEO headers and rename My List"
+
+          git push origin HEAD:main
+
+      - name: Trigger central VUEO build
+        if: steps.patch.outputs.changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/dispatches" \
+            -f event_type=vueo_build
+
+          echo "Triggered repository_dispatch: vueo_build"
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## VUEO small UI patch"
+            echo
+            echo "- Library tab: Saved -> My List"
+            echo "- Library empty-state wording updated"
+            echo "- Search extra status-bar inset removed"
+            echo "- Search title size aligned to Library at 40sp"
+            echo "- Search and Library use the same 24dp header top padding"
+            echo "- Kotlin compile runs before commit"
+            echo "- Central build is triggered after a successful commit"
+          } >> "$GITHUB_STEP_SUMMARY"
