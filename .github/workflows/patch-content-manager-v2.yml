@@ -1,0 +1,2642 @@
+# VUEO CONTENT MANAGER V2 - 2026-08-29
+name: Patch Content Manager v2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Apply Content Manager v2
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+
+          from pathlib import Path
+          import re
+
+          def fail(message):
+              raise SystemExit(f"Patch sanity failed: {message}")
+
+          def require(condition, message):
+              if not condition:
+                  fail(message)
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              require(count == 1, f"{label}: expected 1 anchor, found {count}")
+              return text.replace(old, new, 1)
+
+          # ============================================================
+          # 1. AddonStore.kt
+          # ============================================================
+          addon_path = Path(
+              "app/src/main/java/com/vueo/app/core/storage/AddonStore.kt"
+          )
+          addon = addon_path.read_text(encoding="utf-8")
+
+          if "fun isAddonEnabled(" not in addon:
+              anchor = '''    fun manifestUrls(): List<String> =
+                  prefs.getStringSet(KEY_MANIFEST_URLS, emptySet())
+                      .orEmpty()
+                      .toList()
+                      .sorted()
+          '''
+              addition = anchor + '''
+              fun isAddonEnabled(
+                  manifestUrl: String,
+              ): Boolean =
+                  prefs.getBoolean(
+                      addonEnabledKey(manifestUrl),
+                      true,
+                  )
+
+              fun setAddonEnabled(
+                  manifestUrl: String,
+                  enabled: Boolean,
+              ) {
+                  prefs.edit()
+                      .putBoolean(
+                          addonEnabledKey(manifestUrl),
+                          enabled,
+                      )
+                      .apply()
+              }
+
+              fun catalogOrder(): List<String> =
+                  prefs.getString(
+                      KEY_CATALOG_ORDER,
+                      "",
+                  )
+                      .orEmpty()
+                      .lineSequence()
+                      .map(String::trim)
+                      .filter(String::isNotBlank)
+                      .distinct()
+                      .toList()
+
+              fun setCatalogOrder(
+                  order: List<String>,
+              ) {
+                  prefs.edit()
+                      .putString(
+                          KEY_CATALOG_ORDER,
+                          order
+                              .map(String::trim)
+                              .filter(String::isNotBlank)
+                              .distinct()
+                              .joinToString("\\n"),
+                      )
+                      .apply()
+              }
+
+              fun reconcileCatalogOrder(
+                  availableKeys: List<String>,
+              ): List<String> {
+                  val available =
+                      availableKeys
+                          .map(String::trim)
+                          .filter(String::isNotBlank)
+                          .distinct()
+
+                  val current =
+                      catalogOrder()
+                          .filter {
+                              it in available
+                          }
+
+                  val next =
+                      (
+                          current +
+                              available.filterNot {
+                                  it in current
+                              }
+                      ).distinct()
+
+                  if (next != catalogOrder()) {
+                      setCatalogOrder(next)
+                  }
+
+                  return next
+              }
+          '''
+              addon = replace_once(
+                  addon,
+                  anchor,
+                  addition,
+                  "AddonStore manifestUrls",
+              )
+
+          if "private fun addonEnabledKey(" not in addon:
+              anchor = '''    fun isDevelopmentDefault(manifestUrl: String): Boolean =
+                  manifestUrl in DEVELOPMENT_DEFAULT_MANIFESTS
+          '''
+              addition = anchor + '''
+              private fun addonEnabledKey(
+                  manifestUrl: String,
+              ): String =
+                  "addon_enabled:$manifestUrl"
+          '''
+              addon = replace_once(
+                  addon,
+                  anchor,
+                  addition,
+                  "AddonStore key helper",
+              )
+
+          old_add = '''    fun add(manifestUrl: String) {
+                  val next = manifestUrls().toMutableSet()
+                  next += manifestUrl
+                  prefs.edit().putStringSet(KEY_MANIFEST_URLS, next).apply()
+              }
+          '''
+          new_add = '''    fun add(manifestUrl: String) {
+                  val next = manifestUrls().toMutableSet()
+                  next += manifestUrl
+                  prefs.edit()
+                      .putStringSet(
+                          KEY_MANIFEST_URLS,
+                          next,
+                      )
+                      .putBoolean(
+                          addonEnabledKey(manifestUrl),
+                          true,
+                      )
+                      .apply()
+              }
+          '''
+          if old_add in addon:
+              addon = addon.replace(old_add, new_add, 1)
+
+          old_remove = '''    fun remove(manifestUrl: String) {
+                  val next = manifestUrls().toMutableSet()
+                  next -= manifestUrl
+                  prefs.edit().putStringSet(KEY_MANIFEST_URLS, next).apply()
+              }
+          '''
+          new_remove = '''    fun remove(manifestUrl: String) {
+                  val next = manifestUrls().toMutableSet()
+                  next -= manifestUrl
+                  prefs.edit()
+                      .putStringSet(
+                          KEY_MANIFEST_URLS,
+                          next,
+                      )
+                      .remove(
+                          addonEnabledKey(manifestUrl)
+                      )
+                      .apply()
+              }
+          '''
+          if old_remove in addon:
+              addon = addon.replace(old_remove, new_remove, 1)
+
+          if "KEY_CATALOG_ORDER" not in addon:
+              anchor = '        private const val KEY_MANIFEST_URLS = "stremio_manifest_urls"\n'
+              addon = replace_once(
+                  addon,
+                  anchor,
+                  anchor + '        private const val KEY_CATALOG_ORDER = "catalog_order"\n',
+                  "AddonStore catalog constant",
+              )
+
+          require(
+              "fun isAddonEnabled(" in addon and
+              "fun reconcileCatalogOrder(" in addon and
+              "KEY_CATALOG_ORDER" in addon,
+              "AddonStore final markers missing",
+          )
+          addon_path.write_text(addon, encoding="utf-8")
+
+          # ============================================================
+          # 2. PluginStore.kt
+          # ============================================================
+          plugin_store_path = Path(
+              "app/src/main/java/com/vueo/app/core/plugin/PluginStore.kt"
+          )
+          plugin_store = plugin_store_path.read_text(encoding="utf-8")
+
+          if "fun isRepositoryEnabled(" not in plugin_store:
+              anchor = '''    fun setPluginsEnabled(enabled: Boolean) {
+                  prefs.edit()
+                      .putBoolean(KEY_PLUGINS_ENABLED, enabled)
+                      .apply()
+              }
+          '''
+              addition = anchor + '''
+              fun isRepositoryEnabled(
+                  repository: PluginRepositoryDescriptor,
+              ): Boolean =
+                  prefs.getBoolean(
+                      repositoryEnabledKey(
+                          repository.manifestUrl
+                      ),
+                      true,
+                  )
+
+              fun setRepositoryEnabled(
+                  repository: PluginRepositoryDescriptor,
+                  enabled: Boolean,
+              ) {
+                  prefs.edit()
+                      .putBoolean(
+                          repositoryEnabledKey(
+                              repository.manifestUrl
+                          ),
+                          enabled,
+                      )
+                      .apply()
+              }
+          '''
+              plugin_store = replace_once(
+                  plugin_store,
+                  anchor,
+                  addition,
+                  "PluginStore plugins toggle",
+              )
+
+          if "private fun repositoryEnabledKey(" not in plugin_store:
+              anchor = '''    private fun providerKey(
+                  repository: PluginRepositoryDescriptor,
+                  provider: PluginProviderDescriptor,
+              ): String =
+                  "provider:${repository.manifestUrl}:${provider.id}"
+          '''
+              addition = '''    private fun repositoryEnabledKey(
+                  manifestUrl: String,
+              ): String =
+                  "repository_enabled:$manifestUrl"
+
+          ''' + anchor
+              plugin_store = replace_once(
+                  plugin_store,
+                  anchor,
+                  addition,
+                  "PluginStore repository key",
+              )
+
+          old_remove = '''    fun remove(manifestUrl: String) {
+                  saveRepositories(
+                      repositories().filterNot {
+                          it.manifestUrl == manifestUrl
+                      }
+                  )
+                  codeStore.removeRepository(manifestUrl)
+              }
+          '''
+          new_remove = '''    fun remove(manifestUrl: String) {
+                  saveRepositories(
+                      repositories().filterNot {
+                          it.manifestUrl == manifestUrl
+                      }
+                  )
+                  prefs.edit()
+                      .remove(
+                          repositoryEnabledKey(
+                              manifestUrl
+                          )
+                      )
+                      .apply()
+                  codeStore.removeRepository(manifestUrl)
+              }
+          '''
+          if old_remove in plugin_store:
+              plugin_store = plugin_store.replace(
+                  old_remove,
+                  new_remove,
+                  1,
+              )
+
+          old_count = '''    fun enabledProviderCount(): Int =
+                  repositories().sumOf { repository ->
+                      repository.providers.count { provider ->
+                          isProviderEnabled(
+                              repository,
+                              provider,
+                          )
+                      }
+                  }
+          '''
+          new_count = '''    fun enabledProviderCount(): Int =
+                  repositories()
+                      .filter(::isRepositoryEnabled)
+                      .sumOf { repository ->
+                          repository.providers.count { provider ->
+                              isProviderEnabled(
+                                  repository,
+                                  provider,
+                              )
+                          }
+                      }
+          '''
+          if old_count in plugin_store:
+              plugin_store = plugin_store.replace(
+                  old_count,
+                  new_count,
+                  1,
+              )
+
+          require(
+              "fun isRepositoryEnabled(" in plugin_store and
+              "fun setRepositoryEnabled(" in plugin_store,
+              "PluginStore repository markers missing",
+          )
+          plugin_store_path.write_text(
+              plugin_store,
+              encoding="utf-8",
+          )
+
+          # ============================================================
+          # 3. PluginRuntime.kt
+          # ============================================================
+          runtime_path = Path(
+              "app/src/main/java/com/vueo/app/core/plugin/PluginRuntime.kt"
+          )
+          runtime = runtime_path.read_text(encoding="utf-8")
+
+          if ".filter(store::isRepositoryEnabled)" not in runtime:
+              pattern = re.compile(
+                  r'(val targets\s*=\s*store\.repositories\(\))(\s*\.flatMap\s*\{\s*repository\s*->)',
+                  re.MULTILINE,
+              )
+              runtime, count = pattern.subn(
+                  r'\1\n.filter(store::isRepositoryEnabled)\2',
+                  runtime,
+                  count=1,
+              )
+              require(
+                  count == 1,
+                  f"PluginRuntime repository target anchor count {count}",
+              )
+
+          runtime_path.write_text(runtime, encoding="utf-8")
+
+          # ============================================================
+          # 4. UnifiedMediaEngine.kt
+          # ============================================================
+          engine_path = Path(
+              "app/src/main/java/com/vueo/app/core/extensions/UnifiedMediaEngine.kt"
+          )
+          engine = engine_path.read_text(encoding="utf-8")
+
+          if "CopyOnWriteArraySet" not in engine:
+              engine = replace_once(
+                  engine,
+                  "import java.util.concurrent.CopyOnWriteArrayList\n",
+                  "import java.util.concurrent.CopyOnWriteArrayList\n"
+                  "import java.util.concurrent.CopyOnWriteArraySet\n",
+                  "UnifiedMediaEngine imports",
+              )
+
+          if "disabledExtensionIds" not in engine:
+              anchor = '''class UnifiedMediaEngine {
+              private val extensions = CopyOnWriteArrayList<MediaExtension>()
+          '''
+              addition = '''class UnifiedMediaEngine {
+              private val extensions = CopyOnWriteArrayList<MediaExtension>()
+              private val disabledExtensionIds =
+                  CopyOnWriteArraySet<String>()
+          '''
+              engine = replace_once(
+                  engine,
+                  anchor,
+                  addition,
+                  "UnifiedMediaEngine state",
+              )
+
+          if "fun setExtensionEnabled(" not in engine:
+              anchor = '''    fun uninstall(id: String) {
+                  extensions.removeAll { it.descriptor.id == id }
+              }
+
+              fun installed(): List<MediaExtension> = extensions.toList()
+          '''
+              addition = '''    fun uninstall(id: String) {
+                  extensions.removeAll { it.descriptor.id == id }
+                  disabledExtensionIds.remove(id)
+              }
+
+              fun setExtensionEnabled(
+                  id: String,
+                  enabled: Boolean,
+              ) {
+                  if (enabled) {
+                      disabledExtensionIds.remove(id)
+                  } else {
+                      disabledExtensionIds.add(id)
+                  }
+              }
+
+              fun isExtensionEnabled(
+                  id: String,
+              ): Boolean =
+                  id !in disabledExtensionIds
+
+              fun installed(): List<MediaExtension> = extensions.toList()
+          '''
+              engine = replace_once(
+                  engine,
+                  anchor,
+                  addition,
+                  "UnifiedMediaEngine enable methods",
+              )
+
+          if "fun activeStremioAddons()" not in engine:
+              anchor = '''    fun stremioAddons(): List<MediaExtension> =
+                  extensions.filter { it.descriptor.kind == ExtensionKind.STREMIO_ADDON }
+          '''
+              addition = anchor + '''
+              fun activeStremioAddons(): List<MediaExtension> =
+                  stremioAddons().filter {
+                      isExtensionEnabled(
+                          it.descriptor.id
+                      )
+                  }
+          '''
+              engine = replace_once(
+                  engine,
+                  anchor,
+                  addition,
+                  "UnifiedMediaEngine active addons",
+              )
+
+          start = engine.find("    suspend fun loadCatalogRows(")
+          end = engine.find("    suspend fun search(", start)
+          require(
+              start >= 0 and end > start,
+              "UnifiedMediaEngine loadCatalogRows boundaries missing",
+          )
+
+          load_catalog = '''    suspend fun loadCatalogRows(
+                  maxRows: Int = 10,
+                  forceRefresh: Boolean = false,
+                  catalogOrder: List<String> = emptyList(),
+              ): List<CatalogRow> = coroutineScope {
+                  if (!forceRefresh) {
+                      CatalogDiscoveryCache
+                          .home()
+                          ?.let {
+                              return@coroutineScope orderCatalogRows(
+                                  rows = it,
+                                  catalogOrder = catalogOrder,
+                              ).take(maxRows)
+                          }
+                  }
+
+                  val orderIndex =
+                      catalogOrder
+                          .withIndex()
+                          .associate {
+                              it.value to it.index
+                          }
+
+                  val candidates =
+                      activeStremioAddons()
+                          .flatMap { extension ->
+                              extension.descriptor.catalogs
+                                  .filter {
+                                      it.canLoadWithoutExtras
+                                  }
+                                  .map { catalog ->
+                                      extension to catalog
+                                  }
+                          }
+                          .sortedBy {
+                              (extension, catalog) ->
+                              orderIndex[
+                                  catalogKey(
+                                      extensionId =
+                                          extension.descriptor.id,
+                                      type = catalog.type,
+                                      catalogId = catalog.id,
+                                  )
+                              ] ?: Int.MAX_VALUE
+                          }
+                          .take(maxRows)
+
+                  val rows =
+                      candidates
+                          .map {
+                              (extension, catalog) ->
+                              async {
+                                  runCatching {
+                                      val page =
+                                          withTimeoutOrNull(
+                                              ADDON_REQUEST_TIMEOUT_MS
+                                          ) {
+                                              extension.catalog(
+                                                  catalog.type,
+                                                  catalog.id,
+                                              )
+                                          }
+                                              ?: return@runCatching null
+
+                                      CatalogRow(
+                                          id =
+                                              catalogKey(
+                                                  extensionId =
+                                                      extension.descriptor.id,
+                                                  type =
+                                                      catalog.type,
+                                                  catalogId =
+                                                      catalog.id,
+                                              ),
+                                          title =
+                                              catalog.name
+                                                  ?: "${extension.descriptor.name} " +
+                                                      catalog.type
+                                                          .replaceFirstChar {
+                                                              it.uppercase()
+                                                          },
+                                          providerName =
+                                              extension
+                                                  .descriptor
+                                                  .name,
+                                          items =
+                                              page.items,
+                                      )
+                                  }.getOrNull()
+                              }
+                          }
+                          .awaitAll()
+                          .filterNotNull()
+                          .filter {
+                              it.items.isNotEmpty()
+                          }
+                          .let {
+                              orderCatalogRows(
+                                  rows = it,
+                                  catalogOrder = catalogOrder,
+                              )
+                          }
+
+                  CatalogDiscoveryCache.putHome(
+                      rows
+                  )
+
+                  rows
+              }
+
+              private fun catalogKey(
+                  extensionId: String,
+                  type: String,
+                  catalogId: String,
+              ): String =
+                  "$extensionId:$type:$catalogId"
+
+              private fun orderCatalogRows(
+                  rows: List<CatalogRow>,
+                  catalogOrder: List<String>,
+              ): List<CatalogRow> {
+                  if (catalogOrder.isEmpty()) {
+                      return rows
+                  }
+
+                  val index =
+                      catalogOrder
+                          .withIndex()
+                          .associate {
+                              it.value to it.index
+                          }
+
+                  return rows.sortedBy {
+                      index[it.id] ?: Int.MAX_VALUE
+                  }
+              }
+
+          '''
+          engine = engine[:start] + load_catalog + engine[end:]
+
+          # Search only enabled addons.
+          engine = engine.replace(
+              "            stremioAddons()\n"
+              "                .flatMap { extension ->",
+              "            activeStremioAddons()\n"
+              "                .flatMap { extension ->",
+              1,
+          )
+
+          old_meta = '''        val provider =
+                      extension(
+                          item.sourceExtensionId
+                      )
+                          ?: return item
+          '''
+          new_meta = '''        val provider =
+                      extension(
+                          item.sourceExtensionId
+                      )
+                          ?.takeIf {
+                              isExtensionEnabled(
+                                  it.descriptor.id
+                              )
+                          }
+                          ?: return item
+          '''
+          if old_meta in engine:
+              engine = engine.replace(old_meta, new_meta, 1)
+
+          old_stream = '''        val providers =
+                      extensions.filter {
+                          "stream" in
+                              it.descriptor.resources
+                      }
+          '''
+          new_stream = '''        val providers =
+                      extensions.filter {
+                          isExtensionEnabled(
+                              it.descriptor.id
+                          ) &&
+                              "stream" in
+                                  it.descriptor.resources
+                      }
+          '''
+          if old_stream in engine:
+              engine = engine.replace(old_stream, new_stream, 1)
+
+          old_sub = '''        extensions
+                      .filter { "subtitles" in it.descriptor.resources }
+          '''
+          new_sub = '''        extensions
+                      .filter {
+                          isExtensionEnabled(
+                              it.descriptor.id
+                          ) &&
+                              "subtitles" in
+                                  it.descriptor.resources
+                      }
+          '''
+          if old_sub in engine:
+              engine = engine.replace(old_sub, new_sub, 1)
+
+          require(
+              "fun activeStremioAddons()" in engine and
+              "catalogOrder: List<String>" in engine,
+              "UnifiedMediaEngine final markers missing",
+          )
+          engine_path.write_text(engine, encoding="utf-8")
+
+          # ============================================================
+          # 5. VueoApp.kt
+          # ============================================================
+          app_path = Path(
+              "app/src/main/java/com/vueo/app/ui/VueoApp.kt"
+          )
+          app = app_path.read_text(encoding="utf-8")
+
+          # Settings enum
+          enum_start = app.find("private enum class SettingsPage {")
+          enum_end = app.find("}", enum_start)
+          require(
+              enum_start >= 0 and enum_end > enum_start,
+              "SettingsPage enum missing",
+          )
+          enum_block = app[enum_start:enum_end]
+          if "    CATALOG_ORDER," not in enum_block:
+              require(
+                  "    PLUGINS,\n" in enum_block,
+                  "SettingsPage PLUGINS missing",
+              )
+              enum_block = enum_block.replace(
+                  "    PLUGINS,\n",
+                  "    PLUGINS,\n    CATALOG_ORDER,\n",
+                  1,
+              )
+              app = app[:enum_start] + enum_block + app[enum_end:]
+
+          # Parent route
+          parent_start = app.find("private fun parentSettingsPage(")
+          parent_end = app.find("private enum class HomeMediaFilter", parent_start)
+          require(
+              parent_start >= 0 and parent_end > parent_start,
+              "parentSettingsPage missing",
+          )
+          parent = app[parent_start:parent_end]
+          if "SettingsPage.CATALOG_ORDER" not in parent:
+              pattern = re.compile(
+                  r'(SettingsPage\.ADDONS,\s*\n\s*SettingsPage\.PLUGINS)(\s*->\s*\n\s*SettingsPage\.CONTENT_MANAGER)'
+              )
+              parent, count = pattern.subn(
+                  r'\1,\n        SettingsPage.CATALOG_ORDER\2',
+                  parent,
+                  count=1,
+              )
+              require(count == 1, "parent Content Manager anchor missing")
+              app = app[:parent_start] + parent + app[parent_end:]
+
+          # Boot restore disabled addon state.
+          if app.count("store.isAddonEnabled(") < 1:
+              old = '''        store.manifestUrls().forEach { manifestUrl ->
+                      runCatching {
+                          ExtensionInstaller.installStremioAddon(manifestUrl)
+                      }.onSuccess(engine::install)
+                  }
+          '''
+              new = '''        store.manifestUrls().forEach { manifestUrl ->
+                      runCatching {
+                          ExtensionInstaller.installStremioAddon(manifestUrl)
+                      }.onSuccess { extension ->
+                          engine.install(extension)
+                          engine.setExtensionEnabled(
+                              id =
+                                  extension.descriptor.id,
+                              enabled =
+                                  store.isAddonEnabled(
+                                      manifestUrl
+                                  ),
+                          )
+                      }
+                  }
+          '''
+              app = replace_once(
+                  app,
+                  old,
+                  new,
+                  "boot addon restore",
+              )
+
+          # Persistent reload restore disabled state.
+          if app.count("store.isAddonEnabled(") < 2:
+              pattern = re.compile(
+                  r'''(\s*)store\.manifestUrls\(\)\s*
+                      \.forEach \{ manifestUrl ->\s*
+                          runCatching \{\s*
+                              ExtensionInstaller\s*
+                                  \.installStremioAddon\(\s*
+                                      manifestUrl\s*
+                                  \)\s*
+                          \}\.onSuccess\(\s*
+                              engine::install\s*
+                          \)\s*
+                      \}''',
+                  re.MULTILINE,
+              )
+              match = pattern.search(app)
+              require(
+                  match is not None,
+                  "persistent reload addon restore anchor missing",
+              )
+              indent = match.group(1)
+              replacement = f'''{indent}store.manifestUrls()
+          {indent}    .forEach {{ manifestUrl ->
+          {indent}        runCatching {{
+          {indent}            ExtensionInstaller
+          {indent}                .installStremioAddon(
+          {indent}                    manifestUrl
+          {indent}                )
+          {indent}        }}.onSuccess {{ extension ->
+          {indent}            engine.install(
+          {indent}                extension
+          {indent}            )
+          {indent}            engine.setExtensionEnabled(
+          {indent}                id =
+          {indent}                    extension.descriptor.id,
+          {indent}                enabled =
+          {indent}                    store.isAddonEnabled(
+          {indent}                        manifestUrl
+          {indent}                    ),
+          {indent}            )
+          {indent}        }}
+          {indent}    }}'''
+              app = app[:match.start()] + replacement + app[match.end():]
+
+          # Content Manager routing callbacks.
+          cm_route_start = app.find(
+              "                    SettingsPage.CONTENT_MANAGER ->"
+          )
+          cm_route_end = app.find(
+              "                    SettingsPage.ADDONS ->",
+              cm_route_start,
+          )
+          require(
+              cm_route_start >= 0 and cm_route_end > cm_route_start,
+              "Content Manager route block missing",
+          )
+          cm_route = app[cm_route_start:cm_route_end]
+          if "onCatalogOrder" not in cm_route:
+              anchor = '''                            onPlugins = {
+                                          settingsPage = SettingsPage.PLUGINS
+                                      },
+          '''
+              require(
+                  cm_route.count(anchor) == 1,
+                  "Content Manager onPlugins anchor missing",
+              )
+              cm_route = cm_route.replace(
+                  anchor,
+                  anchor + '''                            onCatalogOrder = {
+                                          settingsPage =
+                                              SettingsPage.CATALOG_ORDER
+                                      },
+          ''',
+                  1,
+              )
+              app = app[:cm_route_start] + cm_route + app[cm_route_end:]
+
+          # Catalog Order route.
+          if "SettingsPage.CATALOG_ORDER ->" not in app:
+              anchor = '''                    SettingsPage.PLUGINS ->
+                                  PluginsScreen(
+                                      onBack = {
+                                          settingsPage = SettingsPage.CONTENT_MANAGER
+                                      },
+                                  )
+          '''
+              replacement = anchor + '''                    SettingsPage.CATALOG_ORDER ->
+                                  CatalogOrderScreen(
+                                      engine = engine,
+                                      store = store,
+                                      contentVersion =
+                                          contentVersion,
+                                      onContentChanged = {
+                                          contentVersion++
+                                      },
+                                      onBack = {
+                                          settingsPage =
+                                              SettingsPage.CONTENT_MANAGER
+                                      },
+                                  )
+          '''
+              app = replace_once(
+                  app,
+                  anchor,
+                  replacement,
+                  "Catalog Order Settings route",
+              )
+
+          # HomeScreen wiring.
+          home_start = app.find("@Composable\nprivate fun HomeScreen(")
+          home_end = app.find("@Composable\nprivate fun CatalogSection(", home_start)
+          require(
+              home_start >= 0 and home_end > home_start,
+              "HomeScreen boundaries missing",
+          )
+          home = app[home_start:home_end]
+
+          if "val homeAddonStore =" not in home:
+              anchor = '''    val context =
+                  LocalContext.current
+          '''
+              addition = anchor + '''    val homeAddonStore =
+                  remember {
+                      AddonStore(
+                          context.applicationContext
+                      )
+                  }
+
+              val catalogOrder =
+                  remember(
+                      contentVersion
+                  ) {
+                      homeAddonStore
+                          .catalogOrder()
+                  }
+
+          '''
+              home = replace_once(
+                  home,
+                  anchor,
+                  addition,
+                  "Home context",
+              )
+
+          old_rows = '''    var rows by remember {
+                  mutableStateOf(
+                      CatalogDiscoveryCache
+                          .home(
+                              allowStale = true
+                          )
+                          .orEmpty()
+                  )
+              }
+          '''
+          new_rows = '''    var rows by remember(
+                  contentVersion,
+                  catalogOrder,
+              ) {
+                  mutableStateOf(
+                      orderHomeCatalogRows(
+                          rows =
+                              CatalogDiscoveryCache
+                                  .home(
+                                      allowStale = true
+                                  )
+                                  .orEmpty(),
+                          catalogOrder =
+                              catalogOrder,
+                      )
+                  )
+              }
+          '''
+          if old_rows in home:
+              home = home.replace(old_rows, new_rows, 1)
+
+          old_cache = '''            ?.let {
+                          rows = it
+                      }
+          '''
+          new_cache = '''            ?.let {
+                          rows =
+                              orderHomeCatalogRows(
+                                  rows = it,
+                                  catalogOrder =
+                                      catalogOrder,
+                              )
+                      }
+          '''
+          if old_cache in home:
+              home = home.replace(old_cache, new_cache, 1)
+
+          old_load = '''            engine.loadCatalogRows(
+                          forceRefresh =
+                              rows.isNotEmpty(),
+                      )
+          '''
+          new_load = '''            engine.loadCatalogRows(
+                          forceRefresh =
+                              rows.isNotEmpty(),
+                          catalogOrder =
+                              catalogOrder,
+                      )
+          '''
+          if old_load in home:
+              home = home.replace(old_load, new_load, 1)
+
+          if "rows = fresh" in home:
+              home = home.replace(
+                  "                rows = fresh\n",
+                  '''                rows =
+                              orderHomeCatalogRows(
+                                  rows = fresh,
+                                  catalogOrder =
+                                      catalogOrder,
+                              )
+          ''',
+                  1,
+              )
+
+          fallback = '''                rows =
+                              CatalogDiscoveryCache
+                                  .home(
+                                      allowStale =
+                                          true
+                                  )
+                                  .orEmpty()
+          '''
+          fallback_new = '''                rows =
+                              orderHomeCatalogRows(
+                                  rows =
+                                      CatalogDiscoveryCache
+                                          .home(
+                                              allowStale =
+                                                  true
+                                          )
+                                          .orEmpty(),
+                                  catalogOrder =
+                                      catalogOrder,
+                              )
+          '''
+          if fallback in home:
+              home = home.replace(fallback, fallback_new, 1)
+
+          app = app[:home_start] + home + app[home_end:]
+
+          if "private fun orderHomeCatalogRows(" not in app:
+              anchor = "private fun homeCatalogTypeLabel(\n"
+              index = app.find(anchor)
+              require(index >= 0, "homeCatalogTypeLabel anchor missing")
+              helper = '''private fun orderHomeCatalogRows(
+              rows: List<CatalogRow>,
+              catalogOrder: List<String>,
+          ): List<CatalogRow> {
+              if (catalogOrder.isEmpty()) {
+                  return rows
+              }
+
+              val index =
+                  catalogOrder
+                      .withIndex()
+                      .associate {
+                          it.value to it.index
+                      }
+
+              return rows.sortedBy {
+                  index[it.id] ?: Int.MAX_VALUE
+              }
+          }
+
+          '''
+              app = app[:index] + helper + app[index:]
+
+          # Content Manager screen replacement.
+          cm_start = app.find(
+              "@Composable\nprivate fun ContentManagerScreen("
+          )
+          cm_end = app.find(
+              "@Composable\nprivate fun ContentMetric(",
+              cm_start,
+          )
+          require(
+              cm_start >= 0 and cm_end > cm_start,
+              "ContentManagerScreen boundaries missing",
+          )
+
+          content_manager = '''@Composable
+          private fun ContentManagerScreen(
+              engine: UnifiedMediaEngine,
+              onBack: () -> Unit,
+              onAddons: () -> Unit,
+              onPlugins: () -> Unit,
+              onCatalogOrder: () -> Unit,
+          ) {
+              val context = LocalContext.current
+              val pluginStore = remember {
+                  PluginStore(
+                      context.applicationContext
+                  )
+              }
+              val healthStore = remember {
+                  PluginHealthStore(
+                      context.applicationContext
+                  )
+              }
+              val addons =
+                  engine.stremioAddons()
+              val repositoryCount =
+                  pluginStore.repositories().size
+              val providerCount =
+                  pluginStore.totalProviderCount()
+              val catalogCount =
+                  addons.sumOf {
+                      it.descriptor.catalogs.count {
+                          catalog ->
+                          catalog.canLoadWithoutExtras
+                      }
+                  }
+              val health =
+                  healthStore.records()
+              val onlineCount =
+                  health.count {
+                      it.status == ProviderHealthStatus.ONLINE ||
+                          it.status == ProviderHealthStatus.SLOW
+                  }
+              val slowCount =
+                  health.count {
+                      it.status == ProviderHealthStatus.SLOW ||
+                          it.status == ProviderHealthStatus.TIMEOUT
+                  }
+              val failedCount =
+                  health.count {
+                      it.status == ProviderHealthStatus.FAILED ||
+                          it.status == ProviderHealthStatus.BLOCKED ||
+                          it.status == ProviderHealthStatus.UNAVAILABLE
+                  }
+
+              LazyColumn(
+                  modifier =
+                      Modifier
+                          .fillMaxSize()
+                          .background(
+                              VueoPalette.Background
+                          ),
+                  contentPadding =
+                      PaddingValues(
+                          horizontal = 20.dp,
+                          vertical = 14.dp,
+                      ),
+                  verticalArrangement =
+                      Arrangement.spacedBy(
+                          14.dp
+                      ),
+              ) {
+                  item {
+                      Row(
+                          modifier =
+                              Modifier.fillMaxWidth(),
+                          verticalAlignment =
+                              Alignment.CenterVertically,
+                      ) {
+                          IconButton(
+                              onClick = onBack
+                          ) {
+                              Icon(
+                                  Icons.Default.ArrowBack,
+                                  contentDescription =
+                                      "Back to Settings",
+                                  tint = Color.White,
+                              )
+                          }
+
+                          Column(
+                              modifier =
+                                  Modifier.weight(
+                                      1f
+                                  ),
+                              verticalArrangement =
+                                  Arrangement.spacedBy(
+                                      3.dp
+                                  ),
+                          ) {
+                              Text(
+                                  "Content Manager",
+                                  color = Color.White,
+                                  fontSize = 30.sp,
+                                  fontWeight =
+                                      FontWeight.Black,
+                              )
+                              Text(
+                                  "Manage addons, plugins, providers and catalogs.",
+                                  color =
+                                      VueoPalette.Muted,
+                                  fontSize = 12.sp,
+                              )
+                          }
+                      }
+                  }
+
+                  item {
+                      Card(
+                          shape =
+                              RoundedCornerShape(
+                                  20.dp
+                              ),
+                          colors =
+                              CardDefaults.cardColors(
+                                  containerColor =
+                                      VueoPalette
+                                          .SurfaceElevated
+                              ),
+                      ) {
+                          Row(
+                              modifier =
+                                  Modifier
+                                      .fillMaxWidth()
+                                      .padding(
+                                          16.dp
+                                      ),
+                              horizontalArrangement =
+                                  Arrangement.spacedBy(
+                                      8.dp
+                                  ),
+                          ) {
+                              ContentMetric(
+                                  modifier =
+                                      Modifier.weight(1f),
+                                  value =
+                                      addons.size.toString(),
+                                  label = "Installed",
+                              )
+                              ContentMetric(
+                                  modifier =
+                                      Modifier.weight(1f),
+                                  value =
+                                      onlineCount.toString(),
+                                  label = "Online",
+                              )
+                              ContentMetric(
+                                  modifier =
+                                      Modifier.weight(1f),
+                                  value =
+                                      slowCount.toString(),
+                                  label = "Slow",
+                              )
+                              ContentMetric(
+                                  modifier =
+                                      Modifier.weight(1f),
+                                  value =
+                                      failedCount.toString(),
+                                  label = "Failed",
+                              )
+                          }
+                      }
+                  }
+
+                  item {
+                      ContentManagerCard(
+                          title = "Addons",
+                          subtitle =
+                              "Stremio compatible catalogs, metadata, streams and subtitles.",
+                          status =
+                              "${addons.size} installed",
+                          icon =
+                              Icons.Default.Extension,
+                          onClick = onAddons,
+                      )
+                  }
+
+                  item {
+                      ContentManagerCard(
+                          title =
+                              "Plugins & Providers",
+                          subtitle =
+                              "QuickJS repositories, runtime providers, health and diagnostics.",
+                          status =
+                              "$repositoryCount repos • $providerCount providers",
+                          icon =
+                              Icons.Default.SettingsInputComponent,
+                          onClick = onPlugins,
+                      )
+                  }
+
+                  item {
+                      ContentManagerCard(
+                          title = "Catalog Order",
+                          subtitle =
+                              "Choose the order catalogs appear on Home.",
+                          status =
+                              "$catalogCount catalogs",
+                          icon =
+                              Icons.Default.VideoLibrary,
+                          onClick =
+                              onCatalogOrder,
+                      )
+                  }
+
+                  item {
+                      Surface(
+                          shape =
+                              RoundedCornerShape(
+                                  18.dp
+                              ),
+                          color =
+                              VueoPalette.Surface,
+                      ) {
+                          Text(
+                              "Provider Health feeds Smart Source ranking. Slow or failed providers never need to block faster sources.",
+                              modifier =
+                                  Modifier.padding(
+                                      16.dp
+                                  ),
+                              color =
+                                  VueoPalette.Muted,
+                              fontSize = 11.sp,
+                          )
+                      }
+                  }
+              }
+          }
+
+          '''
+          app = app[:cm_start] + content_manager + app[cm_end:]
+
+          # Catalog Order screen.
+          if "private data class CatalogOrderEntry(" not in app:
+              anchor = "@Composable\nprivate fun ContentMetric("
+              index = app.find(anchor)
+              require(index >= 0, "ContentMetric insert anchor missing")
+              catalog_screen = '''private data class CatalogOrderEntry(
+              val key: String,
+              val title: String,
+              val providerName: String,
+              val type: String,
+              val addonEnabled: Boolean,
+          )
+
+          @Composable
+          private fun CatalogOrderScreen(
+              engine: UnifiedMediaEngine,
+              store: AddonStore,
+              contentVersion: Int,
+              onContentChanged: () -> Unit,
+              onBack: () -> Unit,
+          ) {
+              val entries =
+                  remember(
+                      contentVersion
+                  ) {
+                      engine.stremioAddons()
+                          .flatMap {
+                              extension ->
+                              extension.descriptor
+                                  .catalogs
+                                  .filter {
+                                      it.canLoadWithoutExtras
+                                  }
+                                  .map {
+                                      catalog ->
+                                      CatalogOrderEntry(
+                                          key =
+                                              "${extension.descriptor.id}:${catalog.type}:${catalog.id}",
+                                          title =
+                                              catalog.name
+                                                  ?: catalog.id,
+                                          providerName =
+                                              extension.descriptor.name,
+                                          type =
+                                              catalog.type
+                                                  .replaceFirstChar {
+                                                      it.uppercase()
+                                                  },
+                                          addonEnabled =
+                                              engine.isExtensionEnabled(
+                                                  extension.descriptor.id
+                                              ),
+                                      )
+                                  }
+                          }
+                  }
+
+              val entryByKey =
+                  remember(entries) {
+                      entries.associateBy {
+                          it.key
+                      }
+                  }
+
+              var order by remember(
+                  contentVersion,
+                  entries,
+              ) {
+                  mutableStateOf(
+                      store.reconcileCatalogOrder(
+                          entries.map {
+                              it.key
+                          }
+                      )
+                  )
+              }
+
+              fun move(
+                  index: Int,
+                  delta: Int,
+              ) {
+                  val target =
+                      index + delta
+
+                  if (
+                      index !in order.indices ||
+                      target !in order.indices
+                  ) {
+                      return
+                  }
+
+                  val next =
+                      order.toMutableList()
+                  val moved =
+                      next.removeAt(index)
+
+                  next.add(
+                      target,
+                      moved,
+                  )
+
+                  order = next
+                  store.setCatalogOrder(next)
+                  onContentChanged()
+              }
+
+              Column(
+                  modifier =
+                      Modifier.fillMaxSize(),
+              ) {
+                  ScreenHeader(
+                      title =
+                          "Catalog Order",
+                      subtitle =
+                          "Arrange how catalogs appear on Home",
+                      onBack =
+                          onBack,
+                  )
+
+                  if (entries.isEmpty()) {
+                      Box(
+                          modifier =
+                              Modifier
+                                  .weight(1f)
+                                  .fillMaxWidth(),
+                          contentAlignment =
+                              Alignment.Center,
+                      ) {
+                          Text(
+                              "No catalogs available",
+                              color =
+                                  VueoPalette.Muted,
+                          )
+                      }
+                      return@Column
+                  }
+
+                  LazyColumn(
+                      modifier =
+                          Modifier.weight(1f),
+                      contentPadding =
+                          PaddingValues(
+                              horizontal = 20.dp,
+                              vertical = 8.dp,
+                          ),
+                      verticalArrangement =
+                          Arrangement.spacedBy(
+                              10.dp
+                          ),
+                  ) {
+                      item {
+                          Text(
+                              "Top catalogs appear first on Home. Catalogs from disabled addons keep their position but are not loaded.",
+                              color =
+                                  VueoPalette.Muted,
+                              fontSize = 11.sp,
+                          )
+                      }
+
+                      order.forEachIndexed {
+                          index,
+                          key ->
+                          val entry =
+                              entryByKey[key]
+                                  ?: return@forEachIndexed
+
+                          item(
+                              key =
+                                  "catalog-order:$key"
+                          ) {
+                              ElevatedCard(
+                                  modifier =
+                                      Modifier.fillMaxWidth(),
+                              ) {
+                                  Row(
+                                      modifier =
+                                          Modifier
+                                              .fillMaxWidth()
+                                              .padding(
+                                                  horizontal = 14.dp,
+                                                  vertical = 12.dp,
+                                              ),
+                                      verticalAlignment =
+                                          Alignment.CenterVertically,
+                                  ) {
+                                      Surface(
+                                          modifier =
+                                              Modifier.size(
+                                                  34.dp
+                                              ),
+                                          shape =
+                                              CircleShape,
+                                          color =
+                                              MaterialTheme
+                                                  .colorScheme
+                                                  .primary
+                                                  .copy(
+                                                      alpha = .12f
+                                                  ),
+                                      ) {
+                                          Box(
+                                              contentAlignment =
+                                                  Alignment.Center,
+                                          ) {
+                                              Text(
+                                                  "${index + 1}",
+                                                  color =
+                                                      MaterialTheme
+                                                          .colorScheme
+                                                          .primary,
+                                                  fontWeight =
+                                                      FontWeight.Black,
+                                              )
+                                          }
+                                      }
+
+                                      Spacer(
+                                          Modifier.width(
+                                              12.dp
+                                          )
+                                      )
+
+                                      Column(
+                                          modifier =
+                                              Modifier.weight(1f),
+                                          verticalArrangement =
+                                              Arrangement.spacedBy(
+                                                  2.dp
+                                              ),
+                                      ) {
+                                          Text(
+                                              entry.title,
+                                              fontWeight =
+                                                  FontWeight.Bold,
+                                              color =
+                                                  if (
+                                                      entry.addonEnabled
+                                                  ) {
+                                                      Color.White
+                                                  } else {
+                                                      VueoPalette.Muted
+                                                  },
+                                          )
+                                          Text(
+                                              "${entry.providerName} • ${entry.type}",
+                                              color =
+                                                  VueoPalette.Muted,
+                                              fontSize = 11.sp,
+                                          )
+                                          if (
+                                              !entry.addonEnabled
+                                          ) {
+                                              Text(
+                                                  "Addon disabled",
+                                                  color =
+                                                      VueoPalette.Muted,
+                                                  fontSize = 10.sp,
+                                                  fontWeight =
+                                                      FontWeight.Bold,
+                                              )
+                                          }
+                                      }
+
+                                      TextButton(
+                                          enabled =
+                                              index > 0,
+                                          onClick = {
+                                              move(
+                                                  index,
+                                                  -1,
+                                              )
+                                          },
+                                      ) {
+                                          Text(
+                                              "↑",
+                                              fontSize = 20.sp,
+                                          )
+                                      }
+                                      TextButton(
+                                          enabled =
+                                              index <
+                                                  order.lastIndex,
+                                          onClick = {
+                                              move(
+                                                  index,
+                                                  1,
+                                              )
+                                          },
+                                      ) {
+                                          Text(
+                                              "↓",
+                                              fontSize = 20.sp,
+                                          )
+                                      }
+                                  }
+                              }
+                          }
+                      }
+
+                      item {
+                          Spacer(
+                              Modifier.height(
+                                  20.dp
+                              )
+                          )
+                      }
+                  }
+              }
+          }
+
+          '''
+              app = app[:index] + catalog_screen + app[index:]
+
+          # Addons per-addon toggle.
+          addons_start = app.find("@Composable\nprivate fun AddonsScreen(")
+          addons_end = app.find("@Composable\nprivate fun PluginsScreen(", addons_start)
+          require(
+              addons_start >= 0 and addons_end > addons_start,
+              "Addons section boundaries missing",
+          )
+          addons_section = app[addons_start:addons_end]
+
+          if "onEnabledChanged =" not in addons_section:
+              anchor = '''                        AddonCard(
+                                      addon = addon,
+                                      isDevelopmentDefault = store.isDevelopmentDefault(
+                                          addon.descriptor.baseUrl
+                                      ),
+                                      refreshing = refreshingId == addon.descriptor.id,
+          '''
+              replacement = '''                        AddonCard(
+                                      addon = addon,
+                                      enabled =
+                                          store.isAddonEnabled(
+                                              addon.descriptor.baseUrl
+                                          ),
+                                      onEnabledChanged = {
+                                          enabled ->
+                                          store.setAddonEnabled(
+                                              addon.descriptor.baseUrl,
+                                              enabled,
+                                          )
+                                          engine.setExtensionEnabled(
+                                              addon.descriptor.id,
+                                              enabled,
+                                          )
+                                          installed =
+                                              engine.stremioAddons()
+                                          onContentChanged()
+                                      },
+                                      isDevelopmentDefault = store.isDevelopmentDefault(
+                                          addon.descriptor.baseUrl
+                                      ),
+                                      refreshing = refreshingId == addon.descriptor.id,
+          '''
+              require(
+                  addons_section.count(anchor) == 1,
+                  "AddonCard call anchor missing",
+              )
+              addons_section = addons_section.replace(
+                  anchor,
+                  replacement,
+                  1,
+              )
+
+          refresh_old = '''                                    }.onSuccess {
+                                                  engine.install(it)
+                                                  installed = engine.stremioAddons()
+                                                  onContentChanged()
+                                              }
+          '''
+          refresh_new = '''                                    }.onSuccess {
+                                                  refreshed ->
+                                                  engine.install(
+                                                      refreshed
+                                                  )
+                                                  engine.setExtensionEnabled(
+                                                      id =
+                                                          refreshed.descriptor.id,
+                                                      enabled =
+                                                          store.isAddonEnabled(
+                                                              addon.descriptor.baseUrl
+                                                          ),
+                                                  )
+                                                  installed =
+                                                      engine.stremioAddons()
+                                                  onContentChanged()
+                                              }
+          '''
+          if refresh_old in addons_section:
+              addons_section = addons_section.replace(
+                  refresh_old,
+                  refresh_new,
+                  1,
+              )
+
+          install_old = '''                            }.onSuccess { addon ->
+                                          engine.install(addon)
+                                          store.add(addon.descriptor.baseUrl)
+                                          installed = engine.stremioAddons()
+          '''
+          install_new = '''                            }.onSuccess { addon ->
+                                          store.add(
+                                              addon.descriptor.baseUrl
+                                          )
+                                          engine.install(addon)
+                                          engine.setExtensionEnabled(
+                                              addon.descriptor.id,
+                                              true,
+                                          )
+                                          installed = engine.stremioAddons()
+          '''
+          if install_old in addons_section:
+              addons_section = addons_section.replace(
+                  install_old,
+                  install_new,
+                  1,
+              )
+
+          signature_old = '''private fun AddonCard(
+              addon: MediaExtension,
+              isDevelopmentDefault: Boolean,
+              refreshing: Boolean,
+              onRefresh: () -> Unit,
+              onDelete: () -> Unit,
+          ) {
+          '''
+          signature_new = '''private fun AddonCard(
+              addon: MediaExtension,
+              enabled: Boolean,
+              onEnabledChanged:
+                  (Boolean) -> Unit,
+              isDevelopmentDefault: Boolean,
+              refreshing: Boolean,
+              onRefresh: () -> Unit,
+              onDelete: () -> Unit,
+          ) {
+          '''
+          if signature_old in addons_section:
+              addons_section = addons_section.replace(
+                  signature_old,
+                  signature_new,
+                  1,
+              )
+
+          if "checked = enabled" not in addons_section:
+              anchor = '''                IconButton(
+                              onClick = onRefresh,
+                              enabled = !refreshing,
+                          ) {
+          '''
+              replacement = '''                Switch(
+                              checked = enabled,
+                              onCheckedChange =
+                                  onEnabledChanged,
+                          )
+                          Spacer(
+                              Modifier.width(
+                                  6.dp
+                              )
+                          )
+          ''' + anchor
+              require(
+                  addons_section.count(anchor) == 1,
+                  "AddonCard refresh button anchor missing",
+              )
+              addons_section = addons_section.replace(
+                  anchor,
+                  replacement,
+                  1,
+              )
+
+          app = app[:addons_start] + addons_section + app[addons_end:]
+
+          # Plugins screen as tabs.
+          plugins_start = app.find("@Composable\nprivate fun PluginsScreen(")
+          plugins_end = app.find(
+              "@Composable\nprivate fun PluginRepositoryCard(",
+              plugins_start,
+          )
+          require(
+              plugins_start >= 0 and plugins_end > plugins_start,
+              "PluginsScreen boundaries missing",
+          )
+
+          plugins_screen = '''@Composable
+          private fun PluginsScreen(
+              onBack: () -> Unit,
+          ) {
+              val context =
+                  LocalContext.current
+              val store =
+                  remember {
+                      PluginStore(
+                          context.applicationContext
+                      )
+                  }
+              val scope =
+                  rememberCoroutineScope()
+              val healthStore =
+                  remember {
+                      PluginHealthStore(
+                          context.applicationContext
+                      )
+                  }
+              val codeStore =
+                  remember {
+                      ProviderCodeStore(
+                          context.applicationContext
+                      )
+                  }
+              val codeSync =
+                  remember {
+                      ProviderCodeSyncManager(
+                          context.applicationContext
+                      )
+                  }
+
+              var healthRevision by remember {
+                  mutableIntStateOf(0)
+              }
+              var codeRevision by remember {
+                  mutableIntStateOf(0)
+              }
+              var repositories by remember {
+                  mutableStateOf(
+                      store.repositories()
+                  )
+              }
+              var selectedRepositoryUrl by remember {
+                  mutableStateOf<String?>(
+                      repositories.firstOrNull()
+                          ?.manifestUrl
+                  )
+              }
+              var pluginsEnabled by remember {
+                  mutableStateOf(
+                      store.pluginsEnabled()
+                  )
+              }
+              var showAddDialog by remember {
+                  mutableStateOf(false)
+              }
+              var repositoryUrl by remember {
+                  mutableStateOf("")
+              }
+              var busy by remember {
+                  mutableStateOf(false)
+              }
+              var message by remember {
+                  mutableStateOf<String?>(
+                      null
+                  )
+              }
+              var refreshingUrl by remember {
+                  mutableStateOf<String?>(
+                      null
+                  )
+              }
+
+              fun refreshRepositories() {
+                  repositories =
+                      store.repositories()
+
+                  if (
+                      selectedRepositoryUrl == null ||
+                      repositories.none {
+                          it.manifestUrl ==
+                              selectedRepositoryUrl
+                      }
+                  ) {
+                      selectedRepositoryUrl =
+                          repositories.firstOrNull()
+                              ?.manifestUrl
+                  }
+              }
+
+              LaunchedEffect(Unit) {
+                  store.seedDevelopmentDefaultsIfNeeded()
+                  refreshRepositories()
+                  codeSync.syncMissing(
+                      repositories
+                  )
+                  codeRevision++
+              }
+
+              val selectedRepository =
+                  repositories.firstOrNull {
+                      it.manifestUrl ==
+                          selectedRepositoryUrl
+                  }
+
+              Column(
+                  modifier =
+                      Modifier.fillMaxSize(),
+              ) {
+                  ScreenHeader(
+                      title = "Plugins",
+                      subtitle =
+                          "JavaScript provider repositories",
+                      onBack = onBack,
+                      action = {
+                          FilledIconButton(
+                              onClick = {
+                                  showAddDialog = true
+                              },
+                          ) {
+                              Icon(
+                                  Icons.Default.Add,
+                                  contentDescription =
+                                      "Add repository",
+                              )
+                          }
+                      },
+                  )
+
+                  LazyColumn(
+                      modifier =
+                          Modifier.weight(1f),
+                      contentPadding =
+                          PaddingValues(
+                              horizontal = 20.dp,
+                              vertical = 8.dp,
+                          ),
+                      verticalArrangement =
+                          Arrangement.spacedBy(
+                              14.dp
+                          ),
+                  ) {
+                      item {
+                          ElevatedCard(
+                              modifier =
+                                  Modifier.fillMaxWidth(),
+                          ) {
+                              Row(
+                                  modifier =
+                                      Modifier.padding(
+                                          18.dp
+                                      ),
+                                  verticalAlignment =
+                                      Alignment.CenterVertically,
+                              ) {
+                                  Column(
+                                      modifier =
+                                          Modifier.weight(1f),
+                                  ) {
+                                      Text(
+                                          "Plugin providers",
+                                          fontWeight =
+                                              FontWeight.Bold,
+                                          fontSize = 18.sp,
+                                      )
+                                      Text(
+                                          "${repositories.size} repos • " +
+                                              "${store.enabledProviderCount()} enabled providers",
+                                          color =
+                                              MaterialTheme
+                                                  .colorScheme
+                                                  .onSurface
+                                                  .copy(alpha = .6f),
+                                          fontSize = 12.sp,
+                                      )
+                                  }
+                                  Switch(
+                                      checked =
+                                          pluginsEnabled,
+                                      onCheckedChange = {
+                                          pluginsEnabled = it
+                                          store.setPluginsEnabled(
+                                              it
+                                          )
+                                      },
+                                  )
+                              }
+                          }
+                      }
+
+                      item {
+                          val summary =
+                              healthStore.summary(
+                                  repositories =
+                                      repositories,
+                                  pluginStore =
+                                      store,
+                              )
+                          ElevatedCard(
+                              modifier =
+                                  Modifier.fillMaxWidth(),
+                          ) {
+                              Column(
+                                  modifier =
+                                      Modifier.padding(
+                                          18.dp
+                                      ),
+                                  verticalArrangement =
+                                      Arrangement.spacedBy(
+                                          9.dp
+                                      ),
+                              ) {
+                                  Row(
+                                      modifier =
+                                          Modifier.fillMaxWidth(),
+                                      verticalAlignment =
+                                          Alignment.CenterVertically,
+                                  ) {
+                                      Column(
+                                          Modifier.weight(1f)
+                                      ) {
+                                          Text(
+                                              "Provider Health",
+                                              fontWeight =
+                                                  FontWeight.Bold,
+                                              fontSize = 18.sp,
+                                          )
+                                          Text(
+                                              "Updated whenever VUEO runs source discovery.",
+                                              color =
+                                                  MaterialTheme
+                                                      .colorScheme
+                                                      .onSurface
+                                                      .copy(alpha = .58f),
+                                              fontSize = 11.sp,
+                                          )
+                                      }
+                                      IconButton(
+                                          onClick = {
+                                              healthRevision++
+                                          },
+                                      ) {
+                                          Icon(
+                                              Icons.Default.Refresh,
+                                              contentDescription =
+                                                  "Refresh health",
+                                          )
+                                      }
+                                  }
+
+                                  Text(
+                                      "${summary.online} online • ${summary.slow} slow • " +
+                                          "${summary.noResults} no results",
+                                      color =
+                                          MaterialTheme
+                                              .colorScheme
+                                              .primary,
+                                      fontWeight =
+                                          FontWeight.Bold,
+                                      fontSize = 12.sp,
+                                  )
+
+                                  if (
+                                      summary.needsSetup > 0 ||
+                                      summary.unavailable > 0 ||
+                                      summary.blocked > 0 ||
+                                      summary.timeout > 0 ||
+                                      summary.failed > 0
+                                  ) {
+                                      Text(
+                                          "${summary.needsSetup} setup • " +
+                                              "${summary.unavailable} unavailable • " +
+                                              "${summary.blocked} blocked • " +
+                                              "${summary.timeout} timeout • " +
+                                              "${summary.failed} failed",
+                                          color =
+                                              MaterialTheme
+                                                  .colorScheme
+                                                  .onSurface
+                                                  .copy(alpha = .5f),
+                                          fontSize = 11.sp,
+                                      )
+                                  }
+
+                                  if (
+                                      summary.unknown > 0 ||
+                                      summary.disabled > 0
+                                  ) {
+                                      Text(
+                                          "${summary.unknown} unknown • ${summary.disabled} disabled",
+                                          color =
+                                              MaterialTheme
+                                                  .colorScheme
+                                                  .onSurface
+                                                  .copy(alpha = .5f),
+                                          fontSize = 11.sp,
+                                      )
+                                  }
+                              }
+                          }
+                      }
+
+                      if (repositories.isEmpty()) {
+                          item {
+                              ElevatedCard(
+                                  modifier =
+                                      Modifier.fillMaxWidth(),
+                              ) {
+                                  Column(
+                                      modifier =
+                                          Modifier.padding(
+                                              20.dp
+                                          ),
+                                      verticalArrangement =
+                                          Arrangement.spacedBy(
+                                              10.dp
+                                          ),
+                                  ) {
+                                      Text(
+                                          "No plugin repositories",
+                                          fontSize = 21.sp,
+                                          fontWeight =
+                                              FontWeight.Black,
+                                      )
+                                      Text(
+                                          "Add a Nuvio-style provider repository URL.",
+                                          color =
+                                              MaterialTheme
+                                                  .colorScheme
+                                                  .onSurface
+                                                  .copy(alpha = .68f),
+                                      )
+                                      Button(
+                                          onClick = {
+                                              showAddDialog = true
+                                          },
+                                      ) {
+                                          Text(
+                                              "Add Repository"
+                                          )
+                                      }
+                                  }
+                              }
+                          }
+                      } else {
+                          item {
+                              Text(
+                                  "REPOSITORIES",
+                                  color =
+                                      MaterialTheme
+                                          .colorScheme
+                                          .onSurface
+                                          .copy(alpha = .52f),
+                                  fontSize = 11.sp,
+                                  fontWeight =
+                                      FontWeight.Bold,
+                                  letterSpacing = 1.2.sp,
+                              )
+
+                              Spacer(
+                                  Modifier.height(
+                                      8.dp
+                                  )
+                              )
+
+                              LazyRow(
+                                  horizontalArrangement =
+                                      Arrangement.spacedBy(
+                                          8.dp
+                                      ),
+                              ) {
+                                  items(
+                                      repositories,
+                                      key = {
+                                          it.manifestUrl
+                                      },
+                                  ) {
+                                      repository ->
+                                      FilterChip(
+                                          selected =
+                                              selectedRepositoryUrl ==
+                                                  repository.manifestUrl,
+                                          onClick = {
+                                              selectedRepositoryUrl =
+                                                  repository.manifestUrl
+                                          },
+                                          label = {
+                                              Text(
+                                                  repository.name,
+                                                  maxLines = 1,
+                                                  overflow =
+                                                      TextOverflow.Ellipsis,
+                                              )
+                                          },
+                                      )
+                                  }
+                              }
+                          }
+
+                          selectedRepository
+                              ?.let {
+                                  repository ->
+                                  item(
+                                      key =
+                                          "repo-card:${repository.manifestUrl}"
+                                  ) {
+                                      PluginRepositoryCard(
+                                          repository =
+                                              repository,
+                                          store = store,
+                                          healthStore =
+                                              healthStore,
+                                          healthRevision =
+                                              healthRevision,
+                                          codeStore =
+                                              codeStore,
+                                          codeRevision =
+                                              codeRevision,
+                                          repositoryEnabled =
+                                              store.isRepositoryEnabled(
+                                                  repository
+                                              ),
+                                          onRepositoryEnabledChanged = {
+                                              enabled ->
+                                              store.setRepositoryEnabled(
+                                                  repository,
+                                                  enabled,
+                                              )
+                                              refreshRepositories()
+                                              healthRevision++
+                                          },
+                                          isDevelopmentDefault =
+                                              store.isDevelopmentDefault(
+                                                  repository.manifestUrl
+                                              ),
+                                          refreshing =
+                                              refreshingUrl ==
+                                                  repository.manifestUrl,
+                                          onRefresh = {
+                                              scope.launch {
+                                                  refreshingUrl =
+                                                      repository.manifestUrl
+                                                  runCatching {
+                                                      PluginRepositoryClient
+                                                          .fetch(
+                                                              repository.manifestUrl
+                                                          )
+                                                  }.onSuccess {
+                                                      refreshed ->
+                                                      store.upsert(
+                                                          refreshed
+                                                      )
+                                                      val syncResult =
+                                                          codeSync.syncRepository(
+                                                              repository =
+                                                                  refreshed,
+                                                              force = true,
+                                                          )
+                                                      refreshRepositories()
+                                                      selectedRepositoryUrl =
+                                                          refreshed.manifestUrl
+                                                      codeRevision++
+                                                      message =
+                                                          "Provider code ready " +
+                                                              "${syncResult.readyProviders}/" +
+                                                              "${refreshed.providers.size}"
+                                                  }.onFailure {
+                                                      message =
+                                                          it.message
+                                                  }
+                                                  refreshingUrl = null
+                                              }
+                                          },
+                                          onDelete = {
+                                              healthStore.removeRepository(
+                                                  repository.manifestUrl
+                                              )
+                                              store.remove(
+                                                  repository.manifestUrl
+                                              )
+                                              refreshRepositories()
+                                              healthRevision++
+                                          },
+                                          onProviderChanged = {
+                                              refreshRepositories()
+                                              healthRevision++
+                                          },
+                                      )
+                                  }
+                              }
+                      }
+
+                      item {
+                          ElevatedCard(
+                              modifier =
+                                  Modifier.fillMaxWidth(),
+                          ) {
+                              Column(
+                                  modifier =
+                                      Modifier.padding(
+                                          18.dp
+                                      ),
+                                  verticalArrangement =
+                                      Arrangement.spacedBy(
+                                          7.dp
+                                      ),
+                              ) {
+                                  Text(
+                                      "Runtime status",
+                                      fontWeight =
+                                          FontWeight.Bold,
+                                  )
+                                  Text(
+                                      "Provider runtime ACTIVE. Disabled repositories are skipped completely during source discovery.",
+                                      color =
+                                          MaterialTheme
+                                              .colorScheme
+                                              .primary,
+                                      fontSize = 12.sp,
+                                  )
+                              }
+                          }
+                      }
+                  }
+              }
+
+              if (showAddDialog) {
+                  AlertDialog(
+                      onDismissRequest = {
+                          if (!busy) {
+                              showAddDialog = false
+                              message = null
+                          }
+                      },
+                      title = {
+                          Text(
+                              "Add Plugin Repository"
+                          )
+                      },
+                      text = {
+                          Column(
+                              verticalArrangement =
+                                  Arrangement.spacedBy(
+                                      12.dp
+                                  ),
+                          ) {
+                              Text(
+                                  "Paste a repository base URL or direct manifest.json URL."
+                              )
+                              OutlinedTextField(
+                                  value =
+                                      repositoryUrl,
+                                  onValueChange = {
+                                      repositoryUrl = it
+                                      message = null
+                                  },
+                                  label = {
+                                      Text(
+                                          "Repository URL"
+                                      )
+                                  },
+                                  placeholder = {
+                                      Text(
+                                          "https://.../manifest.json"
+                                      )
+                                  },
+                                  enabled = !busy,
+                                  singleLine = true,
+                              )
+                              message?.let {
+                                  Text(
+                                      it,
+                                      color =
+                                          MaterialTheme
+                                              .colorScheme
+                                              .error,
+                                      fontSize = 12.sp,
+                                  )
+                              }
+                              if (busy) {
+                                  LinearProgressIndicator(
+                                      Modifier.fillMaxWidth()
+                                  )
+                              }
+                          }
+                      },
+                      confirmButton = {
+                          TextButton(
+                              enabled =
+                                  repositoryUrl.isNotBlank() &&
+                                      !busy,
+                              onClick = {
+                                  scope.launch {
+                                      busy = true
+                                      message = null
+                                      runCatching {
+                                          PluginRepositoryClient
+                                              .fetch(
+                                                  repositoryUrl
+                                              )
+                                      }.onSuccess {
+                                          repository ->
+                                          store.upsert(
+                                              repository
+                                          )
+                                          store.setRepositoryEnabled(
+                                              repository,
+                                              true,
+                                          )
+                                          val syncResult =
+                                              codeSync.syncRepository(
+                                                  repository =
+                                                      repository,
+                                                  force = true,
+                                              )
+                                          refreshRepositories()
+                                          selectedRepositoryUrl =
+                                              repository.manifestUrl
+                                          codeRevision++
+                                          repositoryUrl = ""
+                                          showAddDialog = false
+                                          message =
+                                              "Installed ${repository.name}. " +
+                                                  "Provider code ready " +
+                                                  "${syncResult.readyProviders}/" +
+                                                  "${repository.providers.size}"
+                                      }.onFailure {
+                                          message =
+                                              it.message
+                                                  ?: "Unable to install repository."
+                                      }
+                                      busy = false
+                                  }
+                              },
+                          ) {
+                              Text("Install")
+                          }
+                      },
+                      dismissButton = {
+                          TextButton(
+                              enabled = !busy,
+                              onClick = {
+                                  showAddDialog = false
+                                  message = null
+                              },
+                          ) {
+                              Text("Cancel")
+                          }
+                      },
+                  )
+              }
+          }
+
+          '''
+          app = app[:plugins_start] + plugins_screen + app[plugins_end:]
+
+          # PluginRepositoryCard repo toggle.
+          card_start = app.find(
+              "@Composable\nprivate fun PluginRepositoryCard("
+          )
+          card_end = app.find(
+              "@Composable\nprivate fun ProviderHealthRow(",
+              card_start,
+          )
+          require(
+              card_start >= 0 and card_end > card_start,
+              "PluginRepositoryCard boundaries missing",
+          )
+          card = app[card_start:card_end]
+
+          old_sig = '''private fun PluginRepositoryCard(
+              repository: PluginRepositoryDescriptor,
+              store: PluginStore,
+              healthStore: PluginHealthStore,
+              healthRevision: Int,
+              codeStore: ProviderCodeStore,
+              codeRevision: Int,
+              isDevelopmentDefault: Boolean,
+              refreshing: Boolean,
+              onRefresh: () -> Unit,
+              onDelete: () -> Unit,
+              onProviderChanged: () -> Unit,
+          ) {
+          '''
+          new_sig = '''private fun PluginRepositoryCard(
+              repository: PluginRepositoryDescriptor,
+              store: PluginStore,
+              healthStore: PluginHealthStore,
+              healthRevision: Int,
+              codeStore: ProviderCodeStore,
+              codeRevision: Int,
+              repositoryEnabled: Boolean,
+              onRepositoryEnabledChanged:
+                  (Boolean) -> Unit,
+              isDevelopmentDefault: Boolean,
+              refreshing: Boolean,
+              onRefresh: () -> Unit,
+              onDelete: () -> Unit,
+              onProviderChanged: () -> Unit,
+          ) {
+          '''
+          if old_sig in card:
+              card = card.replace(old_sig, new_sig, 1)
+
+          if "checked =\n                        repositoryEnabled" not in card:
+              anchor = '''                IconButton(
+                              enabled = !refreshing,
+                              onClick = onRefresh,
+                          ) {
+          '''
+              replacement = '''                Switch(
+                              checked =
+                                  repositoryEnabled,
+                              onCheckedChange =
+                                  onRepositoryEnabledChanged,
+                          )
+                          Spacer(
+                              Modifier.width(
+                                  6.dp
+                              )
+                          )
+          ''' + anchor
+              require(
+                  card.count(anchor) == 1,
+                  "PluginRepositoryCard refresh anchor missing",
+              )
+              card = card.replace(anchor, replacement, 1)
+
+          if '"Repository disabled • provider preferences are preserved"' not in card:
+              anchor = '''            if (refreshing) {
+                          LinearProgressIndicator(
+                              Modifier.fillMaxWidth()
+                          )
+                      }
+          '''
+              replacement = anchor + '''            if (!repositoryEnabled) {
+                          Text(
+                              "Repository disabled • provider preferences are preserved",
+                              color =
+                                  MaterialTheme
+                                      .colorScheme
+                                      .onSurface
+                                      .copy(alpha = .55f),
+                              fontSize = 11.sp,
+                              fontWeight =
+                                  FontWeight.Bold,
+                          )
+                      }
+          '''
+              require(
+                  card.count(anchor) == 1,
+                  "PluginRepositoryCard refresh status anchor missing",
+              )
+              card = card.replace(anchor, replacement, 1)
+
+          app = app[:card_start] + card + app[card_end:]
+
+          # Final sanity.
+          markers = [
+              "SettingsPage.CATALOG_ORDER",
+              "onCatalogOrder: () -> Unit",
+              'title = "Catalog Order"',
+              "private fun CatalogOrderScreen(",
+              "private data class CatalogOrderEntry(",
+              "store.isAddonEnabled(",
+              "engine.setExtensionEnabled(",
+              "selectedRepositoryUrl",
+              "repositoryEnabled: Boolean",
+              "onRepositoryEnabledChanged:",
+              "orderHomeCatalogRows(",
+          ]
+          missing = [
+              x for x in markers
+              if x not in app
+          ]
+          require(
+              not missing,
+              f"VueoApp missing markers: {missing}",
+          )
+
+          cm_verify_start = app.find(
+              "private fun ContentManagerScreen("
+          )
+          cm_verify_end = app.find(
+              "private fun CatalogOrderScreen(",
+              cm_verify_start,
+          )
+          cm_verify = app[
+              cm_verify_start:
+              cm_verify_end
+          ]
+          require(
+              "VueoBrandLockup" not in cm_verify,
+              "Content Manager still has VUEO branding",
+          )
+
+          app_path.write_text(
+              app,
+              encoding="utf-8",
+          )
+
+          print("Content Manager v2 patch applied.")
+          PY
+
+      - name: Validate source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP="app/src/main/java/com/vueo/app/ui/VueoApp.kt"
+          ADDON="app/src/main/java/com/vueo/app/core/storage/AddonStore.kt"
+          PLUGIN="app/src/main/java/com/vueo/app/core/plugin/PluginStore.kt"
+          RUNTIME="app/src/main/java/com/vueo/app/core/plugin/PluginRuntime.kt"
+          ENGINE="app/src/main/java/com/vueo/app/core/extensions/UnifiedMediaEngine.kt"
+
+          grep -q 'CATALOG_ORDER' "$APP"
+          grep -q 'private fun CatalogOrderScreen' "$APP"
+          grep -q 'title = "Catalog Order"' "$APP"
+          grep -q 'selectedRepositoryUrl' "$APP"
+          grep -q 'repositoryEnabled: Boolean' "$APP"
+          grep -q 'store.isAddonEnabled' "$APP"
+
+          grep -q 'fun isAddonEnabled' "$ADDON"
+          grep -q 'fun setCatalogOrder' "$ADDON"
+          grep -q 'fun reconcileCatalogOrder' "$ADDON"
+
+          grep -q 'fun isRepositoryEnabled' "$PLUGIN"
+          grep -q 'fun setRepositoryEnabled' "$PLUGIN"
+
+          grep -q 'filter(store::isRepositoryEnabled)' "$RUNTIME"
+
+          grep -q 'fun setExtensionEnabled' "$ENGINE"
+          grep -q 'fun activeStremioAddons' "$ENGINE"
+          grep -q 'catalogOrder: List<String>' "$ENGINE"
+
+          echo "Content Manager source validation passed."
+
+      - name: Compile Kotlin
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew :app:compileDebugKotlin --stacktrace
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add             app/src/main/java/com/vueo/app/ui/VueoApp.kt             app/src/main/java/com/vueo/app/core/storage/AddonStore.kt             app/src/main/java/com/vueo/app/core/plugin/PluginStore.kt             app/src/main/java/com/vueo/app/core/plugin/PluginRuntime.kt             app/src/main/java/com/vueo/app/core/extensions/UnifiedMediaEngine.kt
+
+          git commit -m "feat: improve content manager controls"
+          git push origin HEAD:main
