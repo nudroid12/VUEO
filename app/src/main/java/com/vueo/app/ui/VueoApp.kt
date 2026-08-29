@@ -11282,6 +11282,12 @@ private fun extractPlayerImdbId(value: String?): String? =
             ?.lowercase()
     }
 
+private fun Context.playerContentWarningsEnabled(): Boolean =
+    getSharedPreferences(
+        "vueo_player_gestures",
+        Context.MODE_PRIVATE,
+    ).getBoolean("content_warnings", true)
+
 @Composable
 private fun PlayerContentWarningsOverlay(
     warnings: List<PlayerContentWarning>,
@@ -11377,7 +11383,7 @@ private fun PlayerScreen(
         )
     }
     val contentWarningsEnabled = remember(mediaKey) {
-        context.contentWarningsEnabled()
+        context.playerContentWarningsEnabled()
     }
 
     val savedPositionMs = remember(mediaKey) {
