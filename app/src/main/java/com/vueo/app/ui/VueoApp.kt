@@ -12,6 +12,9 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
@@ -109,6 +112,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
@@ -11291,28 +11295,79 @@ private fun Context.playerContentWarningsEnabled(): Boolean =
 @Composable
 private fun PlayerContentWarningsOverlay(
     warnings: List<PlayerContentWarning>,
+    onAnimationComplete: () -> Unit,
 ) {
+    val count = warnings.size
+    val totalLineHeight = (count * 17) + ((count - 1) * 2)
+    val containerAlpha = remember { Animatable(0f) }
+    val lineHeightFraction = remember { Animatable(0f) }
+    val itemAlphas = remember(count) {
+        List(count) { Animatable(0f) }
+    }
+
+    LaunchedEffect(warnings) {
+        containerAlpha.animateTo(1f, tween(300))
+        lineHeightFraction.animateTo(
+            1f,
+            tween(400, easing = FastOutSlowInEasing),
+        )
+
+        for (index in 0 until count) {
+            delay(80L)
+            itemAlphas[index].animateTo(1f, tween(200))
+        }
+
+        delay(5_000L)
+
+        for (index in (count - 1) downTo 0) {
+            delay(60L)
+            itemAlphas[index].animateTo(0f, tween(150))
+        }
+
+        delay(100L)
+        lineHeightFraction.animateTo(
+            0f,
+            tween(300, easing = FastOutSlowInEasing),
+        )
+        delay(200L)
+        containerAlpha.animateTo(0f, tween(200))
+        onAnimationComplete()
+    }
+
+    if (containerAlpha.value <= 0f) {
+        return
+    }
+
     Row(
-        modifier = Modifier.padding(
-            start = 52.dp,
-            top = 72.dp,
-        ),
+        modifier = Modifier.alpha(containerAlpha.value),
         verticalAlignment = Alignment.Top,
     ) {
         Box(
             modifier = Modifier
                 .width(3.dp)
-                .height((warnings.size * 19).dp)
+                .height(
+                    (
+                        totalLineHeight *
+                            lineHeightFraction.value
+                    ).dp
+                )
                 .clip(RoundedCornerShape(50))
-                .background(Color.White.copy(alpha = .92f)),
+                .background(VueoPlayerAccent),
         )
         Column(
             modifier = Modifier.padding(start = 10.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            warnings.forEach { warning ->
+            warnings.forEachIndexed { index, warning ->
                 Row(
-                    modifier = Modifier.height(17.dp),
+                    modifier = Modifier
+                        .height(17.dp)
+                        .alpha(
+                            itemAlphas
+                                .getOrNull(index)
+                                ?.value
+                                ?: 0f
+                        ),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -11708,8 +11763,6 @@ private fun PlayerScreen(
         ) {
             contentWarningsShown = true
             showContentWarnings = true
-            delay(5_000L)
-            showContentWarnings = false
         }
     }
 
@@ -12617,10 +12670,17 @@ private fun PlayerScreen(
         ) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopStart),
+                    .align(Alignment.BottomStart)
+                    .padding(
+                        start = 32.dp,
+                        bottom = 104.dp,
+                    ),
             ) {
                 PlayerContentWarningsOverlay(
-                    warnings = contentWarnings
+                    warnings = contentWarnings,
+                    onAnimationComplete = {
+                        showContentWarnings = false
+                    },
                 )
             }
         }
