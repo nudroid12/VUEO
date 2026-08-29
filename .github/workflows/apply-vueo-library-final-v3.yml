@@ -1,0 +1,382 @@
+name: Apply VUEO Library Final v3
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vueo-library-final-v3
+  cancel-in-progress: false
+
+jobs:
+  patch-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout current VUEO
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply Library Final to current source
+        shell: bash
+        env:
+          LIBRARY_FINAL_B64: "QENvbXBvc2FibGUKcHJpdmF0ZSBmdW4gTGlicmFyeVNjcmVlbigKICAgIHN0b3JlOiBMaWJyYXJ5U3RvcmUsCiAgICBhY3RpdmVQcm9maWxlOiBWdWVvUHJvZmlsZSwKICAgIHZlcnNpb246IEludCwKICAgIG9uVmVyc2lvbkNoYW5nZWQ6ICgpIC0+IFVuaXQsCiAgICBvbk1lZGlhQ2xpY2s6IChNZWRpYUl0ZW0pIC0+IFVuaXQsCiAgICBvblBsYXliYWNrQ2xpY2s6CiAgICAgICAgKExpYnJhcnlQbGF5YmFja0VudHJ5KSAtPiBVbml0LAopIHsKICAgIHZhbCB3YXRjaGxpc3QgPSByZW1lbWJlcigKICAgICAgICB2ZXJzaW9uCiAgICApIHsKICAgICAgICBzdG9yZS53YXRjaGxpc3QoKQogICAgfQoKICAgIHZhciBjbG91ZFNlbGVjdGVkIGJ5IHJlbWVtYmVyIHsKICAgICAgICBtdXRhYmxlU3RhdGVPZihmYWxzZSkKICAgIH0KCiAgICB2YXIgZ3JpZFZpZXcgYnkgcmVtZW1iZXIgewogICAgICAgIG11dGFibGVTdGF0ZU9mKHRydWUpCiAgICB9CgogICAgTGF6eUNvbHVtbigKICAgICAgICBtb2RpZmllciA9CiAgICAgICAgICAgIE1vZGlmaWVyCiAgICAgICAgICAgICAgICAuZmlsbE1heFNpemUoKQogICAgICAgICAgICAgICAgLmJhY2tncm91bmQoCiAgICAgICAgICAgICAgICAgICAgVnVlb1BhbGV0dGUuQmFja2dyb3VuZAogICAgICAgICAgICAgICAgKSwKICAgICAgICBjb250ZW50UGFkZGluZyA9CiAgICAgICAgICAgIFBhZGRpbmdWYWx1ZXMoCiAgICAgICAgICAgICAgICBzdGFydCA9IDIwLmRwLAogICAgICAgICAgICAgICAgZW5kID0gMjAuZHAsCiAgICAgICAgICAgICAgICB0b3AgPSAyNC5kcCwKICAgICAgICAgICAgICAgIGJvdHRvbSA9IDM0LmRwLAogICAgICAgICAgICApLAogICAgICAgIHZlcnRpY2FsQXJyYW5nZW1lbnQgPQogICAgICAgICAgICBBcnJhbmdlbWVudC5zcGFjZWRCeSgKICAgICAgICAgICAgICAgIDE4LmRwCiAgICAgICAgICAgICksCiAgICApIHsKICAgICAgICBpdGVtKAogICAgICAgICAgICBrZXkgPSAibGlicmFyeS1oZWFkZXIiCiAgICAgICAgKSB7CiAgICAgICAgICAgIENvbHVtbigKICAgICAgICAgICAgICAgIHZlcnRpY2FsQXJyYW5nZW1lbnQgPQogICAgICAgICAgICAgICAgICAgIEFycmFuZ2VtZW50LnNwYWNlZEJ5KAogICAgICAgICAgICAgICAgICAgICAgICAxNC5kcAogICAgICAgICAgICAgICAgICAgICksCiAgICAgICAgICAgICkgewogICAgICAgICAgICAgICAgUm93KAogICAgICAgICAgICAgICAgICAgIG1vZGlmaWVyID0KICAgICAgICAgICAgICAgICAgICAgICAgTW9kaWZpZXIuZmlsbE1heFdpZHRoKCksCiAgICAgICAgICAgICAgICAgICAgdmVydGljYWxBbGlnbm1lbnQgPQogICAgICAgICAgICAgICAgICAgICAgICBBbGlnbm1lbnQuQ2VudGVyVmVydGljYWxseSwKICAgICAgICAgICAgICAgICkgewogICAgICAgICAgICAgICAgICAgIFRleHQoCiAgICAgICAgICAgICAgICAgICAgICAgIHRleHQgPSAiTGlicmFyeSIsCiAgICAgICAgICAgICAgICAgICAgICAgIG1vZGlmaWVyID0KICAgICAgICAgICAgICAgICAgICAgICAgICAgIE1vZGlmaWVyLndlaWdodCgxZiksCiAgICAgICAgICAgICAgICAgICAgICAgIGNvbG9yID0gQ29sb3IuV2hpdGUsCiAgICAgICAgICAgICAgICAgICAgICAgIGZvbnRTaXplID0gNDAuc3AsCiAgICAgICAgICAgICAgICAgICAgICAgIGZvbnRXZWlnaHQgPQogICAgICAgICAgICAgICAgICAgICAgICAgICAgRm9udFdlaWdodC5CbGFjaywKICAgICAgICAgICAgICAgICAgICApCgogICAgICAgICAgICAgICAgICAgIExpYnJhcnlWaWV3TW9kZUJ1dHRvbigKICAgICAgICAgICAgICAgICAgICAgICAgZ3JpZFZpZXcgPSBncmlkVmlldywKICAgICAgICAgICAgICAgICAgICAgICAgb25Ub2dnbGUgPSB7CiAgICAgICAgICAgICAgICAgICAgICAgICAgICBncmlkVmlldyA9CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIWdyaWRWaWV3CiAgICAgICAgICAgICAgICAgICAgICAgIH0sCiAgICAgICAgICAgICAgICAgICAgKQogICAgICAgICAgICAgICAgfQoKICAgICAgICAgICAgICAgIFJvdygKICAgICAgICAgICAgICAgICAgICBob3Jpem9udGFsQXJyYW5nZW1lbnQgPQogICAgICAgICAgICAgICAgICAgICAgICBBcnJhbmdlbWVudC5zcGFjZWRCeSgKICAgICAgICAgICAgICAgICAgICAgICAgICAgIDEwLmRwCiAgICAgICAgICAgICAgICAgICAgICAgICksCiAgICAgICAgICAgICAgICApIHsKICAgICAgICAgICAgICAgICAgICBMaWJyYXJ5VGFiKAogICAgICAgICAgICAgICAgICAgICAgICBsYWJlbCA9ICJTYXZlZCIsCiAgICAgICAgICAgICAgICAgICAgICAgIHNlbGVjdGVkID0KICAgICAgICAgICAgICAgICAgICAgICAgICAgICFjbG91ZFNlbGVjdGVkLAogICAgICAgICAgICAgICAgICAgICAgICBvbkNsaWNrID0gewogICAgICAgICAgICAgICAgICAgICAgICAgICAgY2xvdWRTZWxlY3RlZCA9CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgZmFsc2UKICAgICAgICAgICAgICAgICAgICAgICAgfSwKICAgICAgICAgICAgICAgICAgICApCgogICAgICAgICAgICAgICAgICAgIExpYnJhcnlUYWIoCiAgICAgICAgICAgICAgICAgICAgICAgIGxhYmVsID0gIkNsb3VkIiwKICAgICAgICAgICAgICAgICAgICAgICAgc2VsZWN0ZWQgPQogICAgICAgICAgICAgICAgICAgICAgICAgICAgY2xvdWRTZWxlY3RlZCwKICAgICAgICAgICAgICAgICAgICAgICAgb25DbGljayA9IHsKICAgICAgICAgICAgICAgICAgICAgICAgICAgIGNsb3VkU2VsZWN0ZWQgPQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHRydWUKICAgICAgICAgICAgICAgICAgICAgICAgfSwKICAgICAgICAgICAgICAgICAgICApCiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgIH0KICAgICAgICB9CgogICAgICAgIGlmIChjbG91ZFNlbGVjdGVkKSB7CiAgICAgICAgICAgIGl0ZW0oCiAgICAgICAgICAgICAgICBrZXkgPSAibGlicmFyeS1jbG91ZC1lbXB0eSIKICAgICAgICAgICAgKSB7CiAgICAgICAgICAgICAgICBMaWJyYXJ5RW1wdHlDYXJkKAogICAgICAgICAgICAgICAgICAgIHRpdGxlID0KICAgICAgICAgICAgICAgICAgICAgICAgIkNsb3VkIGxpYnJhcnkiLAogICAgICAgICAgICAgICAgICAgIGJvZHkgPQogICAgICAgICAgICAgICAgICAgICAgICAiQ2xvdWQgc3luYyBpcyBub3QgY29ubmVjdGVkIHlldC4gWW91ciBsb2NhbGx5IHNhdmVkIHRpdGxlcyBzdGF5IGF2YWlsYWJsZSBpbiBTYXZlZC4iLAogICAgICAgICAgICAgICAgKQogICAgICAgICAgICB9CiAgICAgICAgfSBlbHNlIGlmICgKICAgICAgICAgICAgd2F0Y2hsaXN0LmlzRW1wdHkoKQogICAgICAgICkgewogICAgICAgICAgICBpdGVtKAogICAgICAgICAgICAgICAga2V5ID0gImxpYnJhcnktc2F2ZWQtZW1wdHkiCiAgICAgICAgICAgICkgewogICAgICAgICAgICAgICAgTGlicmFyeUVtcHR5Q2FyZCgKICAgICAgICAgICAgICAgICAgICB0aXRsZSA9CiAgICAgICAgICAgICAgICAgICAgICAgICJZb3VyIGxpYnJhcnkgaXMgZW1wdHkiLAogICAgICAgICAgICAgICAgICAgIGJvZHkgPQogICAgICAgICAgICAgICAgICAgICAgICAiU2F2ZWQgdGl0bGVzIHdpbGwgYXBwZWFyIGhlcmUgYWZ0ZXIgeW91IHRhcCBTYXZlIG9uIGEgZGV0YWlscyBzY3JlZW4uIiwKICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgfQogICAgICAgIH0gZWxzZSBpZiAoZ3JpZFZpZXcpIHsKICAgICAgICAgICAgd2F0Y2hsaXN0CiAgICAgICAgICAgICAgICAuY2h1bmtlZCgzKQogICAgICAgICAgICAgICAgLmZvckVhY2hJbmRleGVkIHsKICAgICAgICAgICAgICAgICAgICByb3dJbmRleCwKICAgICAgICAgICAgICAgICAgICByb3dJdGVtcyAtPgoKICAgICAgICAgICAgICAgICAgICBpdGVtKAogICAgICAgICAgICAgICAgICAgICAgICBrZXkgPQogICAgICAgICAgICAgICAgICAgICAgICAgICAgImxpYnJhcnktZ3JpZC1yb3ctJHJvd0luZGV4IgogICAgICAgICAgICAgICAgICAgICkgewogICAgICAgICAgICAgICAgICAgICAgICBSb3coCiAgICAgICAgICAgICAgICAgICAgICAgICAgICBtb2RpZmllciA9CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgTW9kaWZpZXIKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgLmZpbGxNYXhXaWR0aCgpLAogICAgICAgICAgICAgICAgICAgICAgICAgICAgaG9yaXpvbnRhbEFycmFuZ2VtZW50ID0KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBBcnJhbmdlbWVudC5zcGFjZWRCeSgKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgMTAuZHAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICApLAogICAgICAgICAgICAgICAgICAgICAgICAgICAgdmVydGljYWxBbGlnbm1lbnQgPQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIEFsaWdubWVudC5Ub3AsCiAgICAgICAgICAgICAgICAgICAgICAgICkgewogICAgICAgICAgICAgICAgICAgICAgICAgICAgcm93SXRlbXMuZm9yRWFjaCB7CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgbWVkaWEgLT4KCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgU2VhcmNoUG9zdGVyVGlsZSgKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgaXRlbSA9IG1lZGlhLAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBtb2RpZmllciA9CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBNb2RpZmllci53ZWlnaHQoCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgMWYKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICksCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIG9uQ2xpY2sgPSB7CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBvbk1lZGlhQ2xpY2soCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgbWVkaWEKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgfSwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICApCiAgICAgICAgICAgICAgICAgICAgICAgICAgICB9CgogICAgICAgICAgICAgICAgICAgICAgICAgICAgcmVwZWF0KAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIDMgLQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICByb3dJdGVtcy5zaXplCiAgICAgICAgICAgICAgICAgICAgICAgICAgICApIHsKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBTcGFjZXIoCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIG1vZGlmaWVyID0KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIE1vZGlmaWVyLndlaWdodCgKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAxZgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgKQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgIH0KICAgICAgICB9IGVsc2UgewogICAgICAgICAgICBpdGVtcygKICAgICAgICAgICAgICAgIGl0ZW1zID0gd2F0Y2hsaXN0LAogICAgICAgICAgICAgICAga2V5ID0gewogICAgICAgICAgICAgICAgICAgIG1lZGlhIC0+CiAgICAgICAgICAgICAgICAgICAgImxpYnJhcnktbGlzdDoiICsKICAgICAgICAgICAgICAgICAgICAgICAgbWVkaWEudHlwZSArCiAgICAgICAgICAgICAgICAgICAgICAgICI6IiArCiAgICAgICAgICAgICAgICAgICAgICAgIG1lZGlhLmlkCiAgICAgICAgICAgICAgICB9LAogICAgICAgICAgICApIHsKICAgICAgICAgICAgICAgIG1lZGlhIC0+CgogICAgICAgICAgICAgICAgTGlicmFyeVNhdmVkTGlzdFJvdygKICAgICAgICAgICAgICAgICAgICBtZWRpYSA9IG1lZGlhLAogICAgICAgICAgICAgICAgICAgIG9uQ2xpY2sgPSB7CiAgICAgICAgICAgICAgICAgICAgICAgIG9uTWVkaWFDbGljaygKICAgICAgICAgICAgICAgICAgICAgICAgICAgIG1lZGlhCiAgICAgICAgICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICAgICAgICB9LAogICAgICAgICAgICAgICAgKQogICAgICAgICAgICB9CiAgICAgICAgfQogICAgfQp9CgpAQ29tcG9zYWJsZQpwcml2YXRlIGZ1biBMaWJyYXJ5VGFiKAogICAgbGFiZWw6IFN0cmluZywKICAgIHNlbGVjdGVkOiBCb29sZWFuLAogICAgb25DbGljazogKCkgLT4gVW5pdCwKKSB7CiAgICBTdXJmYWNlKAogICAgICAgIG1vZGlmaWVyID0KICAgICAgICAgICAgTW9kaWZpZXIuY2xpY2thYmxlKAogICAgICAgICAgICAgICAgb25DbGljayA9IG9uQ2xpY2sKICAgICAgICAgICAgKSwKICAgICAgICBzaGFwZSA9CiAgICAgICAgICAgIFJvdW5kZWRDb3JuZXJTaGFwZSgKICAgICAgICAgICAgICAgIDUwCiAgICAgICAgICAgICksCiAgICAgICAgY29sb3IgPQogICAgICAgICAgICBpZiAoc2VsZWN0ZWQpIHsKICAgICAgICAgICAgICAgIENvbG9yLldoaXRlLmNvcHkoCiAgICAgICAgICAgICAgICAgICAgYWxwaGEgPSAuMTRmCiAgICAgICAgICAgICAgICApCiAgICAgICAgICAgIH0gZWxzZSB7CiAgICAgICAgICAgICAgICBWdWVvUGFsZXR0ZQogICAgICAgICAgICAgICAgICAgIC5TdXJmYWNlRWxldmF0ZWQKICAgICAgICAgICAgICAgICAgICAuY29weSgKICAgICAgICAgICAgICAgICAgICAgICAgYWxwaGEgPSAuNThmCiAgICAgICAgICAgICAgICAgICAgKQogICAgICAgICAgICB9LAogICAgKSB7CiAgICAgICAgVGV4dCgKICAgICAgICAgICAgdGV4dCA9IGxhYmVsLAogICAgICAgICAgICBtb2RpZmllciA9CiAgICAgICAgICAgICAgICBNb2RpZmllci5wYWRkaW5nKAogICAgICAgICAgICAgICAgICAgIGhvcml6b250YWwgPSAyMC5kcCwKICAgICAgICAgICAgICAgICAgICB2ZXJ0aWNhbCA9IDEwLmRwLAogICAgICAgICAgICAgICAgKSwKICAgICAgICAgICAgY29sb3IgPQogICAgICAgICAgICAgICAgaWYgKHNlbGVjdGVkKSB7CiAgICAgICAgICAgICAgICAgICAgQ29sb3IuV2hpdGUKICAgICAgICAgICAgICAgIH0gZWxzZSB7CiAgICAgICAgICAgICAgICAgICAgVnVlb1BhbGV0dGUuTXV0ZWQKICAgICAgICAgICAgICAgIH0sCiAgICAgICAgICAgIGZvbnRTaXplID0gMTQuc3AsCiAgICAgICAgICAgIGZvbnRXZWlnaHQgPQogICAgICAgICAgICAgICAgaWYgKHNlbGVjdGVkKSB7CiAgICAgICAgICAgICAgICAgICAgRm9udFdlaWdodC5Cb2xkCiAgICAgICAgICAgICAgICB9IGVsc2UgewogICAgICAgICAgICAgICAgICAgIEZvbnRXZWlnaHQuTWVkaXVtCiAgICAgICAgICAgICAgICB9LAogICAgICAgICkKICAgIH0KfQoKQENvbXBvc2FibGUKcHJpdmF0ZSBmdW4gTGlicmFyeVZpZXdNb2RlQnV0dG9uKAogICAgZ3JpZFZpZXc6IEJvb2xlYW4sCiAgICBvblRvZ2dsZTogKCkgLT4gVW5pdCwKKSB7CiAgICBTdXJmYWNlKAogICAgICAgIG1vZGlmaWVyID0KICAgICAgICAgICAgTW9kaWZpZXIKICAgICAgICAgICAgICAgIC5zaXplKDQyLmRwKQogICAgICAgICAgICAgICAgLmNsaWNrYWJsZSgKICAgICAgICAgICAgICAgICAgICBvbkNsaWNrID0gb25Ub2dnbGUKICAgICAgICAgICAgICAgICksCiAgICAgICAgc2hhcGUgPQogICAgICAgICAgICBSb3VuZGVkQ29ybmVyU2hhcGUoCiAgICAgICAgICAgICAgICAxNC5kcAogICAgICAgICAgICApLAogICAgICAgIGNvbG9yID0gQ29sb3IuVHJhbnNwYXJlbnQsCiAgICApIHsKICAgICAgICBCb3goCiAgICAgICAgICAgIG1vZGlmaWVyID0KICAgICAgICAgICAgICAgIE1vZGlmaWVyLmZpbGxNYXhTaXplKCksCiAgICAgICAgICAgIGNvbnRlbnRBbGlnbm1lbnQgPQogICAgICAgICAgICAgICAgQWxpZ25tZW50LkNlbnRlciwKICAgICAgICApIHsKICAgICAgICAgICAgaWYgKGdyaWRWaWV3KSB7CiAgICAgICAgICAgICAgICBDb2x1bW4oCiAgICAgICAgICAgICAgICAgICAgdmVydGljYWxBcnJhbmdlbWVudCA9CiAgICAgICAgICAgICAgICAgICAgICAgIEFycmFuZ2VtZW50LnNwYWNlZEJ5KAogICAgICAgICAgICAgICAgICAgICAgICAgICAgNC5kcAogICAgICAgICAgICAgICAgICAgICAgICApLAogICAgICAgICAgICAgICAgKSB7CiAgICAgICAgICAgICAgICAgICAgcmVwZWF0KDIpIHsKICAgICAgICAgICAgICAgICAgICAgICAgUm93KAogICAgICAgICAgICAgICAgICAgICAgICAgICAgaG9yaXpvbnRhbEFycmFuZ2VtZW50ID0KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBBcnJhbmdlbWVudC5zcGFjZWRCeSgKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgNC5kcAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICksCiAgICAgICAgICAgICAgICAgICAgICAgICkgewogICAgICAgICAgICAgICAgICAgICAgICAgICAgcmVwZWF0KDIpIHsKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBCb3goCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIG1vZGlmaWVyID0KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIE1vZGlmaWVyCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgLnNpemUoCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIDguZHAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICApCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgLmNsaXAoCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIFJvdW5kZWRDb3JuZXJTaGFwZSgKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIDIuZHAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgKQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAuYmFja2dyb3VuZCgKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgVnVlb1BhbGV0dGUKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC5NdXRlZAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICApCiAgICAgICAgICAgICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgIH0gZWxzZSB7CiAgICAgICAgICAgICAgICBDb2x1bW4oCiAgICAgICAgICAgICAgICAgICAgdmVydGljYWxBcnJhbmdlbWVudCA9CiAgICAgICAgICAgICAgICAgICAgICAgIEFycmFuZ2VtZW50LnNwYWNlZEJ5KAogICAgICAgICAgICAgICAgICAgICAgICAgICAgNS5kcAogICAgICAgICAgICAgICAgICAgICAgICApLAogICAgICAgICAgICAgICAgKSB7CiAgICAgICAgICAgICAgICAgICAgcmVwZWF0KDMpIHsKICAgICAgICAgICAgICAgICAgICAgICAgQm94KAogICAgICAgICAgICAgICAgICAgICAgICAgICAgbW9kaWZpZXIgPQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIE1vZGlmaWVyCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC53aWR0aCgKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIDIyLmRwCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgLmhlaWdodCgKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIDQuZHAKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgKQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAuY2xpcCgKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIFJvdW5kZWRDb3JuZXJTaGFwZSgKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAyLmRwCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICApCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgLmJhY2tncm91bmQoCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBWdWVvUGFsZXR0ZQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC5NdXRlZAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICApCiAgICAgICAgICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgIH0KICAgICAgICB9CiAgICB9Cn0KCkBDb21wb3NhYmxlCnByaXZhdGUgZnVuIExpYnJhcnlFbXB0eUNhcmQoCiAgICB0aXRsZTogU3RyaW5nLAogICAgYm9keTogU3RyaW5nLAopIHsKICAgIFN1cmZhY2UoCiAgICAgICAgbW9kaWZpZXIgPQogICAgICAgICAgICBNb2RpZmllci5maWxsTWF4V2lkdGgoKSwKICAgICAgICBzaGFwZSA9CiAgICAgICAgICAgIFJvdW5kZWRDb3JuZXJTaGFwZSgKICAgICAgICAgICAgICAgIDI2LmRwCiAgICAgICAgICAgICksCiAgICAgICAgY29sb3IgPQogICAgICAgICAgICBWdWVvUGFsZXR0ZQogICAgICAgICAgICAgICAgLlN1cmZhY2VFbGV2YXRlZAogICAgICAgICAgICAgICAgLmNvcHkoCiAgICAgICAgICAgICAgICAgICAgYWxwaGEgPSAuNzhmCiAgICAgICAgICAgICAgICApLAogICAgKSB7CiAgICAgICAgQ29sdW1uKAogICAgICAgICAgICBtb2RpZmllciA9CiAgICAgICAgICAgICAgICBNb2RpZmllci5wYWRkaW5nKAogICAgICAgICAgICAgICAgICAgIGhvcml6b250YWwgPSAyMi5kcCwKICAgICAgICAgICAgICAgICAgICB2ZXJ0aWNhbCA9IDI0LmRwLAogICAgICAgICAgICAgICAgKSwKICAgICAgICAgICAgdmVydGljYWxBcnJhbmdlbWVudCA9CiAgICAgICAgICAgICAgICBBcnJhbmdlbWVudC5zcGFjZWRCeSgKICAgICAgICAgICAgICAgICAgICA4LmRwCiAgICAgICAgICAgICAgICApLAogICAgICAgICkgewogICAgICAgICAgICBUZXh0KAogICAgICAgICAgICAgICAgdGV4dCA9IHRpdGxlLAogICAgICAgICAgICAgICAgY29sb3IgPSBDb2xvci5XaGl0ZSwKICAgICAgICAgICAgICAgIGZvbnRTaXplID0gMjAuc3AsCiAgICAgICAgICAgICAgICBmb250V2VpZ2h0ID0KICAgICAgICAgICAgICAgICAgICBGb250V2VpZ2h0LkJsYWNrLAogICAgICAgICAgICApCgogICAgICAgICAgICBUZXh0KAogICAgICAgICAgICAgICAgdGV4dCA9IGJvZHksCiAgICAgICAgICAgICAgICBjb2xvciA9CiAgICAgICAgICAgICAgICAgICAgVnVlb1BhbGV0dGUuTXV0ZWQsCiAgICAgICAgICAgICAgICBmb250U2l6ZSA9IDE1LnNwLAogICAgICAgICAgICAgICAgbGluZUhlaWdodCA9IDIyLnNwLAogICAgICAgICAgICApCiAgICAgICAgfQogICAgfQp9CgpAQ29tcG9zYWJsZQpwcml2YXRlIGZ1biBMaWJyYXJ5U2F2ZWRMaXN0Um93KAogICAgbWVkaWE6IE1lZGlhSXRlbSwKICAgIG9uQ2xpY2s6ICgpIC0+IFVuaXQsCikgewogICAgUm93KAogICAgICAgIG1vZGlmaWVyID0KICAgICAgICAgICAgTW9kaWZpZXIKICAgICAgICAgICAgICAgIC5maWxsTWF4V2lkdGgoKQogICAgICAgICAgICAgICAgLmNsaWNrYWJsZSgKICAgICAgICAgICAgICAgICAgICBvbkNsaWNrID0gb25DbGljawogICAgICAgICAgICAgICAgKQogICAgICAgICAgICAgICAgLnBhZGRpbmcoCiAgICAgICAgICAgICAgICAgICAgdmVydGljYWwgPSAyLmRwCiAgICAgICAgICAgICAgICApLAogICAgICAgIHZlcnRpY2FsQWxpZ25tZW50ID0KICAgICAgICAgICAgQWxpZ25tZW50LkNlbnRlclZlcnRpY2FsbHksCiAgICApIHsKICAgICAgICBOZXR3b3JrSW1hZ2UoCiAgICAgICAgICAgIHVybCA9IG1lZGlhLnBvc3RlciwKICAgICAgICAgICAgY29udGVudERlc2NyaXB0aW9uID0KICAgICAgICAgICAgICAgIG1lZGlhLm5hbWUsCiAgICAgICAgICAgIG1vZGlmaWVyID0KICAgICAgICAgICAgICAgIE1vZGlmaWVyCiAgICAgICAgICAgICAgICAgICAgLndpZHRoKAogICAgICAgICAgICAgICAgICAgICAgICA2Mi5kcAogICAgICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICAgICAgICAuaGVpZ2h0KAogICAgICAgICAgICAgICAgICAgICAgICA4OC5kcAogICAgICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICAgICAgICAuY2xpcCgKICAgICAgICAgICAgICAgICAgICAgICAgUm91bmRlZENvcm5lclNoYXBlKAogICAgICAgICAgICAgICAgICAgICAgICAgICAgMTAuZHAKICAgICAgICAgICAgICAgICAgICAgICAgKQogICAgICAgICAgICAgICAgICAgICksCiAgICAgICAgICAgIGNvbnRlbnRTY2FsZSA9CiAgICAgICAgICAgICAgICBDb250ZW50U2NhbGUuQ3JvcCwKICAgICAgICAgICAgZmFsbGJhY2tUZXh0ID0KICAgICAgICAgICAgICAgIG1lZGlhLm5hbWUsCiAgICAgICAgKQoKICAgICAgICBTcGFjZXIoCiAgICAgICAgICAgIE1vZGlmaWVyLndpZHRoKAogICAgICAgICAgICAgICAgMTQuZHAKICAgICAgICAgICAgKQogICAgICAgICkKCiAgICAgICAgQ29sdW1uKAogICAgICAgICAgICBtb2RpZmllciA9CiAgICAgICAgICAgICAgICBNb2RpZmllci53ZWlnaHQoCiAgICAgICAgICAgICAgICAgICAgMWYKICAgICAgICAgICAgICAgICksCiAgICAgICAgICAgIHZlcnRpY2FsQXJyYW5nZW1lbnQgPQogICAgICAgICAgICAgICAgQXJyYW5nZW1lbnQuc3BhY2VkQnkoCiAgICAgICAgICAgICAgICAgICAgNS5kcAogICAgICAgICAgICAgICAgKSwKICAgICAgICApIHsKICAgICAgICAgICAgVGV4dCgKICAgICAgICAgICAgICAgIHRleHQgPSBtZWRpYS5uYW1lLAogICAgICAgICAgICAgICAgY29sb3IgPSBDb2xvci5XaGl0ZSwKICAgICAgICAgICAgICAgIGZvbnRTaXplID0gMTUuc3AsCiAgICAgICAgICAgICAgICBmb250V2VpZ2h0ID0KICAgICAgICAgICAgICAgICAgICBGb250V2VpZ2h0LkJvbGQsCiAgICAgICAgICAgICAgICBtYXhMaW5lcyA9IDIsCiAgICAgICAgICAgICAgICBvdmVyZmxvdyA9CiAgICAgICAgICAgICAgICAgICAgVGV4dE92ZXJmbG93LkVsbGlwc2lzLAogICAgICAgICAgICApCgogICAgICAgICAgICBUZXh0KAogICAgICAgICAgICAgICAgdGV4dCA9CiAgICAgICAgICAgICAgICAgICAgbGlzdE9mTm90TnVsbCgKICAgICAgICAgICAgICAgICAgICAgICAgbWVkaWEucmVsZWFzZUluZm8sCiAgICAgICAgICAgICAgICAgICAgICAgIHNlYXJjaFR5cGVMYWJlbCgKICAgICAgICAgICAgICAgICAgICAgICAgICAgIG1lZGlhCiAgICAgICAgICAgICAgICAgICAgICAgICksCiAgICAgICAgICAgICAgICAgICAgKS5qb2luVG9TdHJpbmcoCiAgICAgICAgICAgICAgICAgICAgICAgICIg4oCiICIKICAgICAgICAgICAgICAgICAgICApLAogICAgICAgICAgICAgICAgY29sb3IgPQogICAgICAgICAgICAgICAgICAgIFZ1ZW9QYWxldHRlLk11dGVkLAogICAgICAgICAgICAgICAgZm9udFNpemUgPSAxMS5zcCwKICAgICAgICAgICAgICAgIG1heExpbmVzID0gMSwKICAgICAgICAgICAgICAgIG92ZXJmbG93ID0KICAgICAgICAgICAgICAgICAgICBUZXh0T3ZlcmZsb3cuRWxsaXBzaXMsCiAgICAgICAgICAgICkKICAgICAgICB9CiAgICB9Cn0KCg=="
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          from pathlib import Path
+          import base64
+          import os
+
+          app_path = Path(
+              "app/src/main/java/com/vueo/app/ui/VueoApp.kt"
+          )
+
+          if not app_path.exists():
+              raise SystemExit(
+                  "VueoApp.kt not found."
+              )
+
+          text = app_path.read_text(
+              encoding="utf-8"
+          )
+
+          start_marker = (
+              "@Composable\n"
+              "private fun LibraryScreen("
+          )
+          end_marker = (
+              "@Composable\n"
+              "private fun LibrarySectionHeader("
+          )
+
+          start = text.find(start_marker)
+          end = text.find(
+              end_marker,
+              start + 1,
+          )
+
+          if start < 0:
+              raise SystemExit(
+                  "Current LibraryScreen was not found."
+              )
+
+          if end < 0:
+              raise SystemExit(
+                  "LibrarySectionHeader boundary was not found."
+              )
+
+          replacement = (
+              base64.b64decode(
+                  os.environ["LIBRARY_FINAL_B64"]
+              )
+              .decode("utf-8")
+          )
+
+          updated = (
+              text[:start]
+              + replacement
+              + text[end:]
+          )
+
+          app_path.write_text(
+              updated,
+              encoding="utf-8",
+          )
+
+          print(
+              "Library Final applied to current VueoApp.kt."
+          )
+          PY
+
+      - name: Bump app version safely
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path(
+              "app/build.gradle.kts"
+          )
+
+          if not path.exists():
+              print(
+                  "No app/build.gradle.kts. "
+                  "Skipping version bump."
+              )
+              raise SystemExit(0)
+
+          lines = path.read_text(
+              encoding="utf-8"
+          ).splitlines()
+
+          code_done = False
+          name_done = False
+          old_code = None
+          new_code = None
+          old_name = None
+          new_name = None
+          out = []
+
+          for line in lines:
+              stripped = line.strip()
+
+              if (
+                  not code_done
+                  and stripped.startswith(
+                      "versionCode"
+                  )
+                  and "=" in line
+              ):
+                  left, right = line.split(
+                      "=",
+                      1,
+                  )
+                  raw = right.strip()
+
+                  if raw.isdigit():
+                      old_code = int(raw)
+                      new_code = old_code + 1
+                      line = (
+                          left
+                          + "= "
+                          + str(new_code)
+                      )
+                      code_done = True
+
+              if (
+                  not name_done
+                  and stripped.startswith(
+                      "versionName"
+                  )
+                  and "=" in line
+              ):
+                  left, right = line.split(
+                      "=",
+                      1,
+                  )
+                  raw = right.strip()
+
+                  if (
+                      len(raw) >= 2
+                      and raw[0] == '"'
+                      and raw[-1] == '"'
+                  ):
+                      value = raw[1:-1]
+                      parts = value.split(".")
+
+                      if (
+                          len(parts) >= 3
+                          and all(
+                              part.isdigit()
+                              for part in parts
+                          )
+                      ):
+                          old_name = value
+                          parts[-1] = str(
+                              int(parts[-1]) + 1
+                          )
+                          new_name = ".".join(
+                              parts
+                          )
+                          line = (
+                              left
+                              + '= "'
+                              + new_name
+                              + '"'
+                          )
+                          name_done = True
+
+              out.append(line)
+
+          if code_done or name_done:
+              path.write_text(
+                  "\n".join(out) + "\n",
+                  encoding="utf-8",
+              )
+
+          if code_done:
+              print(
+                  f"versionCode: "
+                  f"{old_code} -> {new_code}"
+              )
+          else:
+              print(
+                  "versionCode is not a literal integer. "
+                  "Left unchanged."
+              )
+
+          if name_done:
+              print(
+                  f"versionName: "
+                  f"{old_name} -> {new_name}"
+              )
+          else:
+              print(
+                  "versionName is not a literal numeric "
+                  "version. Left unchanged."
+              )
+
+          # Version parsing is deliberately non-fatal.
+          # Library patch must not fail just because
+          # version management changes later.
+          PY
+
+      - name: Verify Library Final structure
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path(
+              "app/src/main/java/com/vueo/app/ui/VueoApp.kt"
+          )
+          text = path.read_text(
+              encoding="utf-8"
+          )
+
+          start = text.index(
+              "private fun LibraryScreen("
+          )
+          end = text.index(
+              "private fun LibrarySectionHeader(",
+              start,
+          )
+          block = text[start:end]
+
+          required = [
+              "activeProfile: VueoProfile",
+              "onVersionChanged: () -> Unit",
+              "onPlaybackClick:",
+              'label = "Saved"',
+              'label = "Cloud"',
+              "LibraryViewModeButton(",
+              ".chunked(3)",
+              "SearchPosterTile(",
+              "LibrarySavedListRow(",
+              '"Cloud library"',
+              '"Your library is empty"',
+          ]
+
+          for token in required:
+              if token not in block:
+                  raise SystemExit(
+                      "Missing Library Final token: "
+                      + token
+                  )
+
+          forbidden = [
+              "store.continueWatching()",
+              "store.history()",
+              '"Continue Watching"',
+              'title = "History"',
+              'label = "Continue"',
+              'label = "History"',
+          ]
+
+          for token in forbidden:
+              if token in block:
+                  raise SystemExit(
+                      "Old Library content remains: "
+                      + token
+                  )
+
+          print(
+              "Library Final structure verified."
+          )
+          PY
+
+          if git status --short |              grep -E '^.. \.github/workflows/'; then
+            echo "::error::Patch modified workflow files."
+            exit 1
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Verify Gradle wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f ./gradlew
+          test -f ./gradle/wrapper/gradle-wrapper.properties
+          chmod +x ./gradlew
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SDKMANAGER="$(
+            command -v sdkmanager || true
+          )"
+
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          fi
+
+          test -x "$SDKMANAGER"
+
+          yes 2>/dev/null |             "$SDKMANAGER" --licenses             >/dev/null 2>&1 || true
+
+          "$SDKMANAGER"             --channel=0             "platform-tools"             "platforms;android-36"             "build-tools;36.0.0"
+
+      - name: Compile Library Final
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ./gradlew             :app:compileDebugKotlin             --stacktrace             --no-daemon
+
+      - name: Commit only after green compile
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name             "github-actions[bot]"
+          git config user.email             "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add             app/src/main/java/com/vueo/app/ui/VueoApp.kt             app/build.gradle.kts
+
+          if git diff --cached --quiet; then
+            echo "Library Final already applied."
+            exit 0
+          fi
+
+          git commit -m             "Finalize VUEO Library"
+
+          git push origin             "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## VUEO Library Final v3"
+            echo
+            echo "- Based on current VueoApp.kt signature"
+            echo "- Saved and Cloud tabs"
+            echo "- Grid and list toggle"
+            echo "- Three-column Saved grid"
+            echo "- No Continue Watching in Library"
+            echo "- No History in Library"
+            echo "- Existing playback data is untouched"
+            echo "- Version bump is safe and non-fatal"
+            echo "- Commit happens only after Kotlin compile passes"
+          } >> "$GITHUB_STEP_SUMMARY"
