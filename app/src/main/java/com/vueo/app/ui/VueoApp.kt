@@ -51,7 +51,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ClosedCaption
@@ -71,6 +70,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SettingsInputComponent
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -12742,8 +12742,8 @@ private fun PlayerScreen(
                     ) {
                         Row(
                             modifier = Modifier.padding(
-                                horizontal = 8.dp,
-                                vertical = 4.dp,
+                                horizontal = 6.dp,
+                                vertical = 3.dp,
                             ),
                             horizontalArrangement =
                                 Arrangement.Center,
@@ -12758,7 +12758,7 @@ private fun PlayerScreen(
                                 },
                             )
                             PlayerPanelAction(
-                                icon = Icons.Default.Audiotrack,
+                                icon = Icons.Default.VolumeUp,
                                 label = "Audio",
                                 onClick = {
                                     showAudioDialog = true
@@ -12905,25 +12905,24 @@ private fun PlayerPanelAction(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    Column(
+    Row(
         modifier = Modifier
-            .widthIn(min = 72.dp)
-            .clip(RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(18.dp))
             .clickable(
                 enabled = enabled,
                 onClick = onClick,
             )
             .padding(
-                horizontal = 10.dp,
+                horizontal = 9.dp,
                 vertical = 7.dp,
             ),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Icon(
             imageVector = icon,
             contentDescription = label,
-            modifier = Modifier.size(21.dp),
+            modifier = Modifier.size(18.dp),
             tint = Color.White.copy(
                 alpha = if (enabled) .94f else .38f
             ),
@@ -12931,8 +12930,8 @@ private fun PlayerPanelAction(
         Text(
             label,
             maxLines = 1,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
             color = Color.White.copy(
                 alpha = if (enabled) .88f else .38f
             ),
