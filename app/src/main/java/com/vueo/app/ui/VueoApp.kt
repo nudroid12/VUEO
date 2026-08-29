@@ -8442,6 +8442,8 @@ private fun MediaDetailsScreen(
                 playbackVideoId,
             episode =
                 selectedEpisode,
+            episodes =
+                item.episodes,
             nextEpisode =
                 nextEpisode,
             source = playbackSource,
@@ -11143,6 +11145,7 @@ private fun PlayerScreen(
     media: MediaItem,
     videoId: String,
     episode: EpisodeItem?,
+    episodes: List<EpisodeItem>,
     nextEpisode: EpisodeItem?,
     source: StreamSource,
     availableSources: List<StreamSource>,
@@ -11239,6 +11242,9 @@ private fun PlayerScreen(
             emptyList()
         )
     }
+    var showEpisodesDialog by remember {
+        mutableStateOf(false)
+    }
     var showAudioDialog by remember {
         mutableStateOf(false)
     }
@@ -11253,6 +11259,11 @@ private fun PlayerScreen(
     }
     var playbackSpeed by remember {
         mutableStateOf(1f)
+    }
+    var sourceHudVisible by remember(
+        source.url
+    ) {
+        mutableStateOf(true)
     }
     var nextEpisodeCountdown by remember {
         mutableStateOf<Int?>(null)
@@ -11278,6 +11289,9 @@ private fun PlayerScreen(
 
     BackHandler {
         when {
+            showEpisodesDialog ->
+                showEpisodesDialog = false
+
             showAudioDialog ->
                 showAudioDialog = false
 
@@ -11555,6 +11569,12 @@ private fun PlayerScreen(
         }
     }
 
+    LaunchedEffect(source.url) {
+        sourceHudVisible = true
+        delay(2_200L)
+        sourceHudVisible = false
+    }
+
     LaunchedEffect(
         controlsVisible,
         isPlaying,
@@ -11565,7 +11585,7 @@ private fun PlayerScreen(
             isPlaying &&
             !controlsLocked
         ) {
-            delay(3_000L)
+            delay(4_000L)
             controlsVisible = false
         }
     }
@@ -11707,13 +11727,228 @@ private fun PlayerScreen(
         )
     }
 
+    if (showEpisodesDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showEpisodesDialog = false
+            },
+            title = {
+                Column(
+                    verticalArrangement =
+                        Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        "Episodes",
+                        fontWeight =
+                            FontWeight.Black,
+                    )
+
+                    episode?.let {
+                        Text(
+                            "Now playing • S${it.season} E${it.episode}",
+                            color =
+                                VueoPalette.Muted,
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+            },
+            text = {
+                LazyColumn(
+                    modifier =
+                        Modifier.heightIn(
+                            max = 430.dp
+                        ),
+                    verticalArrangement =
+                        Arrangement.spacedBy(6.dp),
+                ) {
+                    items(
+                        episodes.sortedWith(
+                            compareBy<EpisodeItem> {
+                                it.season
+                            }.thenBy {
+                                it.episode
+                            }
+                        ),
+                        key = {
+                            it.id
+                        },
+                    ) { candidate ->
+                        val current =
+                            candidate.id ==
+                                episode?.id
+
+                        Surface(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable(
+                                        enabled =
+                                            !current
+                                    ) {
+                                        savePosition()
+                                        showEpisodesDialog =
+                                            false
+                                        onNextEpisode(
+                                            candidate
+                                        )
+                                    },
+                            shape =
+                                RoundedCornerShape(
+                                    14.dp
+                                ),
+                            color =
+                                if (current) {
+                                    VueoPalette.Accent
+                                        .copy(alpha = .12f)
+                                } else {
+                                    VueoPalette.Surface
+                                },
+                            border =
+                                androidx.compose
+                                    .foundation
+                                    .BorderStroke(
+                                        1.dp,
+                                        if (current) {
+                                            VueoPalette.Accent
+                                                .copy(alpha = .52f)
+                                        } else {
+                                            Color.White
+                                                .copy(alpha = .08f)
+                                        },
+                                    ),
+                        ) {
+                            Row(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(
+                                            horizontal = 13.dp,
+                                            vertical = 11.dp,
+                                        ),
+                                verticalAlignment =
+                                    Alignment.CenterVertically,
+                            ) {
+                                Surface(
+                                    shape =
+                                        RoundedCornerShape(
+                                            9.dp
+                                        ),
+                                    color =
+                                        Color.Black
+                                            .copy(alpha = .34f),
+                                ) {
+                                    Text(
+                                        "S${candidate.season} E${candidate.episode}",
+                                        modifier =
+                                            Modifier.padding(
+                                                horizontal = 8.dp,
+                                                vertical = 5.dp,
+                                            ),
+                                        color =
+                                            if (current) {
+                                                VueoPalette.Accent
+                                            } else {
+                                                Color.White
+                                            },
+                                        fontSize = 10.sp,
+                                        fontWeight =
+                                            FontWeight.Black,
+                                    )
+                                }
+
+                                Spacer(
+                                    Modifier.width(
+                                        10.dp
+                                    )
+                                )
+
+                                Column(
+                                    modifier =
+                                        Modifier.weight(1f),
+                                ) {
+                                    Text(
+                                        candidate.title,
+                                        color = Color.White,
+                                        fontWeight =
+                                            if (current) {
+                                                FontWeight.Black
+                                            } else {
+                                                FontWeight.SemiBold
+                                            },
+                                        maxLines = 1,
+                                        overflow =
+                                            TextOverflow.Ellipsis,
+                                    )
+
+                                    candidate.overview
+                                        ?.takeIf {
+                                            it.isNotBlank()
+                                        }
+                                        ?.let {
+                                            overview ->
+                                            Text(
+                                                overview,
+                                                color =
+                                                    VueoPalette.Muted,
+                                                fontSize = 10.sp,
+                                                maxLines = 1,
+                                                overflow =
+                                                    TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                }
+
+                                if (current) {
+                                    Text(
+                                        "PLAYING",
+                                        color =
+                                            VueoPalette.Accent,
+                                        fontSize = 9.sp,
+                                        fontWeight =
+                                            FontWeight.Black,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showEpisodesDialog =
+                            false
+                    },
+                ) {
+                    Text("Close")
+                }
+            },
+        )
+    }
+
     if (showSourceDialog) {
         AlertDialog(
             onDismissRequest = {
                 showSourceDialog = false
             },
             title = {
-                Text("Sources")
+                Column(
+                    verticalArrangement =
+                        Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        "Sources",
+                        fontWeight =
+                            FontWeight.Black,
+                    )
+                    Text(
+                        "Smart Source • ${playableSources.size} playable",
+                        color =
+                            VueoPalette.Muted,
+                        fontSize = 11.sp,
+                    )
+                }
             },
             text = {
                 LazyColumn(
@@ -11865,7 +12100,86 @@ private fun PlayerScreen(
                     durationMs,
                     controlsLocked,
                 ) {
-                    if (controlsLocked) {
+                    if (
+            sourceHudVisible &&
+            !controlsVisible &&
+            !controlsLocked
+        ) {
+            Surface(
+                modifier =
+                    Modifier
+                        .align(
+                            Alignment.BottomEnd
+                        )
+                        .padding(18.dp),
+                shape =
+                    RoundedCornerShape(
+                        14.dp
+                    ),
+                color =
+                    Color.Black.copy(
+                        alpha = .66f
+                    ),
+                border =
+                    androidx.compose
+                        .foundation
+                        .BorderStroke(
+                            1.dp,
+                            VueoPalette.Accent
+                                .copy(alpha = .35f),
+                        ),
+            ) {
+                Column(
+                    modifier =
+                        Modifier.padding(
+                            horizontal = 13.dp,
+                            vertical = 9.dp,
+                        ),
+                    verticalArrangement =
+                        Arrangement.spacedBy(1.dp),
+                ) {
+                    Text(
+                        "SOURCE",
+                        color =
+                            VueoPalette.Accent,
+                        fontSize = 8.sp,
+                        fontWeight =
+                            FontWeight.Black,
+                        letterSpacing = .8.sp,
+                    )
+
+                    Text(
+                        playerSourcePrimaryLabel(
+                            source
+                        ),
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight =
+                            FontWeight.Bold,
+                        maxLines = 1,
+                    )
+
+                    playerSourceTechnicalLabel(
+                        source
+                    )
+                        .takeIf {
+                            it.isNotBlank()
+                        }
+                        ?.let {
+                            technical ->
+                            Text(
+                                technical,
+                                color =
+                                    VueoPalette.Muted,
+                                fontSize = 9.sp,
+                                maxLines = 1,
+                            )
+                        }
+                }
+            }
+        }
+
+        if (controlsLocked) {
                         return@pointerInput
                     }
 
@@ -12107,57 +12421,89 @@ private fun PlayerScreen(
 
         if (controlsVisible && !controlsLocked) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                Color.Black.copy(
-                                    alpha = .72f
-                                ),
-                                Color.Transparent,
-                                Color.Black.copy(
-                                    alpha = .82f
-                                ),
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color.Black.copy(
+                                        alpha = .72f
+                                    ),
+                                    Color.Black.copy(
+                                        alpha = .14f
+                                    ),
+                                    Color.Transparent,
+                                    Color.Black.copy(
+                                        alpha = .16f
+                                    ),
+                                    Color.Black.copy(
+                                        alpha = .90f
+                                    ),
+                                )
                             )
-                        )
-                    ),
+                        ),
             )
 
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.TopCenter)
-                    .padding(
-                        horizontal = 10.dp,
-                        vertical = 8.dp,
-                    ),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .align(
+                            Alignment.TopCenter
+                        )
+                        .padding(
+                            horizontal = 14.dp,
+                            vertical = 10.dp,
+                        ),
                 verticalAlignment =
                     Alignment.CenterVertically,
             ) {
-                IconButton(
-                    onClick = {
-                        savePosition()
-                        onBack()
-                    },
+                Surface(
+                    shape = CircleShape,
+                    color =
+                        Color.Black.copy(
+                            alpha = .42f
+                        ),
                 ) {
-                    Icon(
-                        Icons.Default.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color.White,
-                    )
+                    IconButton(
+                        onClick = {
+                            savePosition()
+                            onBack()
+                        },
+                    ) {
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription =
+                                "Back",
+                            tint = Color.White,
+                        )
+                    }
                 }
 
+                Spacer(
+                    Modifier.width(
+                        10.dp
+                    )
+                )
+
                 Column(
-                    modifier = Modifier.weight(1f),
+                    modifier =
+                        Modifier.weight(1f),
+                    verticalArrangement =
+                        Arrangement.spacedBy(2.dp),
                 ) {
                     Text(
                         title,
                         color = Color.White,
-                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                        fontWeight =
+                            FontWeight.Black,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        overflow =
+                            TextOverflow.Ellipsis,
                     )
+
                     Text(
                         buildString {
                             episode?.let {
@@ -12165,36 +12511,101 @@ private fun PlayerScreen(
                                     "S${it.season} E${it.episode} • "
                                 )
                             }
-                            append(source.providerName)
-                            append(" • ")
                             append(
-                                source.quality ?: "Auto"
+                                source.providerName
                             )
                         },
-                        color = Color.White.copy(
-                            alpha = .68f
-                        ),
+                        color =
+                            Color.White.copy(
+                                alpha = .68f
+                            ),
                         fontSize = 11.sp,
                         maxLines = 1,
+                        overflow =
+                            TextOverflow.Ellipsis,
                     )
                 }
 
-                if (isBuffering) {
-                    Text(
-                        "BUFFERING",
-                        color = VueoPalette.Accent,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+                Surface(
+                    shape =
+                        RoundedCornerShape(
+                            50
+                        ),
+                    color =
+                        Color.Black.copy(
+                            alpha = .42f
+                        ),
+                    border =
+                        androidx.compose
+                            .foundation
+                            .BorderStroke(
+                                1.dp,
+                                VueoPalette.Accent
+                                    .copy(alpha = .42f),
+                            ),
+                ) {
+                    Row(
+                        modifier =
+                            Modifier.padding(
+                                horizontal = 11.dp,
+                                vertical = 7.dp,
+                            ),
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                        horizontalArrangement =
+                            Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .size(6.dp)
+                                    .clip(
+                                        CircleShape
+                                    )
+                                    .background(
+                                        if (
+                                            playbackError ==
+                                                null
+                                        ) {
+                                            VueoPalette.Success
+                                        } else {
+                                            MaterialTheme
+                                                .colorScheme
+                                                .error
+                                        }
+                                    )
+                        )
+
+                        Text(
+                            if (isBuffering) {
+                                "BUFFERING"
+                            } else {
+                                source.quality
+                                    ?: "AUTO"
+                            },
+                            color =
+                                if (isBuffering) {
+                                    VueoPalette.Accent
+                                } else {
+                                    Color.White
+                                },
+                            fontSize = 10.sp,
+                            fontWeight =
+                                FontWeight.Black,
+                        )
+                    }
                 }
             }
 
             Row(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(12.dp),
+                modifier =
+                    Modifier
+                        .align(
+                            Alignment.Center
+                        )
+                        .padding(12.dp),
                 horizontalArrangement =
-                    Arrangement.spacedBy(24.dp),
+                    Arrangement.spacedBy(26.dp),
                 verticalAlignment =
                     Alignment.CenterVertically,
             ) {
@@ -12202,15 +12613,23 @@ private fun PlayerScreen(
                     label = "-10",
                     onClick = {
                         player.seekTo(
-                            (player.currentPosition -
-                                10_000L)
-                                .coerceAtLeast(0L)
+                            (
+                                player.currentPosition -
+                                    10_000L
+                            ).coerceAtLeast(0L)
                         )
+                        gestureMessage =
+                            "10 sec back"
                     },
                 )
+
                 PlayerRoundAction(
                     label =
-                        if (isPlaying) "Pause" else "Play",
+                        if (isPlaying) {
+                            "Pause"
+                        } else {
+                            "Play"
+                        },
                     primary = true,
                     onClick = {
                         if (player.isPlaying) {
@@ -12221,6 +12640,7 @@ private fun PlayerScreen(
                         controlsVisible = true
                     },
                 )
+
                 PlayerRoundAction(
                     label = "+10",
                     onClick = {
@@ -12228,78 +12648,134 @@ private fun PlayerScreen(
                             player.currentPosition +
                                 10_000L
                         )
+                        gestureMessage =
+                            "10 sec forward"
                     },
                 )
             }
 
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .padding(
-                        horizontal = 14.dp,
-                        vertical = 10.dp,
-                    ),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .align(
+                            Alignment.BottomCenter
+                        )
+                        .padding(
+                            horizontal = 14.dp,
+                            vertical = 12.dp,
+                        ),
                 verticalArrangement =
-                    Arrangement.spacedBy(7.dp),
+                    Arrangement.spacedBy(8.dp),
             ) {
-                playbackError?.let { error ->
+                playbackError?.let {
+                    error ->
                     Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = VueoPalette.SurfaceElevated,
+                        modifier =
+                            Modifier.fillMaxWidth(),
+                        shape =
+                            RoundedCornerShape(
+                                18.dp
+                            ),
+                        color =
+                            Color.Black.copy(
+                                alpha = .72f
+                            ),
+                        border =
+                            androidx.compose
+                                .foundation
+                                .BorderStroke(
+                                    1.dp,
+                                    MaterialTheme
+                                        .colorScheme
+                                        .error
+                                        .copy(alpha = .42f),
+                                ),
                     ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement =
-                                Arrangement.spacedBy(8.dp),
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(13.dp),
+                            verticalAlignment =
+                                Alignment.CenterVertically,
                         ) {
-                            Text(
-                                "Playback problem",
-                                color = Color.White,
-                                fontWeight = FontWeight.Black,
-                            )
-                            Text(
-                                error,
-                                color = VueoPalette.Muted,
-                                fontSize = 12.sp,
-                            )
-                            Row(
-                                horizontalArrangement =
-                                    Arrangement.spacedBy(8.dp),
+                            Column(
+                                modifier =
+                                    Modifier.weight(1f),
                             ) {
-                                Button(
+                                Text(
+                                    "Playback problem",
+                                    color = Color.White,
+                                    fontWeight =
+                                        FontWeight.Black,
+                                )
+                                Text(
+                                    error,
+                                    color =
+                                        VueoPalette.Muted,
+                                    fontSize = 11.sp,
+                                    maxLines = 2,
+                                    overflow =
+                                        TextOverflow.Ellipsis,
+                                )
+                            }
+
+                            TextButton(
+                                onClick = {
+                                    playbackError = null
+                                    player.prepare()
+                                    player.play()
+                                },
+                            ) {
+                                Text("Retry")
+                            }
+
+                            if (
+                                playableSources.size > 1
+                            ) {
+                                TextButton(
                                     onClick = {
-                                        playbackError = null
-                                        player.prepare()
-                                        player.play()
+                                        showSourceDialog =
+                                            true
                                     },
                                 ) {
-                                    Text("Try Again")
-                                }
-                                OutlinedButton(
-                                    enabled =
-                                        playableSources.size > 1,
-                                    onClick = {
-                                        showSourceDialog = true
-                                    },
-                                ) {
-                                    Text("Switch Source")
+                                    Text("Sources")
                                 }
                             }
                         }
                     }
                 }
 
-                nextEpisodeCountdown?.let { count ->
-                    nextEpisode?.let { next ->
+                nextEpisodeCountdown?.let {
+                    count ->
+                    nextEpisode?.let {
+                        next ->
                         Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = VueoPalette.SurfaceElevated,
+                            modifier =
+                                Modifier.fillMaxWidth(),
+                            shape =
+                                RoundedCornerShape(
+                                    18.dp
+                                ),
+                            color =
+                                Color.Black.copy(
+                                    alpha = .70f
+                                ),
+                            border =
+                                androidx.compose
+                                    .foundation
+                                    .BorderStroke(
+                                        1.dp,
+                                        VueoPalette.Accent
+                                            .copy(alpha = .35f),
+                                    ),
                         ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
                                 verticalAlignment =
                                     Alignment.CenterVertically,
                             ) {
@@ -12308,154 +12784,319 @@ private fun PlayerScreen(
                                         Modifier.weight(1f),
                                 ) {
                                     Text(
-                                        "Next Episode",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
+                                        "UP NEXT",
+                                        color =
+                                            VueoPalette.Accent,
+                                        fontSize = 9.sp,
+                                        fontWeight =
+                                            FontWeight.Black,
                                     )
                                     Text(
                                         "S${next.season} E${next.episode} • ${next.title}",
-                                        color = VueoPalette.Muted,
-                                        fontSize = 11.sp,
+                                        color = Color.White,
+                                        fontWeight =
+                                            FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow =
+                                            TextOverflow.Ellipsis,
                                     )
                                 }
+
                                 TextButton(
                                     onClick = {
-                                        nextEpisodeCountdown = null
+                                        nextEpisodeCountdown =
+                                            null
                                     },
                                 ) {
                                     Text("Cancel")
                                 }
+
                                 Button(
                                     onClick = {
-                                        nextEpisodeCountdown = null
-                                        onNextEpisode(next)
+                                        nextEpisodeCountdown =
+                                            null
+                                        onNextEpisode(
+                                            next
+                                        )
                                     },
                                 ) {
-                                    Text("Play Now ($count)")
+                                    Text(
+                                        "Play $count"
+                                    )
                                 }
                             }
                         }
                     }
                 }
 
-                Slider(
-                    value =
-                        (gestureSeekPositionMs
-                            ?: currentPositionMs)
-                            .toFloat()
-                            .coerceIn(
-                                0f,
-                                durationMs
-                                    .coerceAtLeast(1L)
-                                    .toFloat(),
+                Surface(
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    shape =
+                        RoundedCornerShape(
+                            22.dp
+                        ),
+                    color =
+                        Color.Black.copy(
+                            alpha = .58f
+                        ),
+                    border =
+                        androidx.compose
+                            .foundation
+                            .BorderStroke(
+                                1.dp,
+                                Color.White
+                                    .copy(alpha = .12f),
                             ),
-                    onValueChange = { value ->
-                        gestureSeekPositionMs =
-                            value.toLong()
-                    },
-                    onValueChangeFinished = {
-                        gestureSeekPositionMs
-                            ?.let {
-                                player.seekTo(it)
-                            }
-                        gestureSeekPositionMs = null
-                    },
-                    valueRange =
-                        0f..durationMs
-                            .coerceAtLeast(1L)
-                            .toFloat(),
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment =
-                        Alignment.CenterVertically,
                 ) {
-                    Text(
-                        formatPlaybackTime(
-                            gestureSeekPositionMs
-                                ?: currentPositionMs
-                        ),
-                        color = Color.White,
-                        fontSize = 11.sp,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        "-${formatPlaybackTime((durationMs - currentPositionMs).coerceAtLeast(0L))}",
-                        color = Color.White.copy(
-                            alpha = .72f
-                        ),
-                        fontSize = 11.sp,
-                    )
-                }
-
-                LazyRow(
-                    horizontalArrangement =
-                        Arrangement.spacedBy(8.dp),
-                ) {
-                    item {
-                        PlayerControlChip(
-                            label = "CC",
-                            onClick = {
-                                showSubtitleDialog = true
-                            },
-                        )
-                    }
-                    item {
-                        PlayerControlChip(
-                            label = "Audio",
-                            onClick = {
-                                showAudioDialog = true
-                            },
-                        )
-                    }
-                    item {
-                        PlayerControlChip(
-                            label = "Source",
-                            enabled =
-                                playableSources.isNotEmpty(),
-                            onClick = {
-                                showSourceDialog = true
-                            },
-                        )
-                    }
-                    item {
-                        PlayerControlChip(
-                            label = "${playbackSpeed}x",
-                            onClick = {
-                                showSpeedDialog = true
-                            },
-                        )
-                    }
-                    item {
-                        PlayerControlChip(
-                            label =
-                                if (zoomed) "Zoom" else "Fit",
-                            onClick = {
-                                zoomed = !zoomed
-                            },
-                        )
-                    }
-                    item {
-                        PlayerControlChip(
-                            label = "PiP",
-                            enabled =
-                                Build.VERSION.SDK_INT >= 26,
-                            onClick = {
-                                enterVueoPictureInPicture(
-                                    activity
+                    Column(
+                        modifier =
+                            Modifier.padding(
+                                horizontal = 14.dp,
+                                vertical = 10.dp,
+                            ),
+                        verticalArrangement =
+                            Arrangement.spacedBy(5.dp),
+                    ) {
+                        Row(
+                            modifier =
+                                Modifier.fillMaxWidth(),
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                        ) {
+                            Column(
+                                modifier =
+                                    Modifier.weight(1f),
+                            ) {
+                                Text(
+                                    "SMART SOURCE",
+                                    color =
+                                        VueoPalette.Accent,
+                                    fontSize = 9.sp,
+                                    fontWeight =
+                                        FontWeight.Black,
+                                    letterSpacing = .7.sp,
                                 )
+
+                                Text(
+                                    playerSourcePrimaryLabel(
+                                        source
+                                    ),
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight =
+                                        FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow =
+                                        TextOverflow.Ellipsis,
+                                )
+                            }
+
+                            playerSourceTechnicalLabel(
+                                source
+                            )
+                                .takeIf {
+                                    it.isNotBlank()
+                                }
+                                ?.let {
+                                    technical ->
+                                    Text(
+                                        technical,
+                                        color =
+                                            VueoPalette.Muted,
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        overflow =
+                                            TextOverflow.Ellipsis,
+                                    )
+                                }
+                        }
+
+                        Slider(
+                            value =
+                                (
+                                    gestureSeekPositionMs
+                                        ?: currentPositionMs
+                                )
+                                    .toFloat()
+                                    .coerceIn(
+                                        0f,
+                                        durationMs
+                                            .coerceAtLeast(1L)
+                                            .toFloat(),
+                                    ),
+                            onValueChange = {
+                                value ->
+                                gestureSeekPositionMs =
+                                    value.toLong()
                             },
-                        )
-                    }
-                    item {
-                        PlayerControlChip(
-                            label = "Lock",
-                            onClick = {
-                                controlsLocked = true
-                                controlsVisible = false
+                            onValueChangeFinished = {
+                                gestureSeekPositionMs
+                                    ?.let {
+                                        player.seekTo(
+                                            it
+                                        )
+                                    }
+                                gestureSeekPositionMs =
+                                    null
                             },
+                            valueRange =
+                                0f..
+                                    durationMs
+                                        .coerceAtLeast(1L)
+                                        .toFloat(),
                         )
+
+                        Row(
+                            modifier =
+                                Modifier.fillMaxWidth(),
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                formatPlaybackTime(
+                                    gestureSeekPositionMs
+                                        ?: currentPositionMs
+                                ),
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight =
+                                    FontWeight.SemiBold,
+                            )
+
+                            Spacer(
+                                Modifier.weight(1f)
+                            )
+
+                            Text(
+                                "-" +
+                                    formatPlaybackTime(
+                                        (
+                                            durationMs -
+                                                currentPositionMs
+                                        ).coerceAtLeast(0L)
+                                    ),
+                                color =
+                                    Color.White.copy(
+                                        alpha = .62f
+                                    ),
+                                fontSize = 10.sp,
+                            )
+                        }
+
+                        LazyRow(
+                            horizontalArrangement =
+                                Arrangement.spacedBy(7.dp),
+                        ) {
+                            if (
+                                media.type ==
+                                    "series" &&
+                                episodes.isNotEmpty()
+                            ) {
+                                item {
+                                    PlayerControlChip(
+                                        label = "Episodes",
+                                        onClick = {
+                                            showEpisodesDialog =
+                                                true
+                                        },
+                                    )
+                                }
+                            }
+
+                            item {
+                                PlayerControlChip(
+                                    label =
+                                        "Sources ${playableSources.size}",
+                                    enabled =
+                                        playableSources
+                                            .isNotEmpty(),
+                                    accent = true,
+                                    onClick = {
+                                        showSourceDialog =
+                                            true
+                                    },
+                                )
+                            }
+
+                            item {
+                                PlayerControlChip(
+                                    label = "Subtitles",
+                                    onClick = {
+                                        showSubtitleDialog =
+                                            true
+                                    },
+                                )
+                            }
+
+                            item {
+                                PlayerControlChip(
+                                    label = "Audio",
+                                    onClick = {
+                                        showAudioDialog =
+                                            true
+                                    },
+                                )
+                            }
+
+                            item {
+                                PlayerControlChip(
+                                    label =
+                                        if (
+                                            playbackSpeed ==
+                                                1f
+                                        ) {
+                                            "Speed"
+                                        } else {
+                                            "${playbackSpeed}x"
+                                        },
+                                    onClick = {
+                                        showSpeedDialog =
+                                            true
+                                    },
+                                )
+                            }
+
+                            item {
+                                PlayerControlChip(
+                                    label =
+                                        if (zoomed) {
+                                            "Zoom"
+                                        } else {
+                                            "Fit"
+                                        },
+                                    onClick = {
+                                        zoomed = !zoomed
+                                    },
+                                )
+                            }
+
+                            item {
+                                PlayerControlChip(
+                                    label = "PiP",
+                                    enabled =
+                                        Build.VERSION
+                                            .SDK_INT >= 26,
+                                    onClick = {
+                                        enterVueoPictureInPicture(
+                                            activity
+                                        )
+                                    },
+                                )
+                            }
+
+                            item {
+                                PlayerControlChip(
+                                    label = "Lock",
+                                    onClick = {
+                                        controlsLocked =
+                                            true
+                                        controlsVisible =
+                                            false
+                                    },
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -12534,34 +13175,93 @@ private fun PlayerRoundAction(
     onClick: () -> Unit,
 ) {
     Surface(
-        modifier = Modifier
-            .size(
-                if (primary) 74.dp else 58.dp
-            )
-            .clickable(onClick = onClick),
-        shape = androidx.compose.foundation.shape.CircleShape,
+        modifier =
+            Modifier
+                .size(
+                    if (primary) {
+                        76.dp
+                    } else {
+                        58.dp
+                    }
+                )
+                .clickable(
+                    onClick = onClick
+                ),
+        shape = CircleShape,
         color =
             if (primary) {
-                Color.White
+                Color.White.copy(
+                    alpha = .96f
+                )
             } else {
-                Color.Black.copy(alpha = .52f)
+                Color.Black.copy(
+                    alpha = .44f
+                )
+            },
+        border =
+            androidx.compose
+                .foundation
+                .BorderStroke(
+                    1.dp,
+                    if (primary) {
+                        Color.White.copy(
+                            alpha = .90f
+                        )
+                    } else {
+                        Color.White.copy(
+                            alpha = .22f
+                        )
+                    },
+                ),
+        shadowElevation =
+            if (primary) {
+                10.dp
+            } else {
+                0.dp
             },
     ) {
         Box(
-            contentAlignment = Alignment.Center,
+            contentAlignment =
+                Alignment.Center,
         ) {
-            Text(
-                label,
-                color =
-                    if (primary) {
-                        Color.Black
+            if (
+                primary &&
+                label == "Play"
+            ) {
+                Icon(
+                    Icons.Default.PlayArrow,
+                    contentDescription =
+                        "Play",
+                    tint = Color.Black,
+                    modifier =
+                        Modifier.size(38.dp),
+                )
+            } else {
+                Text(
+                    if (
+                        primary &&
+                        label == "Pause"
+                    ) {
+                        "Ⅱ"
                     } else {
-                        Color.White
+                        label
                     },
-                fontWeight = FontWeight.Black,
-                fontSize =
-                    if (primary) 14.sp else 12.sp,
-            )
+                    color =
+                        if (primary) {
+                            Color.Black
+                        } else {
+                            Color.White
+                        },
+                    fontWeight =
+                        FontWeight.Black,
+                    fontSize =
+                        if (primary) {
+                            21.sp
+                        } else {
+                            13.sp
+                        },
+                )
+            }
         }
     }
 }
@@ -12570,23 +13270,119 @@ private fun PlayerRoundAction(
 private fun PlayerControlChip(
     label: String,
     enabled: Boolean = true,
+    accent: Boolean = false,
     onClick: () -> Unit,
 ) {
-    OutlinedButton(
-        enabled = enabled,
-        onClick = onClick,
-        contentPadding = PaddingValues(
-            horizontal = 13.dp,
-            vertical = 8.dp,
-        ),
+    Surface(
+        modifier =
+            Modifier.clickable(
+                enabled = enabled,
+                onClick = onClick,
+            ),
+        shape =
+            RoundedCornerShape(
+                50
+            ),
+        color =
+            when {
+                !enabled ->
+                    Color.White.copy(
+                        alpha = .05f
+                    )
+
+                accent ->
+                    VueoPalette.Accent
+                        .copy(alpha = .14f)
+
+                else ->
+                    Color.White.copy(
+                        alpha = .07f
+                    )
+            },
+        border =
+            androidx.compose
+                .foundation
+                .BorderStroke(
+                    1.dp,
+                    when {
+                        !enabled ->
+                            Color.White.copy(
+                                alpha = .08f
+                            )
+
+                        accent ->
+                            VueoPalette.Accent
+                                .copy(alpha = .48f)
+
+                        else ->
+                            Color.White.copy(
+                                alpha = .14f
+                            )
+                    },
+                ),
     ) {
         Text(
             label,
+            modifier =
+                Modifier.padding(
+                    horizontal = 13.dp,
+                    vertical = 8.dp,
+                ),
+            color =
+                when {
+                    !enabled ->
+                        Color.White.copy(
+                            alpha = .32f
+                        )
+
+                    accent ->
+                        VueoPalette.Accent
+
+                    else ->
+                        Color.White
+                },
             maxLines = 1,
-            fontSize = 11.sp,
+            fontSize = 10.sp,
+            fontWeight =
+                FontWeight.Bold,
         )
     }
 }
+
+private fun playerSourcePrimaryLabel(
+    source: StreamSource,
+): String =
+    buildString {
+        append(
+            source.quality
+                ?.takeIf {
+                    it.isNotBlank()
+                }
+                ?: "Auto"
+        )
+        append(" • ")
+        append(
+            source.providerName
+        )
+    }
+
+private fun playerSourceTechnicalLabel(
+    source: StreamSource,
+): String =
+    listOfNotNull(
+        source.codec
+            ?.takeIf {
+                it.isNotBlank()
+            },
+        source.hdr
+            ?.takeIf {
+                it.isNotBlank()
+            },
+        source.audio
+            ?.takeIf {
+                it.isNotBlank()
+            },
+    ).joinToString(" • ")
 
 @Composable
 private fun PlayerFullscreenEffect(
