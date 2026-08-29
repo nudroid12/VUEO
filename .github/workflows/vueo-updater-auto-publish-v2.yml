@@ -1,0 +1,346 @@
+name: VUEO Updater and Auto Publish v2
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "app/**"
+      - "gradle/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle.properties"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vueo-dev-publish
+  cancel-in-progress: true
+
+jobs:
+  bootstrap-updater:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Apply updater source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > /tmp/vueo-updater-patch.b64 <<'PAYLOAD'
+          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
+          SJHGhCdACLtdjCcS6NwF8/M/0uBdX06JAAA=
+          PAYLOAD
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64
+          import gzip
+
+          encoded = (
+              Path("/tmp/vueo-updater-patch.b64")
+              .read_text(encoding="utf-8")
+              .replace("\n", "")
+              .replace(" ", "")
+          )
+
+          source = gzip.decompress(
+              base64.b64decode(encoded)
+          )
+
+          Path(
+              "/tmp/vueo-updater-patch.py"
+          ).write_bytes(source)
+          PY
+
+          python3 /tmp/vueo-updater-patch.py
+          rm -f             /tmp/vueo-updater-patch.py             /tmp/vueo-updater-patch.b64
+
+      - name: Compile updater patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:compileDebugKotlin --stacktrace
+
+      - name: Commit and push updater source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add             app/build.gradle.kts             app/src/main/AndroidManifest.xml             app/src/main/res/xml/vueo_update_paths.xml             app/src/main/java/com/vueo/app/core/update/VueoUpdateManager.kt             app/src/main/java/com/vueo/app/ui/VueoSettings.kt
+
+          if git diff --cached --quiet; then
+            echo "Updater source already applied."
+          else
+            git commit -m "feat: enable in-app updater and dev release channel"
+            git push
+          fi
+
+  publish-green-build:
+    needs:
+      - bootstrap-updater
+    if: >-
+      always() &&
+      (
+        github.event_name == 'push' ||
+        github.event_name == 'workflow_call' ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          needs.bootstrap-updater.result == 'success'
+        )
+      )
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Confirm updater is installed
+        id: updater
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FILE="app/src/main/java/com/vueo/app/core/update/VueoUpdateManager.kt"
+
+          if grep -q "VUEO_DEV_RELEASE_MANIFEST" "$FILE"; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Updater source is not installed yet. Publish skipped."
+          fi
+
+      - name: Validate signing secrets
+        if: steps.updater.outputs.ready == 'true'
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.VUEO_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.VUEO_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::Missing VUEO_KEYSTORE_BASE64 or VUEO_KEYSTORE_PASSWORD."
+            exit 1
+          fi
+
+      - name: Set up Java
+        if: steps.updater.outputs.ready == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Prepare signed build
+        if: steps.updater.outputs.ready == 'true'
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.VUEO_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.VUEO_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          VERSION_CODE="$(date -u +%s)"
+
+          if [ "$VERSION_CODE" -ge 2100000000 ]; then
+            echo "::error::Generated Android versionCode is too large."
+            exit 1
+          fi
+
+          VERSION_NAME="0.9.6-dev.$VERSION_CODE"
+
+          printf '%s' "$KEYSTORE_B64"             | base64 --decode             > "$RUNNER_TEMP/vueo-dev-signing.jks"
+
+          echo "VUEO_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "VUEO_VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "VUEO_KEYSTORE_PATH=$RUNNER_TEMP/vueo-dev-signing.jks" >> "$GITHUB_ENV"
+          echo "VUEO_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        if: steps.updater.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease --stacktrace
+
+      - name: Prepare update feed
+        if: steps.updater.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+          cp             app/build/outputs/apk/release/app-release.apk             dist/VUEO-dev.apk
+
+          SHA256="$(
+            sha256sum dist/VUEO-dev.apk               | awk '{print $1}'
+          )"
+          PUBLISHED_AT="$(
+            date -u +'%Y-%m-%dT%H:%M:%SZ'
+          )"
+
+          export SHA256 PUBLISHED_AT
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import os
+
+          payload = {
+              "schemaVersion": 1,
+              "versionCode": int(
+                  os.environ[
+                      "VUEO_VERSION_CODE"
+                  ]
+              ),
+              "versionName":
+                  os.environ[
+                      "VUEO_VERSION_NAME"
+                  ],
+              "title":
+                  "VUEO " +
+                  os.environ[
+                      "VUEO_VERSION_NAME"
+                  ],
+              "changelog": [
+                  "Latest green VUEO development build",
+                  "Commit " +
+                  os.environ[
+                      "GITHUB_SHA"
+                  ][:7],
+              ],
+              "downloadUrl":
+                  "https://github.com/nudroid12/VUEO/releases/download/vueo-dev/VUEO-dev.apk",
+              "sha256":
+                  os.environ["SHA256"],
+              "publishedAt":
+                  os.environ[
+                      "PUBLISHED_AT"
+                  ],
+          }
+
+          Path(
+              "dist/update.json"
+          ).write_text(
+              json.dumps(
+                  payload,
+                  indent=2,
+              ) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Publish rolling VUEO Dev release
+        if: steps.updater.outputs.ready == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if ! gh release view vueo-dev >/dev/null 2>&1; then
+            gh release create vueo-dev               --title "VUEO Dev"               --prerelease               --notes "Rolling development release. Only successful signed builds are published."
+          fi
+
+          gh release upload vueo-dev             dist/VUEO-dev.apk             dist/update.json             --clobber
+
