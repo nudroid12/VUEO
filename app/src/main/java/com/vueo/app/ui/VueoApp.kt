@@ -3937,39 +3937,18 @@ private fun LibraryScreen(
     onPlaybackClick:
         (LibraryPlaybackEntry) -> Unit,
 ) {
-    var continueWatching by remember(
+    val watchlist = remember(
         version
     ) {
-        mutableStateOf(
-            store.continueWatching()
-        )
+        store.watchlist()
     }
 
-    var watchlist by remember(
-        version
-    ) {
-        mutableStateOf(
-            store.watchlist()
-        )
+    var cloudSelected by remember {
+        mutableStateOf(false)
     }
 
-    var history by remember(
-        version
-    ) {
-        mutableStateOf(
-            store.history()
-        )
-    }
-
-    fun refresh() {
-        continueWatching =
-            store.continueWatching()
-
-        watchlist =
-            store.watchlist()
-
-        history =
-            store.history()
+    var gridView by remember {
+        mutableStateOf(true)
     }
 
     LazyColumn(
@@ -3981,278 +3960,461 @@ private fun LibraryScreen(
                 ),
         contentPadding =
             PaddingValues(
-                bottom = 30.dp
+                start = 20.dp,
+                end = 20.dp,
+                top = 24.dp,
+                bottom = 34.dp,
             ),
         verticalArrangement =
             Arrangement.spacedBy(
-                20.dp
+                18.dp
             ),
     ) {
-        item {
+        item(
+            key = "library-header"
+        ) {
             Column(
-                modifier = Modifier.padding(
-                    horizontal = 20.dp,
-                    vertical = 18.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        14.dp
+                    ),
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    verticalAlignment =
+                        Alignment.CenterVertically,
                 ) {
-                    VueoBrandLockup(
-                        modifier = Modifier.weight(1f),
-                        compact = true,
+                    Text(
+                        text = "Library",
+                        modifier =
+                            Modifier.weight(1f),
+                        color = Color.White,
+                        fontSize = 40.sp,
+                        fontWeight =
+                            FontWeight.Black,
                     )
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = VueoPalette.SurfaceElevated,
+
+                    LibraryViewModeButton(
+                        gridView = gridView,
+                        onToggle = {
+                            gridView =
+                                !gridView
+                        },
+                    )
+                }
+
+                Row(
+                    horizontalArrangement =
+                        Arrangement.spacedBy(
+                            10.dp
+                        ),
+                ) {
+                    LibraryTab(
+                        label = "Saved",
+                        selected =
+                            !cloudSelected,
+                        onClick = {
+                            cloudSelected =
+                                false
+                        },
+                    )
+
+                    LibraryTab(
+                        label = "Cloud",
+                        selected =
+                            cloudSelected,
+                        onClick = {
+                            cloudSelected =
+                                true
+                        },
+                    )
+                }
+            }
+        }
+
+        if (cloudSelected) {
+            item(
+                key = "library-cloud-empty"
+            ) {
+                LibraryEmptyCard(
+                    title =
+                        "Cloud library",
+                    body =
+                        "Cloud sync is not connected yet. Your locally saved titles stay available in Saved.",
+                )
+            }
+        } else if (
+            watchlist.isEmpty()
+        ) {
+            item(
+                key = "library-saved-empty"
+            ) {
+                LibraryEmptyCard(
+                    title =
+                        "Your library is empty",
+                    body =
+                        "Saved titles will appear here after you tap Save on a details screen.",
+                )
+            }
+        } else if (gridView) {
+            watchlist
+                .chunked(3)
+                .forEachIndexed {
+                    rowIndex,
+                    rowItems ->
+
+                    item(
+                        key =
+                            "library-grid-row-$rowIndex"
                     ) {
-                        Box(
-                            modifier = Modifier.size(40.dp),
-                            contentAlignment = Alignment.Center,
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth(),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(
+                                    10.dp
+                                ),
+                            verticalAlignment =
+                                Alignment.Top,
                         ) {
-                            Text(
-                                activeProfile.avatar,
-                                fontSize = 17.sp,
-                            )
+                            rowItems.forEach {
+                                media ->
+
+                                SearchPosterTile(
+                                    item = media,
+                                    modifier =
+                                        Modifier.weight(
+                                            1f
+                                        ),
+                                    onClick = {
+                                        onMediaClick(
+                                            media
+                                        )
+                                    },
+                                )
+                            }
+
+                            repeat(
+                                3 -
+                                    rowItems.size
+                            ) {
+                                Spacer(
+                                    modifier =
+                                        Modifier.weight(
+                                            1f
+                                        )
+                                )
+                            }
                         }
                     }
                 }
-
-                Text(
-                    "Library",
-                    color = Color.White,
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.Black,
-                )
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    LibraryMetricPill(
-                        label = "Continue",
-                        count = continueWatching.size,
-                    )
-                    LibraryMetricPill(
-                        label = "My List",
-                        count = watchlist.size,
-                    )
-                    LibraryMetricPill(
-                        label = "History",
-                        count = history.size,
-                    )
-                }
-            }
-        }
-
-        if (
-            continueWatching
-                .isNotEmpty()
-        ) {
-            item {
-                LibrarySectionHeader(
-                    title =
-                        "Continue Watching",
-                    count =
-                        continueWatching.size,
-                    actionLabel =
-                        "Clear",
-                    onAction = {
-                        store
-                            .clearContinueWatching()
-                        refresh()
-                        onVersionChanged()
-                    },
-                )
-            }
-
-            item {
-                LazyRow(
-                    contentPadding =
-                        PaddingValues(
-                            horizontal = 20.dp
-                        ),
-                    horizontalArrangement =
-                        Arrangement.spacedBy(
-                            12.dp
-                        ),
-                ) {
-                    items(
-                        continueWatching,
-                        key = {
-                            it.mediaKey
-                        },
-                    ) { entry ->
-                        ContinueWatchingCard(
-                            entry = entry,
-                            onClick = {
-                                onPlaybackClick(
-                                    entry
-                                )
-                            },
-                            onRemove = {
-                                store.removeHistory(
-                                    entry.mediaKey
-                                )
-                                refresh()
-                                onVersionChanged()
-                            },
-                        )
-                    }
-                }
-            }
-        }
-
-        if (
-            watchlist.isNotEmpty()
-        ) {
-            item {
-                LibrarySectionHeader(
-                    title = "My List",
-                    count =
-                        watchlist.size,
-                )
-            }
-
-            item {
-                LazyRow(
-                    contentPadding =
-                        PaddingValues(
-                            horizontal = 20.dp
-                        ),
-                    horizontalArrangement =
-                        Arrangement.spacedBy(
-                            12.dp
-                        ),
-                ) {
-                    items(
-                        watchlist,
-                        key = {
-                            "${it.type}:${it.id}"
-                        },
-                    ) { media ->
-                        LibraryPosterCard(
-                            media = media,
-                            onClick = {
-                                onMediaClick(
-                                    media
-                                )
-                            },
-                            onRemove = {
-                                store
-                                    .removeWatchlist(
-                                        media
-                                    )
-                                refresh()
-                                onVersionChanged()
-                            },
-                        )
-                    }
-                }
-            }
-        }
-
-        if (
-            history.isNotEmpty()
-        ) {
-            item {
-                LibrarySectionHeader(
-                    title = "History",
-                    count =
-                        history.size,
-                    actionLabel =
-                        "Clear",
-                    onAction = {
-                        store.clearHistory()
-                        refresh()
-                        onVersionChanged()
-                    },
-                )
-            }
-
+        } else {
             items(
-                history.take(60),
+                items = watchlist,
                 key = {
-                    "history:" +
-                        it.mediaKey
+                    media ->
+                    "library-list:" +
+                        media.type +
+                        ":" +
+                        media.id
                 },
-            ) { entry ->
-                HistoryRow(
-                    entry = entry,
+            ) {
+                media ->
+
+                LibrarySavedListRow(
+                    media = media,
                     onClick = {
-                        onPlaybackClick(
-                            entry
+                        onMediaClick(
+                            media
                         )
-                    },
-                    onRemove = {
-                        store.removeHistory(
-                            entry.mediaKey
-                        )
-                        refresh()
-                        onVersionChanged()
                     },
                 )
             }
         }
+    }
+}
 
-        if (
-            continueWatching
-                .isEmpty() &&
-            watchlist.isEmpty() &&
-            history.isEmpty()
+@Composable
+private fun LibraryTab(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier =
+            Modifier.clickable(
+                onClick = onClick
+            ),
+        shape =
+            RoundedCornerShape(
+                50
+            ),
+        color =
+            if (selected) {
+                Color.White.copy(
+                    alpha = .14f
+                )
+            } else {
+                VueoPalette
+                    .SurfaceElevated
+                    .copy(
+                        alpha = .58f
+                    )
+            },
+    ) {
+        Text(
+            text = label,
+            modifier =
+                Modifier.padding(
+                    horizontal = 20.dp,
+                    vertical = 10.dp,
+                ),
+            color =
+                if (selected) {
+                    Color.White
+                } else {
+                    VueoPalette.Muted
+                },
+            fontSize = 14.sp,
+            fontWeight =
+                if (selected) {
+                    FontWeight.Bold
+                } else {
+                    FontWeight.Medium
+                },
+        )
+    }
+}
+
+@Composable
+private fun LibraryViewModeButton(
+    gridView: Boolean,
+    onToggle: () -> Unit,
+) {
+    Surface(
+        modifier =
+            Modifier
+                .size(42.dp)
+                .clickable(
+                    onClick = onToggle
+                ),
+        shape =
+            RoundedCornerShape(
+                14.dp
+            ),
+        color = Color.Transparent,
+    ) {
+        Box(
+            modifier =
+                Modifier.fillMaxSize(),
+            contentAlignment =
+                Alignment.Center,
         ) {
-            item {
-                ElevatedCard(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                horizontal =
-                                    20.dp
-                            ),
+            if (gridView) {
+                Column(
+                    verticalArrangement =
+                        Arrangement.spacedBy(
+                            4.dp
+                        ),
                 ) {
-                    Column(
-                        modifier =
-                            Modifier.padding(
-                                22.dp
-                            ),
-                        verticalArrangement =
-                            Arrangement.spacedBy(
-                                8.dp
-                            ),
-                    ) {
-                        Icon(
-                            Icons.Default
-                                .VideoLibrary,
-                            contentDescription =
-                                null,
-                            tint =
-                                MaterialTheme
-                                    .colorScheme
-                                    .primary,
-                        )
-
-                        Text(
-                            "Your Library is ready",
-                            fontSize = 19.sp,
-                            fontWeight =
-                                FontWeight.Black,
-                        )
-
-                        Text(
-                            "Add titles to My List or start watching something. VUEO will keep Continue Watching and History here automatically.",
-                            color =
-                                MaterialTheme
-                                    .colorScheme
-                                    .onSurface
-                                    .copy(
-                                        alpha = .62f
-                                    ),
+                    repeat(2) {
+                        Row(
+                            horizontalArrangement =
+                                Arrangement.spacedBy(
+                                    4.dp
+                                ),
+                        ) {
+                            repeat(2) {
+                                Box(
+                                    modifier =
+                                        Modifier
+                                            .size(
+                                                8.dp
+                                            )
+                                            .clip(
+                                                RoundedCornerShape(
+                                                    2.dp
+                                                )
+                                            )
+                                            .background(
+                                                VueoPalette
+                                                    .Muted
+                                            )
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Column(
+                    verticalArrangement =
+                        Arrangement.spacedBy(
+                            5.dp
+                        ),
+                ) {
+                    repeat(3) {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .width(
+                                        22.dp
+                                    )
+                                    .height(
+                                        4.dp
+                                    )
+                                    .clip(
+                                        RoundedCornerShape(
+                                            2.dp
+                                        )
+                                    )
+                                    .background(
+                                        VueoPalette
+                                            .Muted
+                                    )
                         )
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun LibraryEmptyCard(
+    title: String,
+    body: String,
+) {
+    Surface(
+        modifier =
+            Modifier.fillMaxWidth(),
+        shape =
+            RoundedCornerShape(
+                26.dp
+            ),
+        color =
+            VueoPalette
+                .SurfaceElevated
+                .copy(
+                    alpha = .78f
+                ),
+    ) {
+        Column(
+            modifier =
+                Modifier.padding(
+                    horizontal = 22.dp,
+                    vertical = 24.dp,
+                ),
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    8.dp
+                ),
+        ) {
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight =
+                    FontWeight.Black,
+            )
+
+            Text(
+                text = body,
+                color =
+                    VueoPalette.Muted,
+                fontSize = 15.sp,
+                lineHeight = 22.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun LibrarySavedListRow(
+    media: MediaItem,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(
+                    onClick = onClick
+                )
+                .padding(
+                    vertical = 2.dp
+                ),
+        verticalAlignment =
+            Alignment.CenterVertically,
+    ) {
+        NetworkImage(
+            url = media.poster,
+            contentDescription =
+                media.name,
+            modifier =
+                Modifier
+                    .width(
+                        62.dp
+                    )
+                    .height(
+                        88.dp
+                    )
+                    .clip(
+                        RoundedCornerShape(
+                            10.dp
+                        )
+                    ),
+            contentScale =
+                ContentScale.Crop,
+            fallbackText =
+                media.name,
+        )
+
+        Spacer(
+            Modifier.width(
+                14.dp
+            )
+        )
+
+        Column(
+            modifier =
+                Modifier.weight(
+                    1f
+                ),
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    5.dp
+                ),
+        ) {
+            Text(
+                text = media.name,
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight =
+                    FontWeight.Bold,
+                maxLines = 2,
+                overflow =
+                    TextOverflow.Ellipsis,
+            )
+
+            Text(
+                text =
+                    listOfNotNull(
+                        media.releaseInfo,
+                        searchTypeLabel(
+                            media
+                        ),
+                    ).joinToString(
+                        " • "
+                    ),
+                color =
+                    VueoPalette.Muted,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow =
+                    TextOverflow.Ellipsis,
+            )
         }
     }
 }
