@@ -164,6 +164,7 @@ import com.vueo.app.core.storage.PreferredQuality
 import com.vueo.app.core.storage.PlayerOrientation
 import com.vueo.app.core.storage.SettingsStore
 import com.vueo.app.core.storage.VueoDataMigration
+import com.vueo.app.core.stremio.SimpleHttp
 import com.vueo.app.core.update.VueoUpdateManager
 import com.vueo.app.core.model.SubtitleTrack
 import com.vueo.app.core.plugin.PluginStore
@@ -187,6 +188,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 private enum class AppTab {
     HOME,
@@ -11176,6 +11178,154 @@ private fun StreamSourceCard(
     }
 }
 
+private data class PlayerContentWarning(
+    val label: String,
+    val severity: String,
+    val severityRank: Int,
+)
+
+private object PlayerContentWarningRepository {
+    private const val BASE_URL = "https://api.tiffara.com"
+    private val cache = mutableMapOf<String, List<PlayerContentWarning>>()
+
+    suspend fun get(imdbId: String): List<PlayerContentWarning> {
+        synchronized(cache) {
+            cache[imdbId]?.let { return it }
+        }
+
+        val warnings = runCatching {
+            val root = JSONObject(
+                SimpleHttp.get(
+                    "$BASE_URL/titles/$imdbId/parentsGuide"
+                )
+            )
+            val categories = root.optJSONArray("parentsGuide")
+                ?: return@runCatching emptyList()
+            val result = mutableListOf<PlayerContentWarning>()
+
+            for (categoryIndex in 0 until categories.length()) {
+                val category = categories.optJSONObject(categoryIndex)
+                    ?: continue
+                val categoryName = category.optString("category")
+                    .uppercase()
+                val label = when (categoryName) {
+                    "SEXUAL_CONTENT" -> "Nudity"
+                    "VIOLENCE" -> "Violence"
+                    "PROFANITY" -> "Profanity"
+                    "ALCOHOL_DRUGS" -> "Alcohol/Drugs"
+                    "FRIGHTENING_INTENSE_SCENES" -> "Frightening"
+                    else -> null
+                } ?: continue
+                val breakdowns = category
+                    .optJSONArray("severityBreakdowns")
+                    ?: continue
+                var noneVotes = 0
+                var dominantLevel: String? = null
+                var dominantVotes = -1
+
+                for (severityIndex in 0 until breakdowns.length()) {
+                    val breakdown = breakdowns
+                        .optJSONObject(severityIndex)
+                        ?: continue
+                    val level = breakdown
+                        .optString("severityLevel")
+                        .lowercase()
+                    val votes = breakdown.optInt("voteCount", 0)
+
+                    if (level == "none") {
+                        noneVotes = votes
+                    } else if (
+                        level in setOf("mild", "moderate", "severe") &&
+                        votes > dominantVotes
+                    ) {
+                        dominantLevel = level
+                        dominantVotes = votes
+                    }
+                }
+
+                if (dominantLevel == null || dominantVotes <= noneVotes) {
+                    continue
+                }
+
+                val severity = when (dominantLevel) {
+                    "severe" -> "Severe"
+                    "moderate" -> "Moderate"
+                    else -> "Mild"
+                }
+                val rank = when (dominantLevel) {
+                    "severe" -> 0
+                    "moderate" -> 1
+                    else -> 2
+                }
+                result += PlayerContentWarning(
+                    label = label,
+                    severity = severity,
+                    severityRank = rank,
+                )
+            }
+
+            result.sortedBy { it.severityRank }.take(5)
+        }.getOrDefault(emptyList())
+
+        synchronized(cache) {
+            cache[imdbId] = warnings
+        }
+        return warnings
+    }
+}
+
+private fun extractPlayerImdbId(value: String?): String? =
+    value?.let {
+        Regex("tt\\d+", RegexOption.IGNORE_CASE)
+            .find(it)
+            ?.value
+            ?.lowercase()
+    }
+
+@Composable
+private fun PlayerContentWarningsOverlay(
+    warnings: List<PlayerContentWarning>,
+) {
+    Row(
+        modifier = Modifier.padding(
+            start = 52.dp,
+            top = 72.dp,
+        ),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height((warnings.size * 19).dp)
+                .clip(RoundedCornerShape(50))
+                .background(Color.White.copy(alpha = .92f)),
+        )
+        Column(
+            modifier = Modifier.padding(start = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            warnings.forEach { warning ->
+                Row(
+                    modifier = Modifier.height(17.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        warning.label,
+                        color = Color.White.copy(alpha = .92f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        " · ${warning.severity}",
+                        color = Color.White.copy(alpha = .56f),
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+        }
+    }
+}
+
 private val VueoPlayerAccent =
     Color(0xFFB9FF3A)
 
@@ -11219,6 +11369,15 @@ private fun PlayerScreen(
         LibraryStore(
             context.applicationContext
         )
+    }
+
+    val playerPluginStore = remember {
+        PluginStore(
+            context.applicationContext
+        )
+    }
+    val contentWarningsEnabled = remember(mediaKey) {
+        context.contentWarningsEnabled()
     }
 
     val savedPositionMs = remember(mediaKey) {
@@ -11319,6 +11478,15 @@ private fun PlayerScreen(
     var autoRecoveryAttempted by remember(
         source.url
     ) {
+        mutableStateOf(false)
+    }
+    var contentWarnings by remember(mediaKey) {
+        mutableStateOf<List<PlayerContentWarning>>(emptyList())
+    }
+    var showContentWarnings by remember(mediaKey) {
+        mutableStateOf(false)
+    }
+    var contentWarningsShown by remember(mediaKey) {
         mutableStateOf(false)
     }
 
@@ -11485,6 +11653,58 @@ private fun PlayerScreen(
             durationMs =
                 playbackStore.durationMs(mediaKey),
         )
+    }
+
+    LaunchedEffect(
+        media.id,
+        videoId,
+        episode?.id,
+        contentWarningsEnabled,
+    ) {
+        contentWarnings = emptyList()
+        showContentWarnings = false
+        contentWarningsShown = false
+
+        if (!contentWarningsEnabled) {
+            return@LaunchedEffect
+        }
+
+        val directImdbId =
+            extractPlayerImdbId(media.id)
+                ?: extractPlayerImdbId(videoId)
+                ?: extractPlayerImdbId(episode?.id)
+        val imdbId = directImdbId ?: runCatching {
+            TmdbEnhancementClient.prepareForCore(
+                item = media,
+                apiKey = playerPluginStore.tmdbApiKey(),
+            ).id
+        }.getOrNull()?.let(::extractPlayerImdbId)
+
+        if (imdbId != null) {
+            contentWarnings =
+                PlayerContentWarningRepository.get(imdbId)
+        }
+    }
+
+    LaunchedEffect(
+        isPlaying,
+        contentWarnings,
+        contentWarningsEnabled,
+    ) {
+        if (!isPlaying || !contentWarningsEnabled) {
+            showContentWarnings = false
+            return@LaunchedEffect
+        }
+
+        if (
+            contentWarnings.isNotEmpty() &&
+            !contentWarningsShown
+        ) {
+            contentWarningsShown = true
+            showContentWarnings = true
+            delay(5_000L)
+            showContentWarnings = false
+        }
     }
 
     DisposableEffect(
@@ -12383,6 +12603,20 @@ private fun PlayerScreen(
                         )
                     },
             )
+        }
+
+        if (
+            showContentWarnings &&
+            contentWarnings.isNotEmpty()
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart),
+            ) {
+                PlayerContentWarningsOverlay(
+                    warnings = contentWarnings
+                )
+            }
         }
 
         if (controlsVisible && !controlsLocked) {
