@@ -357,34 +357,115 @@ private fun JSONObject.optCertification(): String? {
 private fun JSONArray?.toEpisodeList(): List<EpisodeItem> {
     if (this == null) return emptyList()
 
-    return (0 until length())
-        .mapNotNull { index ->
-            val item = optJSONObject(index) ?: return@mapNotNull null
-            val id = item.optString("id").takeIf { it.isNotBlank() }
-                ?: return@mapNotNull null
-            val season = item.optInt("season", -1)
-            val episode = item.optInt("episode", -1)
+    val parsed =
+        (0 until length())
+            .mapNotNull { index ->
+                val item =
+                    optJSONObject(index)
+                        ?: return@mapNotNull null
 
-            if (season < 0 || episode < 0) {
-                return@mapNotNull null
+                val id =
+                    item.optString("id")
+                        .takeIf { it.isNotBlank() }
+                        ?: return@mapNotNull null
+
+                val idParts =
+                    id.split(":")
+
+                val idSeason =
+                    idParts
+                        .getOrNull(idParts.lastIndex - 1)
+                        ?.toIntOrNull()
+
+                val idEpisode =
+                    idParts
+                        .lastOrNull()
+                        ?.toIntOrNull()
+
+                val rawSeason =
+                    item.optInt("season", -1)
+
+                val rawEpisode =
+                    item.optInt("episode", -1)
+
+                val season =
+                    when {
+                        rawSeason > 0 -> rawSeason
+                        idSeason != null &&
+                            idSeason > 0 -> idSeason
+                        else -> rawSeason
+                    }
+
+                val episode =
+                    when {
+                        rawEpisode > 0 -> rawEpisode
+                        idEpisode != null &&
+                            idEpisode > 0 -> idEpisode
+                        else -> rawEpisode
+                    }
+
+                if (
+                    season < 0 ||
+                    episode < 0
+                ) {
+                    return@mapNotNull null
+                }
+
+                EpisodeItem(
+                    id = id,
+                    title =
+                        item.optString(
+                            "title",
+                            "Episode $episode",
+                        ),
+                    season = season,
+                    episode = episode,
+                    released =
+                        item.optString("released")
+                            .takeIf {
+                                it.isNotBlank()
+                            },
+                    overview =
+                        item.optString("overview")
+                            .takeIf {
+                                it.isNotBlank()
+                            }
+                            ?: item
+                                .optString("description")
+                                .takeIf {
+                                    it.isNotBlank()
+                                },
+                    thumbnail =
+                        item.optString("thumbnail")
+                            .takeIf {
+                                it.startsWith("https://")
+                            },
+                )
             }
 
-            EpisodeItem(
-                id = id,
-                title = item.optString(
-                    "title",
-                    "Episode $episode",
-                ),
-                season = season,
-                episode = episode,
-                released = item.optString("released").takeIf { it.isNotBlank() },
-                overview = item.optString("overview").takeIf { it.isNotBlank() }
-                    ?: item.optString("description").takeIf { it.isNotBlank() },
-                thumbnail = item.optString("thumbnail")
-                    .takeIf { it.startsWith("https://") },
-            )
+    val normalized =
+        if (
+            parsed.isNotEmpty() &&
+            parsed.none { it.season > 0 } &&
+            parsed.all { it.season == 0 }
+        ) {
+            parsed.map {
+                it.copy(
+                    season = 1
+                )
+            }
+        } else {
+            parsed
         }
-        .sortedWith(compareBy<EpisodeItem> { it.season }.thenBy { it.episode })
+
+    return normalized
+        .sortedWith(
+            compareBy<EpisodeItem> {
+                it.season
+            }.thenBy {
+                it.episode
+            }
+        )
 }
 
 private fun JSONArray?.toStringList(): List<String> {

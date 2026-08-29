@@ -11,7 +11,7 @@ import org.json.JSONObject
 
 object RichDetailsClient {
     private const val TMDB_BASE = "https://api.themoviedb.org/3"
-    private const val IMAGE_BASE = "https://image.tmdb.org/t/p/w185"
+    private const val IMAGE_BASE = "https://image.tmdb.org/t/p/w342"
 
     suspend fun enrich(
         media: MediaItem,
@@ -20,7 +20,7 @@ object RichDetailsClient {
         if (apiKey.isBlank()) return media
 
         val tmdbId =
-            TmdbResolver.resolve(
+            resolveTmdbId(
                 media = media,
                 apiKey = apiKey,
             ) ?: return media
@@ -107,6 +107,179 @@ object RichDetailsClient {
             networks = media.networks.ifEmpty { networks },
         )
     }
+
+    private suspend fun resolveTmdbId(
+        media: MediaItem,
+        apiKey: String,
+    ): String? {
+        TmdbResolver.resolve(
+            media = media,
+            apiKey = apiKey,
+        )?.let {
+            return it
+        }
+
+        val embeddedImdbId =
+            Regex("""tt\d{5,}""")
+                .find(media.id)
+                ?.value
+
+        if (embeddedImdbId != null) {
+            TmdbResolver.resolve(
+                media =
+                    media.copy(
+                        id = embeddedImdbId
+                    ),
+                apiKey = apiKey,
+            )?.let {
+                return it
+            }
+        }
+
+        val query =
+            media.name
+                .trim()
+                .takeIf {
+                    it.isNotBlank()
+                }
+                ?: return null
+
+        val isSeries =
+            media.type == "series"
+
+        val namespace =
+            if (isSeries) {
+                "tv"
+            } else {
+                "movie"
+            }
+
+        val year =
+            media.releaseInfo
+                ?.let {
+                    Regex("""\b(19|20)\d{2}\b""")
+                        .find(it)
+                        ?.value
+                }
+
+        val yearParameter =
+            if (year == null) {
+                ""
+            } else if (isSeries) {
+                "&first_air_date_year=" +
+                    Uri.encode(year)
+            } else {
+                "&year=" +
+                    Uri.encode(year)
+            }
+
+        val url =
+            "$TMDB_BASE/search/$namespace" +
+                "?api_key=${Uri.encode(apiKey.trim())}" +
+                "&query=${Uri.encode(query)}" +
+                yearParameter
+
+        val results =
+            runCatching {
+                JSONObject(
+                    SimpleHttp.get(url)
+                ).optJSONArray("results")
+            }.getOrNull()
+                ?: return null
+
+        if (results.length() == 0) {
+            return null
+        }
+
+        val normalizedQuery =
+            normalizeTitle(query)
+
+        val titleField =
+            if (isSeries) {
+                "name"
+            } else {
+                "title"
+            }
+
+        val dateField =
+            if (isSeries) {
+                "first_air_date"
+            } else {
+                "release_date"
+            }
+
+        val best =
+            (0 until results.length())
+                .mapNotNull { index ->
+                    results.optJSONObject(index)
+                }
+                .maxByOrNull { candidate ->
+                    val candidateTitle =
+                        normalizeTitle(
+                            candidate.optString(
+                                titleField
+                            )
+                        )
+
+                    val titleScore =
+                        when {
+                            candidateTitle ==
+                                normalizedQuery -> 100
+                            candidateTitle.contains(
+                                normalizedQuery
+                            ) ||
+                                normalizedQuery.contains(
+                                    candidateTitle
+                                ) -> 55
+                            else -> 0
+                        }
+
+                    val candidateYear =
+                        candidate.optString(
+                            dateField
+                        ).take(4)
+
+                    val yearScore =
+                        if (
+                            year != null &&
+                            candidateYear == year
+                        ) {
+                            25
+                        } else {
+                            0
+                        }
+
+                    val popularityScore =
+                        candidate
+                            .optDouble(
+                                "popularity",
+                                0.0,
+                            )
+                            .coerceAtMost(100.0)
+                            .toInt() / 10
+
+                    titleScore +
+                        yearScore +
+                        popularityScore
+                }
+                ?: return null
+
+        return best
+            .optLong("id", -1L)
+            .takeIf {
+                it > 0L
+            }
+            ?.toString()
+    }
+
+    private fun normalizeTitle(
+        value: String,
+    ): String =
+        value.lowercase()
+            .replace(
+                Regex("""[^a-z0-9]+"""),
+                "",
+            )
 
     private fun mergeCast(
         existing: List<MediaPerson>,

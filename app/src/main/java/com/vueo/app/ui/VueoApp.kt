@@ -5508,8 +5508,10 @@ private fun MediaDetailsScreen(
             }
 
         val coreItem =
-            engine.loadMeta(
-                preparedItem
+            normalizeSeriesEpisodes(
+                engine.loadMeta(
+                    preparedItem
+                )
             )
 
         item =
@@ -7074,6 +7076,88 @@ private fun DetailsLoadingSkeleton() {
                 VueoPalette.Surface,
         ) {}
     }
+}
+
+private fun normalizeSeriesEpisodes(
+    media: MediaItem,
+): MediaItem {
+    if (
+        media.type != "series" ||
+        media.episodes.isEmpty()
+    ) {
+        return media
+    }
+
+    val normalized =
+        media.episodes.map { episode ->
+            val idParts =
+                episode.id.split(":")
+
+            val idSeason =
+                idParts
+                    .getOrNull(
+                        idParts.lastIndex - 1
+                    )
+                    ?.toIntOrNull()
+
+            val idEpisode =
+                idParts
+                    .lastOrNull()
+                    ?.toIntOrNull()
+
+            episode.copy(
+                season =
+                    when {
+                        episode.season > 0 ->
+                            episode.season
+                        idSeason != null &&
+                            idSeason > 0 ->
+                            idSeason
+                        else ->
+                            episode.season
+                    },
+                episode =
+                    when {
+                        episode.episode > 0 ->
+                            episode.episode
+                        idEpisode != null &&
+                            idEpisode > 0 ->
+                            idEpisode
+                        else ->
+                            episode.episode
+                    },
+            )
+        }
+
+    val finalEpisodes =
+        if (
+            normalized.isNotEmpty() &&
+            normalized.none {
+                it.season > 0
+            } &&
+            normalized.all {
+                it.season == 0
+            }
+        ) {
+            normalized.map {
+                it.copy(
+                    season = 1
+                )
+            }
+        } else {
+            normalized
+        }
+
+    return media.copy(
+        episodes =
+            finalEpisodes.sortedWith(
+                compareBy<EpisodeItem> {
+                    it.season
+                }.thenBy {
+                    it.episode
+                }
+            )
+    )
 }
 
 private fun baseDetailsRatings(
