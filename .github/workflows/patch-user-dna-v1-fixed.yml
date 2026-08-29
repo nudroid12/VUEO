@@ -1,0 +1,884 @@
+name: Patch User DNA v1 Fixed
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch current VueoApp
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("app/src/main/java/com/vueo/app/ui/VueoApp.kt")
+          text = path.read_text(encoding="utf-8")
+          original = text
+          more_like_before = text.count('"More Like This"')
+
+          def fail(message):
+              raise SystemExit(f"Patch sanity failed: {message}")
+
+          def require(condition, message):
+              if not condition:
+                  fail(message)
+
+          def function_slice(source, start_marker, end_marker):
+              start = source.find(start_marker)
+              require(start >= 0, f"missing start marker: {start_marker}")
+              end = source.find(end_marker, start)
+              require(end >= 0, f"missing end marker after {start_marker}: {end_marker}")
+              return start, end, source[start:end]
+
+          # --------------------------------------------------------------
+          # Imports
+          # --------------------------------------------------------------
+          import_anchor = "import com.vueo.app.core.model.CatalogRow\n"
+          require(import_anchor in text, "CatalogRow import anchor missing")
+
+          dna_imports = (
+              "import com.vueo.app.core.dna.UserDnaEngine\n"
+              "import com.vueo.app.core.dna.UserDnaPreferences\n"
+          )
+
+          if "import com.vueo.app.core.dna.UserDnaEngine\n" not in text:
+              text = text.replace(
+                  import_anchor,
+                  dna_imports + import_anchor,
+                  1,
+              )
+
+          # --------------------------------------------------------------
+          # HomeScreen
+          # --------------------------------------------------------------
+          home_start, home_end, home = function_slice(
+              text,
+              "@Composable\nprivate fun HomeScreen(",
+              "@Composable\nprivate fun HomeFeaturedCarousel(",
+          )
+
+          if "val personalizedHomeEnabled =" not in home:
+              insert_at = home.find("    val listState =")
+              require(insert_at >= 0, "Home listState marker missing")
+
+              home_state = r'''    val profileStore =
+                  remember {
+                      ProfileStore(
+                          context.applicationContext
+                      )
+                  }
+
+              val dnaPreferences =
+                  remember {
+                      UserDnaPreferences(
+                          context.applicationContext
+                      )
+                  }
+
+              val dnaEngine =
+                  remember(
+                      libraryStore
+                  ) {
+                      UserDnaEngine(
+                          libraryStore
+                      )
+                  }
+
+              val activeProfileId =
+                  remember(
+                      libraryVersion
+                  ) {
+                      profileStore
+                          .activeProfileId()
+                  }
+
+              val personalizedHomeEnabled =
+                  dnaPreferences
+                      .shouldPersonalizeRecommendations(
+                          activeProfileId
+                      )
+
+              '''
+
+              home = (
+                  home[:insert_at] +
+                  home_state +
+                  home[insert_at:]
+              )
+
+          if "val forYouItems =" not in home:
+              lazy_index = home.find("    LazyColumn(")
+              require(lazy_index >= 0, "Home LazyColumn marker missing")
+
+              recommendation_state = r'''    val watchHistory =
+                  remember(
+                      libraryVersion
+                  ) {
+                      libraryStore.history()
+                  }
+
+              val dnaSnapshot =
+                  remember(
+                      activeProfileId,
+                      libraryVersion,
+                      personalizedHomeEnabled,
+                  ) {
+                      if (
+                          personalizedHomeEnabled
+                      ) {
+                          dnaEngine.build()
+                      } else {
+                          null
+                      }
+                  }
+
+              val catalogCandidates =
+                  remember(rows) {
+                      rows
+                          .asSequence()
+                          .flatMap {
+                              it.items.asSequence()
+                          }
+                          .distinctBy {
+                              "${it.type}:${it.id}"
+                          }
+                          .toList()
+                  }
+
+              val watchedTitleKeys =
+                  remember(
+                      watchHistory
+                  ) {
+                      watchHistory
+                          .asSequence()
+                          .map {
+                              "${it.media.type}:${it.media.id}"
+                          }
+                          .toSet()
+                  }
+
+              val forYouItems =
+                  remember(
+                      catalogCandidates,
+                      dnaSnapshot,
+                      watchedTitleKeys,
+                      personalizedHomeEnabled,
+                  ) {
+                      val snapshot =
+                          dnaSnapshot
+
+                      if (
+                          !personalizedHomeEnabled ||
+                          snapshot == null ||
+                          !snapshot.hasUsefulData
+                      ) {
+                          emptyList()
+                      } else {
+                          catalogCandidates
+                              .asSequence()
+                              .filterNot {
+                                  "${it.type}:${it.id}" in
+                                      watchedTitleKeys
+                              }
+                              .mapNotNull {
+                                  candidate ->
+                                  dnaEngine
+                                      .matchPercent(
+                                          media =
+                                              candidate,
+                                          dna =
+                                              snapshot,
+                                      )
+                                      ?.takeIf {
+                                          it >= 55
+                                      }
+                                      ?.let {
+                                          score ->
+                                          candidate to score
+                                      }
+                              }
+                              .sortedByDescending {
+                                  it.second
+                              }
+                              .take(12)
+                              .map {
+                                  it.first
+                              }
+                              .toList()
+                      }
+                  }
+
+              val becauseYouWatchedSeed =
+                  remember(
+                      watchHistory,
+                      personalizedHomeEnabled,
+                  ) {
+                      if (
+                          !personalizedHomeEnabled
+                      ) {
+                          null
+                      } else {
+                          watchHistory
+                              .asSequence()
+                              .filter {
+                                  entry ->
+                                  entry.isCompleted ||
+                                      entry.positionMs >=
+                                          120_000L ||
+                                      entry.progressFraction >=
+                                          .20f
+                              }
+                              .distinctBy {
+                                  entry ->
+                                  "${entry.media.type}:${entry.media.id}"
+                              }
+                              .firstOrNull()
+                              ?.media
+                      }
+                  }
+
+              val becauseYouWatchedItems =
+                  remember(
+                      becauseYouWatchedSeed,
+                      catalogCandidates,
+                      watchedTitleKeys,
+                      forYouItems,
+                      personalizedHomeEnabled,
+                  ) {
+                      val seed =
+                          becauseYouWatchedSeed
+
+                      if (
+                          !personalizedHomeEnabled ||
+                          seed == null
+                      ) {
+                          emptyList()
+                      } else {
+                          val seedGenres =
+                              seed.genres
+                                  .map {
+                                      it.trim()
+                                          .lowercase()
+                                  }
+                                  .filter {
+                                      it.isNotBlank()
+                                  }
+                                  .toSet()
+
+                          val related =
+                              CatalogDiscoveryCache
+                                  .related(
+                                      seed,
+                                      limit = 30,
+                                  )
+
+                          val fallback =
+                              catalogCandidates
+                                  .filter {
+                                      candidate ->
+                                      candidate.type ==
+                                          seed.type &&
+                                          candidate.genres
+                                              .any {
+                                                  genre ->
+                                                  genre.trim()
+                                                      .lowercase() in
+                                                      seedGenres
+                                              }
+                                  }
+
+                          val forYouKeys =
+                              forYouItems
+                                  .asSequence()
+                                  .map {
+                                      "${it.type}:${it.id}"
+                                  }
+                                  .toSet()
+
+                          (
+                              related +
+                                  fallback
+                          )
+                              .asSequence()
+                              .distinctBy {
+                                  "${it.type}:${it.id}"
+                              }
+                              .filterNot {
+                                  candidate ->
+                                  val key =
+                                      "${candidate.type}:${candidate.id}"
+
+                                  key ==
+                                      "${seed.type}:${seed.id}" ||
+                                      key in
+                                          watchedTitleKeys ||
+                                      key in
+                                          forYouKeys
+                              }
+                              .take(12)
+                              .toList()
+                      }
+                  }
+
+              '''
+
+              home = (
+                  home[:lazy_index] +
+                  recommendation_state +
+                  home[lazy_index:]
+              )
+
+          if '"home_for_you"' not in home:
+              catalog_items_marker = (
+                  "        items(\n"
+                  "            items = rows,"
+              )
+              insert_at = home.find(catalog_items_marker)
+              require(
+                  insert_at >= 0,
+                  "Home catalog items marker missing",
+              )
+
+              personalized_rows = r'''        if (
+                  forYouItems.size >= 4
+              ) {
+                  item(
+                      key =
+                          "home_for_you"
+                  ) {
+                      HomePersonalizedSection(
+                          title =
+                              "For You",
+                          contextLabel =
+                              "Your DNA",
+                          items =
+                              forYouItems,
+                          onMediaClick =
+                              onMediaClick,
+                      )
+                  }
+              }
+
+              if (
+                  becauseYouWatchedSeed !=
+                      null &&
+                  becauseYouWatchedItems
+                      .size >= 4
+              ) {
+                  item(
+                      key =
+                          "home_because_you_watched"
+                  ) {
+                      HomePersonalizedSection(
+                          title =
+                              "Because You Watched " +
+                                  becauseYouWatchedSeed
+                                      .name,
+                          contextLabel =
+                              "Recent viewing",
+                          items =
+                              becauseYouWatchedItems,
+                          onMediaClick =
+                              onMediaClick,
+                      )
+                  }
+              }
+
+              '''
+
+              home = (
+                  home[:insert_at] +
+                  personalized_rows +
+                  home[insert_at:]
+              )
+
+          text = (
+              text[:home_start] +
+              home +
+              text[home_end:]
+          )
+
+          # --------------------------------------------------------------
+          # Home personalized row component
+          # --------------------------------------------------------------
+          if "private fun HomePersonalizedSection(" not in text:
+              component_anchor = (
+                  "@Composable\n"
+                  "private fun CatalogSection("
+              )
+              insert_at = text.find(component_anchor)
+              require(
+                  insert_at >= 0,
+                  "CatalogSection component anchor missing",
+              )
+
+              component = r'''@Composable
+          private fun HomePersonalizedSection(
+              title: String,
+              contextLabel: String,
+              items: List<MediaItem>,
+              onMediaClick:
+                  (MediaItem) -> Unit,
+          ) {
+              Column(
+                  verticalArrangement =
+                      Arrangement.spacedBy(
+                          10.dp
+                      ),
+              ) {
+                  HomeSectionHeader(
+                      title = title,
+                      contextLabel =
+                          contextLabel,
+                  )
+
+                  LazyRow(
+                      contentPadding =
+                          PaddingValues(
+                              horizontal =
+                                  16.dp
+                          ),
+                      horizontalArrangement =
+                          Arrangement.spacedBy(
+                              10.dp
+                          ),
+                  ) {
+                      items(
+                          items = items,
+                          key = {
+                              "personalized:${it.type}:${it.id}"
+                          },
+                      ) {
+                          item ->
+                          MediaPoster(
+                              item = item,
+                              onClick = {
+                                  onMediaClick(
+                                      item
+                                  )
+                              },
+                          )
+                      }
+                  }
+              }
+          }
+
+          '''
+
+              text = (
+                  text[:insert_at] +
+                  component +
+                  text[insert_at:]
+              )
+
+          # --------------------------------------------------------------
+          # MediaDetailsScreen
+          # --------------------------------------------------------------
+          details_start, details_end, details = function_slice(
+              text,
+              "@Composable\nprivate fun MediaDetailsScreen(",
+              "@Composable\nprivate fun DetailsLoadingSkeleton(",
+          )
+
+          if "val detailsDnaPreferences =" not in details:
+              insert_at = details.find("    val pluginEngine = remember")
+              require(
+                  insert_at >= 0,
+                  "Details pluginEngine marker missing",
+              )
+
+              details_state = r'''    val detailsProfileStore =
+                  remember {
+                      ProfileStore(
+                          context.applicationContext
+                      )
+                  }
+
+              val detailsDnaPreferences =
+                  remember {
+                      UserDnaPreferences(
+                          context.applicationContext
+                      )
+                  }
+
+              val detailsDnaEngine =
+                  remember(
+                      libraryStore
+                  ) {
+                      UserDnaEngine(
+                          libraryStore
+                      )
+                  }
+
+              val detailsProfileId =
+                  remember {
+                      detailsProfileStore
+                          .activeProfileId()
+                  }
+
+              val showDnaMatch =
+                  detailsDnaPreferences
+                      .shouldShowDnaMatch(
+                          detailsProfileId
+                      )
+
+              val detailsDnaSnapshot =
+                  remember(
+                      detailsProfileId,
+                      showDnaMatch,
+                      initialItem.id,
+                      initialItem.type,
+                  ) {
+                      if (
+                          showDnaMatch
+                      ) {
+                          detailsDnaEngine
+                              .build()
+                      } else {
+                          null
+                      }
+                  }
+
+              '''
+
+              details = (
+                  details[:insert_at] +
+                  details_state +
+                  details[insert_at:]
+              )
+
+          if "val dnaMatchPercent =" not in details:
+              detail_facts_index = details.find("    val detailFacts =")
+              require(
+                  detail_facts_index >= 0,
+                  "detailFacts marker missing",
+              )
+
+              lazy_index = details.find(
+                  "    LazyColumn(",
+                  detail_facts_index,
+              )
+              require(
+                  lazy_index >= 0,
+                  "Details main LazyColumn marker missing",
+              )
+
+              dna_match_state = r'''    val dnaMatchPercent =
+                  if (
+                      !loadingMeta &&
+                      showDnaMatch &&
+                      detailsDnaSnapshot
+                          ?.hasUsefulData ==
+                          true
+                  ) {
+                      detailsDnaEngine
+                          .matchPercent(
+                              media = item,
+                              dna =
+                                  detailsDnaSnapshot,
+                          )
+                  } else {
+                      null
+                  }
+
+              '''
+
+              details = (
+                  details[:lazy_index] +
+                  dna_match_state +
+                  details[lazy_index:]
+              )
+
+          if '"details_dna_match"' not in details:
+              loading_block = (
+                  "        if (loadingMeta) {\n"
+                  "            item {\n"
+                  "                DetailsLoadingSkeleton()\n"
+                  "            }\n"
+                  "        }\n"
+              )
+              insert_at = details.find(loading_block)
+              require(
+                  insert_at >= 0,
+                  "Details loading block marker missing",
+              )
+              insert_at += len(loading_block)
+
+              dna_match_ui = r'''        if (
+                  dnaMatchPercent !=
+                      null
+              ) {
+                  item(
+                      key =
+                          "details_dna_match"
+                  ) {
+                      DetailsDnaMatchCard(
+                          percent =
+                              dnaMatchPercent
+                      )
+                  }
+              }
+
+              '''
+
+              details = (
+                  details[:insert_at] +
+                  dna_match_ui +
+                  details[insert_at:]
+              )
+
+          text = (
+              text[:details_start] +
+              details +
+              text[details_end:]
+          )
+
+          # --------------------------------------------------------------
+          # Details DNA card component
+          # --------------------------------------------------------------
+          if "private fun DetailsDnaMatchCard(" not in text:
+              component_anchor = (
+                  "@Composable\n"
+                  "private fun DetailsFactsRow("
+              )
+              insert_at = text.find(component_anchor)
+              require(
+                  insert_at >= 0,
+                  "DetailsFactsRow component anchor missing",
+              )
+
+              component = r'''@Composable
+          private fun DetailsDnaMatchCard(
+              percent: Int,
+          ) {
+              Surface(
+                  modifier =
+                      Modifier
+                          .fillMaxWidth()
+                          .padding(
+                              horizontal =
+                                  18.dp
+                          ),
+                  shape =
+                      RoundedCornerShape(
+                          16.dp
+                      ),
+                  color =
+                      VueoPalette.Accent
+                          .copy(
+                              alpha = .08f
+                          ),
+                  border =
+                      androidx.compose
+                          .foundation
+                          .BorderStroke(
+                              width = 1.dp,
+                              color =
+                                  VueoPalette.Accent
+                                      .copy(
+                                          alpha = .22f
+                                      ),
+                          ),
+              ) {
+                  Row(
+                      modifier =
+                          Modifier.padding(
+                              horizontal =
+                                  14.dp,
+                              vertical =
+                                  12.dp,
+                          ),
+                      verticalAlignment =
+                          Alignment.CenterVertically,
+                  ) {
+                      Column(
+                          modifier =
+                              Modifier.weight(
+                                  1f
+                              ),
+                          verticalArrangement =
+                              Arrangement.spacedBy(
+                                  3.dp
+                              ),
+                      ) {
+                          Text(
+                              text =
+                                  "YOUR DNA",
+                              color =
+                                  VueoPalette.Accent,
+                              fontSize = 9.sp,
+                              fontWeight =
+                                  FontWeight.Black,
+                              letterSpacing =
+                                  1.2.sp,
+                          )
+
+                          Text(
+                              text =
+                                  "Based on your local viewing profile",
+                              color =
+                                  VueoPalette.Muted,
+                              fontSize = 10.sp,
+                          )
+                      }
+
+                      Text(
+                          text =
+                              "$percent% Match",
+                          color =
+                              VueoPalette.Accent,
+                          fontSize = 17.sp,
+                          fontWeight =
+                              FontWeight.Black,
+                      )
+                  }
+              }
+          }
+
+          '''
+
+              text = (
+                  text[:insert_at] +
+                  component +
+                  text[insert_at:]
+              )
+
+          # --------------------------------------------------------------
+          # Final sanity
+          # --------------------------------------------------------------
+          required = [
+              "import com.vueo.app.core.dna.UserDnaEngine",
+              "import com.vueo.app.core.dna.UserDnaPreferences",
+              "shouldPersonalizeRecommendations(",
+              "val forYouItems =",
+              '"home_for_you"',
+              '"home_because_you_watched"',
+              "private fun HomePersonalizedSection(",
+              "shouldShowDnaMatch(",
+              "val dnaMatchPercent =",
+              '"details_dna_match"',
+              "private fun DetailsDnaMatchCard(",
+          ]
+
+          missing = [
+              marker
+              for marker in required
+              if marker not in text
+          ]
+
+          require(
+              not missing,
+              f"missing markers after patch: {missing}",
+          )
+
+          require(
+              text.count(
+                  "private fun HomePersonalizedSection("
+              ) == 1,
+              "duplicate HomePersonalizedSection",
+          )
+
+          require(
+              text.count(
+                  "private fun DetailsDnaMatchCard("
+              ) == 1,
+              "duplicate DetailsDnaMatchCard",
+          )
+
+          require(
+              more_like_before > 0,
+              "More Like This missing before patch",
+          )
+
+          require(
+              text.count('"More Like This"') ==
+                  more_like_before,
+              "More Like This was unexpectedly changed",
+          )
+
+          require(
+              text != original,
+              "patch produced no changes",
+          )
+
+          path.write_text(
+              text,
+              encoding="utf-8",
+          )
+
+          print("User DNA v1 fixed patch applied.")
+          print(
+              "Home For You:",
+              text.count('"home_for_you"'),
+          )
+          print(
+              "Home Because You Watched:",
+              text.count(
+                  '"home_because_you_watched"'
+              ),
+          )
+          print(
+              "Details DNA Match:",
+              text.count(
+                  '"details_dna_match"'
+              ),
+          )
+          print(
+              "More Like This preserved:",
+              text.count('"More Like This"'),
+          )
+          PY
+
+      - name: Validate patch markers
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FILE="app/src/main/java/com/vueo/app/ui/VueoApp.kt"
+
+          grep -q 'home_for_you' "$FILE"
+          grep -q 'home_because_you_watched' "$FILE"
+          grep -q 'details_dna_match' "$FILE"
+          grep -q 'shouldShowDnaMatch' "$FILE"
+          grep -q 'shouldPersonalizeRecommendations' "$FILE"
+          grep -q '"More Like This"' "$FILE"
+
+          echo "Patch markers validated."
+
+      - name: Compile Kotlin
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew :app:compileDebugKotlin --stacktrace
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add app/src/main/java/com/vueo/app/ui/VueoApp.kt
+          git commit -m "feat: add User DNA personalization v1"
+          git push origin HEAD:main
