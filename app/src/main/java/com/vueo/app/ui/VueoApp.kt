@@ -3159,8 +3159,7 @@ private fun SearchScreen(
                 .fillMaxSize()
                 .background(
                     VueoPalette.Background
-                )
-                .statusBarsPadding(),
+                ),
         contentPadding =
             PaddingValues(
                 bottom = 30.dp
@@ -3189,7 +3188,7 @@ private fun SearchScreen(
                 Text(
                     text = "Search",
                     color = Color.White,
-                    fontSize = 34.sp,
+                    fontSize = 40.sp,
                     fontWeight =
                         FontWeight.Black,
                 )
@@ -4011,7 +4010,7 @@ private fun LibraryScreen(
                         ),
                 ) {
                     LibraryTab(
-                        label = "Saved",
+                        label = "My List",
                         selected =
                             !cloudSelected,
                         onClick = {
@@ -4041,7 +4040,7 @@ private fun LibraryScreen(
                     title =
                         "Cloud library",
                     body =
-                        "Cloud sync is not connected yet. Your locally saved titles stay available in Saved.",
+                        "Cloud sync is not connected yet. Your locally saved titles stay available in My List.",
                 )
             }
         } else if (
@@ -4054,7 +4053,7 @@ private fun LibraryScreen(
                     title =
                         "Your library is empty",
                     body =
-                        "Saved titles will appear here after you tap Save on a details screen.",
+                        "Titles added to My List will appear here.",
                 )
             }
         } else if (gridView) {
