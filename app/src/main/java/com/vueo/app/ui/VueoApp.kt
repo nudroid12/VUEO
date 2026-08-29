@@ -12100,86 +12100,7 @@ private fun PlayerScreen(
                     durationMs,
                     controlsLocked,
                 ) {
-                    if (
-            sourceHudVisible &&
-            !controlsVisible &&
-            !controlsLocked
-        ) {
-            Surface(
-                modifier =
-                    Modifier
-                        .align(
-                            Alignment.BottomEnd
-                        )
-                        .padding(18.dp),
-                shape =
-                    RoundedCornerShape(
-                        14.dp
-                    ),
-                color =
-                    Color.Black.copy(
-                        alpha = .66f
-                    ),
-                border =
-                    androidx.compose
-                        .foundation
-                        .BorderStroke(
-                            1.dp,
-                            VueoPalette.Accent
-                                .copy(alpha = .35f),
-                        ),
-            ) {
-                Column(
-                    modifier =
-                        Modifier.padding(
-                            horizontal = 13.dp,
-                            vertical = 9.dp,
-                        ),
-                    verticalArrangement =
-                        Arrangement.spacedBy(1.dp),
-                ) {
-                    Text(
-                        "SOURCE",
-                        color =
-                            VueoPalette.Accent,
-                        fontSize = 8.sp,
-                        fontWeight =
-                            FontWeight.Black,
-                        letterSpacing = .8.sp,
-                    )
-
-                    Text(
-                        playerSourcePrimaryLabel(
-                            source
-                        ),
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight =
-                            FontWeight.Bold,
-                        maxLines = 1,
-                    )
-
-                    playerSourceTechnicalLabel(
-                        source
-                    )
-                        .takeIf {
-                            it.isNotBlank()
-                        }
-                        ?.let {
-                            technical ->
-                            Text(
-                                technical,
-                                color =
-                                    VueoPalette.Muted,
-                                fontSize = 9.sp,
-                                maxLines = 1,
-                            )
-                        }
-                }
-            }
-        }
-
-        if (controlsLocked) {
+                    if (controlsLocked) {
                         return@pointerInput
                     }
 
@@ -13098,6 +13019,85 @@ private fun PlayerScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+
+        if (
+            sourceHudVisible &&
+            !controlsVisible &&
+            !controlsLocked
+        ) {
+            Surface(
+                modifier =
+                    Modifier
+                        .align(
+                            Alignment.BottomEnd
+                        )
+                        .padding(18.dp),
+                shape =
+                    RoundedCornerShape(
+                        14.dp
+                    ),
+                color =
+                    Color.Black.copy(
+                        alpha = .66f
+                    ),
+                border =
+                    androidx.compose
+                        .foundation
+                        .BorderStroke(
+                            1.dp,
+                            VueoPalette.Accent
+                                .copy(alpha = .35f),
+                        ),
+            ) {
+                Column(
+                    modifier =
+                        Modifier.padding(
+                            horizontal = 13.dp,
+                            vertical = 9.dp,
+                        ),
+                    verticalArrangement =
+                        Arrangement.spacedBy(1.dp),
+                ) {
+                    Text(
+                        "SOURCE",
+                        color =
+                            VueoPalette.Accent,
+                        fontSize = 8.sp,
+                        fontWeight =
+                            FontWeight.Black,
+                        letterSpacing = .8.sp,
+                    )
+
+                    Text(
+                        playerSourcePrimaryLabel(
+                            source
+                        ),
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight =
+                            FontWeight.Bold,
+                        maxLines = 1,
+                    )
+
+                    playerSourceTechnicalLabel(
+                        source
+                    )
+                        .takeIf {
+                            it.isNotBlank()
+                        }
+                        ?.let {
+                            technical ->
+                            Text(
+                                technical,
+                                color =
+                                    VueoPalette.Muted,
+                                fontSize = 9.sp,
+                                maxLines = 1,
+                            )
+                        }
                 }
             }
         }
