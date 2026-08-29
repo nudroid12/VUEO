@@ -11799,9 +11799,9 @@ private fun PlayerScreen(
                     modifier =
                         Modifier.heightIn(
                             max = 420.dp
-                        ),
-                    verticalArrangement =
-                        Arrangement.spacedBy(6.dp),
+                ),
+                verticalArrangement =
+                    Arrangement.spacedBy(6.dp),
                 ) {
                     items(
                         playableSources,
@@ -12524,9 +12524,9 @@ private fun PlayerScreen(
                     .padding(
                         horizontal = 24.dp,
                         vertical = 16.dp,
-                    ),
+                ),
                 verticalArrangement =
-                    Arrangement.spacedBy(6.dp),
+                    Arrangement.spacedBy(2.dp),
             ) {
                 playbackError?.let { error ->
                     Surface(
@@ -12662,7 +12662,7 @@ private fun PlayerScreen(
                             .toFloat(),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(24.dp),
+                        .height(16.dp),
                     thumb = {
                         Box(
                             modifier = Modifier
@@ -12723,8 +12723,7 @@ private fun PlayerScreen(
 
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 2.dp),
+                        .fillMaxWidth(),
                     contentAlignment = Alignment.Center,
                 ) {
                     Surface(
