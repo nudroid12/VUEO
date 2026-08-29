@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,7 +56,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -103,22 +106,26 @@ internal fun VueoSettingsHub(
     val pluginStore = remember {
         PluginStore(context.applicationContext)
     }
-
     val addons = engine.stremioAddons()
     val repositories = pluginStore.repositories()
     val providers = pluginStore.totalProviderCount()
-    val tmdbConfigured = pluginStore.tmdbApiKey().isNotBlank()
-    val mdblistConfigured = settingsStore.mdblistApiKey().isNotBlank()
+    val tmdbConfigured =
+        pluginStore.tmdbApiKey().isNotBlank()
+    val mdblistConfigured =
+        settingsStore.mdblistApiKey().isNotBlank()
     val updateStore = remember {
         VueoUpdateStore(context.applicationContext)
     }
-    val latestUpdate = updateStore.latestRelease()
+    val latestUpdate =
+        updateStore.latestRelease()
+
     val activeProfile =
         remember(
             profileVersion
         ) {
             profileStore.activeProfile()
         }
+
     val profileCount =
         remember(
             profileVersion
@@ -126,84 +133,222 @@ internal fun VueoSettingsHub(
             profileStore.profiles().size
         }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(VueoPalette.Background),
-        contentPadding = PaddingValues(
-            horizontal = 20.dp,
-            vertical = 20.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+    val avatarDrawable =
+        remember(
+            activeProfile.avatar,
+            context,
+        ) {
+            if (
+                activeProfile.avatar
+                    .startsWith("avatar_")
             ) {
-                VueoBrandLockup(compact = true)
-                VueoSettingsTitle(
-                    title = "Settings",
-                    subtitle = "Profiles, sources, playback, appearance, data and VUEO services.",
+                context.resources
+                    .getIdentifier(
+                        activeProfile.avatar,
+                        "drawable",
+                        context.packageName,
+                    )
+                    .takeIf {
+                        it != 0
+                    }
+            } else {
+                null
+            }
+        }
+
+    LazyColumn(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(
+                    VueoPalette.Background
+                ),
+        contentPadding =
+            PaddingValues(
+                start = 20.dp,
+                end = 20.dp,
+                top = 24.dp,
+                bottom = 32.dp,
+            ),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                12.dp
+            ),
+    ) {
+        item(
+            key = "settings-header"
+        ) {
+            Column {
+                Text(
+                    text = "Settings",
+                    color = Color.White,
+                    fontSize = 34.sp,
+                    fontWeight =
+                        FontWeight.Black,
+                )
+
+                Spacer(
+                    Modifier.height(
+                        8.dp
+                    )
                 )
             }
         }
 
-        item {
+        item(
+            key = "settings-profile"
+        ) {
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onProfiles),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = VueoPalette.SurfaceElevated,
-                ),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            onClick = onProfiles
+                        ),
+                shape =
+                    RoundedCornerShape(
+                        18.dp
+                    ),
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor =
+                            VueoPalette
+                                .SurfaceElevated,
+                    ),
             ) {
                 Row(
-                    modifier = Modifier.padding(18.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier =
+                        Modifier.padding(
+                            horizontal = 14.dp,
+                            vertical = 12.dp,
+                        ),
+                    verticalAlignment =
+                        Alignment.CenterVertically,
                 ) {
                     Box(
-                        modifier = Modifier
-                            .size(58.dp)
-                            .clip(RoundedCornerShape(50))
-                            .background(VueoPalette.SurfaceStrong),
-                        contentAlignment = Alignment.Center,
+                        modifier =
+                            Modifier
+                                .size(
+                                    48.dp
+                                )
+                                .clip(
+                                    RoundedCornerShape(
+                                        50
+                                    )
+                                )
+                                .background(
+                                    VueoPalette
+                                        .SurfaceStrong
+                                ),
+                        contentAlignment =
+                            Alignment.Center,
                     ) {
-                        Text(
-                            activeProfile.avatar,
-                            fontSize = 24.sp,
-                        )
+                        if (
+                            avatarDrawable != null
+                        ) {
+                            Image(
+                                painter =
+                                    painterResource(
+                                        avatarDrawable
+                                    ),
+                                contentDescription =
+                                    activeProfile.name,
+                                contentScale =
+                                    ContentScale.Crop,
+                                modifier =
+                                    Modifier
+                                        .fillMaxSize(),
+                            )
+                        } else {
+                            Text(
+                                text =
+                                    activeProfile.name
+                                        .trim()
+                                        .firstOrNull()
+                                        ?.uppercase()
+                                        ?: "P",
+                                color =
+                                    Color.White,
+                                fontSize = 17.sp,
+                                fontWeight =
+                                    FontWeight.Bold,
+                            )
+                        }
                     }
 
-                    Spacer(Modifier.width(14.dp))
+                    Spacer(
+                        Modifier.width(
+                            12.dp
+                        )
+                    )
 
                     Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                        modifier =
+                            Modifier.weight(
+                                1f
+                            ),
+                        verticalArrangement =
+                            Arrangement.spacedBy(
+                                2.dp
+                            ),
                     ) {
                         Text(
-                            activeProfile.name,
+                            text =
+                                activeProfile.name,
                             color = Color.White,
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.Black,
+                            fontSize = 17.sp,
+                            fontWeight =
+                                FontWeight.Black,
                         )
+
                         Text(
-                            "${if (activeProfile.isKids) "Kids profile" else "Local profile"} • $profileCount ${if (profileCount == 1) "profile" else "profiles"}",
-                            color = VueoPalette.Muted,
+                            text =
+                                buildString {
+                                    append(
+                                        if (
+                                            activeProfile
+                                                .isKids
+                                        ) {
+                                            "Kids profile"
+                                        } else {
+                                            "Local profile"
+                                        }
+                                    )
+                                    append(" • ")
+                                    append(profileCount)
+                                    append(
+                                        if (
+                                            profileCount == 1
+                                        ) {
+                                            " profile"
+                                        } else {
+                                            " profiles"
+                                        }
+                                    )
+                                },
+                            color =
+                                VueoPalette.Muted,
                             fontSize = 11.sp,
                         )
+
                         Text(
-                            "Manage Profiles",
-                            color = VueoPalette.Accent,
+                            text =
+                                "Manage Profiles",
+                            color =
+                                Color.White.copy(
+                                    alpha = .90f
+                                ),
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight =
+                                FontWeight.Bold,
                         )
                     }
 
                     Text(
-                        "›",
-                        color = VueoPalette.Muted,
-                        fontSize = 28.sp,
+                        text = "›",
+                        color =
+                            VueoPalette.Muted,
+                        fontSize = 24.sp,
                     )
                 }
             }
@@ -212,114 +357,218 @@ internal fun VueoSettingsHub(
         item {
             VueoSettingsNavigationCard(
                 title = "Content Manager",
-                subtitle = "Addons, repositories, providers, health, and diagnostics.",
-                status = "${addons.size} addons • ${repositories.size} repos • $providers providers",
-                icon = Icons.Default.Extension,
-                onClick = onContentManager,
+                subtitle =
+                    "Addons, repos & providers.",
+                status =
+                    "${addons.size} addons • " +
+                        "${repositories.size} repos • " +
+                        "$providers providers",
+                icon =
+                    Icons.Default.Extension,
+                onClick =
+                    onContentManager,
+                compact = true,
             )
         }
 
         item {
             VueoSettingsNavigationCard(
                 title = "Enhancements",
-                subtitle = "Optional services that make VUEO richer and more informative.",
-                status = buildString {
-                    append("TMDB ")
-                    append(if (tmdbConfigured) "configured" else "optional")
-                    append(" • MDBList ")
-                    append(if (mdblistConfigured) "configured" else "optional")
-                },
-                icon = Icons.Default.SettingsInputComponent,
-                onClick = onEnhancements,
+                subtitle =
+                    "Metadata & optional services.",
+                status =
+                    buildString {
+                        append("TMDB ")
+                        append(
+                            if (
+                                tmdbConfigured
+                            ) {
+                                "configured"
+                            } else {
+                                "optional"
+                            }
+                        )
+                        append(" • MDBList ")
+                        append(
+                            if (
+                                mdblistConfigured
+                            ) {
+                                "configured"
+                            } else {
+                                "optional"
+                            }
+                        )
+                    },
+                icon =
+                    Icons.Default
+                        .SettingsInputComponent,
+                onClick =
+                    onEnhancements,
+                compact = true,
             )
         }
 
         item {
             VueoSettingsNavigationCard(
                 title = "Playback",
-                subtitle = "Resume behavior and preferred playback quality.",
-                status = "${if (settingsStore.resumePlaybackEnabled()) "Resume on" else "Resume off"} • ${settingsStore.preferredQuality().label}",
-                icon = Icons.Default.PlayArrow,
-                onClick = onPlayback,
+                subtitle =
+                    "Player & streaming preferences.",
+                status =
+                    "${if (settingsStore.resumePlaybackEnabled()) "Resume on" else "Resume off"} • " +
+                        settingsStore
+                            .preferredQuality()
+                            .label,
+                icon =
+                    Icons.Default.PlayArrow,
+                onClick =
+                    onPlayback,
+                compact = true,
             )
         }
 
         item {
             VueoSettingsNavigationCard(
                 title = "Subtitles",
-                subtitle = "Language, automatic selection, default state, and display size.",
-                status = "${settingsStore.preferredSubtitleLanguage().label} • ${if (settingsStore.subtitlesOnByDefault()) "Default on" else "Default off"}",
-                icon = Icons.Default.VideoLibrary,
-                onClick = onSubtitles,
+                subtitle =
+                    "Language & display preferences.",
+                status =
+                    "${settingsStore.preferredSubtitleLanguage().label} • " +
+                        if (
+                            settingsStore
+                                .subtitlesOnByDefault()
+                        ) {
+                            "Default on"
+                        } else {
+                            "Default off"
+                        },
+                icon =
+                    Icons.Default.VideoLibrary,
+                onClick =
+                    onSubtitles,
+                compact = true,
             )
         }
 
         item {
             VueoSettingsNavigationCard(
                 title = "Sources",
-                subtitle = "Smart ranking and source information preferences.",
-                status = if (settingsStore.showSourceTechnicalDetails()) {
-                    "Technical details on"
-                } else {
-                    "Technical details off"
-                },
-                icon = Icons.Default.SettingsInputComponent,
-                onClick = onSources,
+                subtitle =
+                    "Source ranking & information.",
+                status =
+                    if (
+                        settingsStore
+                            .showSourceTechnicalDetails()
+                    ) {
+                        "Technical details on"
+                    } else {
+                        "Technical details off"
+                    },
+                icon =
+                    Icons.Default
+                        .SettingsInputComponent,
+                onClick =
+                    onSources,
+                compact = true,
             )
         }
 
         item {
             VueoSettingsNavigationCard(
                 title = "Appearance",
-                subtitle = "VUEO visual identity and interface preferences.",
-                status = "VUEO Dark • ${settingsStore.appAccent().label} accent",
-                icon = Icons.Default.Settings,
-                onClick = onAppearance,
+                subtitle =
+                    "Interface preferences.",
+                status =
+                    "VUEO Dark • " +
+                        "${settingsStore.appAccent().label} accent",
+                icon =
+                    Icons.Default.Settings,
+                onClick =
+                    onAppearance,
+                compact = true,
             )
         }
 
         item {
             VueoSettingsNavigationCard(
                 title = "Data & Storage",
-                subtitle = "Backup, restore, cache, history, and local data controls.",
-                status = "Backup ready",
-                icon = Icons.Default.VideoLibrary,
-                onClick = onDataStorage,
+                subtitle =
+                    "Backup, history, cache & app data.",
+                status =
+                    "Local device data",
+                icon =
+                    Icons.Default.VideoLibrary,
+                onClick =
+                    onDataStorage,
+                compact = true,
             )
         }
 
         item {
             VueoSettingsNavigationCard(
                 title = "Updates",
-                subtitle = "Version information and update preferences.",
-                status = if (
-                    latestUpdate?.isNewerThanCurrent() == true
-                ) {
-                    "Update ${latestUpdate.versionName} available"
-                } else {
-                    "VUEO ${BuildConfig.VERSION_NAME}"
-                },
-                icon = Icons.Default.Refresh,
-                onClick = onUpdates,
+                subtitle =
+                    "Version & update preferences.",
+                status =
+                    if (
+                        latestUpdate
+                            ?.isNewerThanCurrent() ==
+                            true
+                    ) {
+                        "Update " +
+                            "${latestUpdate.versionName} available"
+                    } else {
+                        "Up to date"
+                    },
+                icon =
+                    Icons.Default.Refresh,
+                onClick =
+                    onUpdates,
+                compact = true,
             )
         }
 
         item {
             VueoSettingsNavigationCard(
                 title = "About VUEO",
-                subtitle = "Build information, architecture, and privacy notes.",
-                status = "Version ${BuildConfig.VERSION_NAME}",
-                icon = Icons.Default.Settings,
-                onClick = onAbout,
+                subtitle =
+                    "Privacy, architecture & build information.",
+                status =
+                    "Local-first app info",
+                icon =
+                    Icons.Default.Settings,
+                onClick =
+                    onAbout,
+                compact = true,
             )
         }
 
-        item {
-            Spacer(Modifier.height(8.dp))
+        item(
+            key = "settings-version"
+        ) {
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            top = 4.dp,
+                            bottom = 8.dp,
+                        ),
+                contentAlignment =
+                    Alignment.Center,
+            ) {
+                Text(
+                    text =
+                        "VUEO ${BuildConfig.VERSION_NAME}",
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 10.sp,
+                    fontWeight =
+                        FontWeight.Bold,
+                )
+            }
         }
     }
 }
-
 @Composable
 internal fun EnhancementsSettingsScreen(
     settingsStore: SettingsStore,
@@ -2351,70 +2600,185 @@ private fun VueoSettingsNavigationCard(
     status: String,
     icon: ImageVector,
     onClick: () -> Unit,
+    compact: Boolean = false,
 ) {
+    val cardRadius =
+        if (compact) {
+            18.dp
+        } else {
+            20.dp
+        }
+
+    val horizontalPadding =
+        if (compact) {
+            14.dp
+        } else {
+            16.dp
+        }
+
+    val verticalPadding =
+        if (compact) {
+            12.dp
+        } else {
+            16.dp
+        }
+
+    val iconBoxSize =
+        if (compact) {
+            40.dp
+        } else {
+            46.dp
+        }
+
+    val iconSize =
+        if (compact) {
+            21.dp
+        } else {
+            24.dp
+        }
+
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = VueoPalette.SurfaceElevated,
-        ),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(
+                    onClick = onClick
+                ),
+        shape =
+            RoundedCornerShape(
+                cardRadius
+            ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    VueoPalette
+                        .SurfaceElevated,
+            ),
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            modifier =
+                Modifier.padding(
+                    horizontal =
+                        horizontalPadding,
+                    vertical =
+                        verticalPadding,
+                ),
+            verticalAlignment =
+                Alignment.CenterVertically,
         ) {
             Box(
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(VueoPalette.SurfaceStrong),
-                contentAlignment = Alignment.Center,
+                modifier =
+                    Modifier
+                        .size(
+                            iconBoxSize
+                        )
+                        .clip(
+                            RoundedCornerShape(
+                                if (
+                                    compact
+                                ) {
+                                    12.dp
+                                } else {
+                                    14.dp
+                                }
+                            )
+                        )
+                        .background(
+                            VueoPalette
+                                .SurfaceStrong
+                        ),
+                contentAlignment =
+                    Alignment.Center,
             ) {
                 Icon(
-                    icon,
-                    contentDescription = null,
-                    tint = VueoPalette.Accent,
+                    imageVector = icon,
+                    contentDescription =
+                        null,
+                    tint =
+                        VueoPalette.Accent,
+                    modifier =
+                        Modifier.size(
+                            iconSize
+                        ),
                 )
             }
 
-            Spacer(Modifier.width(13.dp))
+            Spacer(
+                Modifier.width(
+                    if (
+                        compact
+                    ) {
+                        12.dp
+                    } else {
+                        13.dp
+                    }
+                )
+            )
 
             Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
+                modifier =
+                    Modifier.weight(
+                        1f
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        if (
+                            compact
+                        ) {
+                            2.dp
+                        } else {
+                            3.dp
+                        }
+                    ),
             ) {
                 Text(
-                    title,
+                    text = title,
                     color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize =
+                        if (
+                            compact
+                        ) {
+                            15.sp
+                        } else {
+                            16.sp
+                        },
+                    fontWeight =
+                        FontWeight.Bold,
                 )
 
                 Text(
-                    subtitle,
-                    color = VueoPalette.Muted,
+                    text = subtitle,
+                    color =
+                        VueoPalette.Muted,
                     fontSize = 11.sp,
                 )
 
                 Text(
-                    status,
-                    color = VueoPalette.Accent,
+                    text = status,
+                    color =
+                        VueoPalette.Accent,
                     fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight =
+                        FontWeight.Bold,
                 )
             }
 
             Text(
-                "›",
-                color = VueoPalette.Muted,
-                fontSize = 28.sp,
+                text = "›",
+                color =
+                    VueoPalette.Muted,
+                fontSize =
+                    if (
+                        compact
+                    ) {
+                        24.sp
+                    } else {
+                        28.sp
+                    },
             )
         }
     }
 }
-
 @Composable
 private fun VueoSettingsToggleCard(
     title: String,
