@@ -105,6 +105,7 @@ internal enum class SeekGestureSensitivity(
 
 private const val PLAYER_GESTURE_PREFS = "vueo_player_gestures"
 private const val SEEK_SENSITIVITY_KEY = "seek_sensitivity"
+private const val CONTENT_WARNINGS_KEY = "content_warnings"
 
 internal fun Context.seekGestureSensitivity(): SeekGestureSensitivity {
     val stored = getSharedPreferences(
@@ -128,6 +129,23 @@ private fun Context.setSeekGestureSensitivity(
         Context.MODE_PRIVATE,
     ).edit()
         .putString(SEEK_SENSITIVITY_KEY, sensitivity.name)
+        .apply()
+}
+
+internal fun Context.contentWarningsEnabled(): Boolean =
+    getSharedPreferences(
+        PLAYER_GESTURE_PREFS,
+        Context.MODE_PRIVATE,
+    ).getBoolean(CONTENT_WARNINGS_KEY, true)
+
+private fun Context.setContentWarningsEnabled(
+    enabled: Boolean,
+) {
+    getSharedPreferences(
+        PLAYER_GESTURE_PREFS,
+        Context.MODE_PRIVATE,
+    ).edit()
+        .putBoolean(CONTENT_WARNINGS_KEY, enabled)
         .apply()
 }
 
@@ -1947,6 +1965,9 @@ internal fun PlaybackSettingsScreen(
     var showSeekSensitivityDialog by remember {
         mutableStateOf(false)
     }
+    var contentWarnings by remember {
+        mutableStateOf(context.contentWarningsEnabled())
+    }
 
     if (showQualityDialog) {
         AlertDialog(
@@ -2116,6 +2137,18 @@ internal fun PlaybackSettingsScreen(
                 value = seekSensitivity.label,
                 onClick = {
                     showSeekSensitivityDialog = true
+                },
+            )
+        }
+
+        item {
+            VueoSettingsToggleCard(
+                title = "Content Warnings",
+                subtitle = "Show available parental guidance briefly when playback starts.",
+                checked = contentWarnings,
+                onCheckedChange = { enabled ->
+                    contentWarnings = enabled
+                    context.setContentWarningsEnabled(enabled)
                 },
             )
         }
