@@ -19,7 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.core.app.PictureInPictureModeChangedInfo
 import androidx.core.content.ContextCompat
-import java.util.function.Consumer
+import androidx.core.util.Consumer
 
 private const val PIP_ACTION_TOGGLE =
     "com.vueo.app.action.PIP_TOGGLE_PLAYBACK"
