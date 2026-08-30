@@ -11758,6 +11758,12 @@ private fun PlayerScreen(
     var subtitlePreferenceRestored by remember(player) {
         mutableStateOf(false)
     }
+    var audioPreferenceRestored by remember(player) {
+        mutableStateOf(false)
+    }
+    var audioAutomaticSelected by remember(player) {
+        mutableStateOf(true)
+    }
 
     LaunchedEffect(
         player,
@@ -11774,6 +11780,9 @@ private fun PlayerScreen(
                     .coerceAtLeast(0L)
             val continuePlaying =
                 player.playWhenReady
+
+            audioPreferenceRestored = false
+            subtitlePreferenceRestored = false
 
             player.setMediaItem(
                 buildPlayerMediaItem(
@@ -11847,6 +11856,42 @@ private fun PlayerScreen(
             trackType = C.TRACK_TYPE_TEXT,
             externalSubtitles = externalSubtitles,
         )
+
+        if (!audioPreferenceRestored && audioTracks.isNotEmpty()) {
+            val savedSelection =
+                settingsStore.audioSelection(media.id)
+            val savedTrack = findSavedAudioTrack(
+                tracks = audioTracks,
+                savedSelection = savedSelection,
+            )
+
+            when {
+                savedSelection == PLAYER_AUDIO_AUTO -> {
+                    audioPreferenceRestored = true
+                    audioAutomaticSelected = true
+                    clearTrackOverride(
+                        player = player,
+                        trackType = C.TRACK_TYPE_AUDIO,
+                        disable = false,
+                    )
+                }
+
+                savedTrack != null -> {
+                    audioPreferenceRestored = true
+                    audioAutomaticSelected = false
+                    applyTrackChoice(
+                        player = player,
+                        trackType = C.TRACK_TYPE_AUDIO,
+                        choice = savedTrack,
+                    )
+                }
+
+                else -> {
+                    audioPreferenceRestored = true
+                    audioAutomaticSelected = true
+                }
+            }
+        }
 
         if (!subtitlePreferenceRestored && textTracks.isNotEmpty()) {
             val savedSelection =
@@ -12276,27 +12321,32 @@ private fun PlayerScreen(
     }
 
     if (showAudioDialog) {
-        PlayerTrackDialog(
-            title = "Audio",
+        PlayerAudioWorkspace(
             tracks = audioTracks,
-            automaticLabel = "Auto",
-            offLabel = null,
-            emptyMessage =
-                "No alternative audio tracks are available for this stream.",
+            automaticSelected = audioAutomaticSelected,
             onAutomatic = {
                 clearTrackOverride(
                     player = player,
                     trackType = C.TRACK_TYPE_AUDIO,
                     disable = false,
                 )
+                audioAutomaticSelected = true
+                settingsStore.setAudioSelection(
+                    media.id,
+                    PLAYER_AUDIO_AUTO,
+                )
                 showAudioDialog = false
             },
-            onOff = null,
             onSelect = { choice ->
                 applyTrackChoice(
                     player = player,
                     trackType = C.TRACK_TYPE_AUDIO,
                     choice = choice,
+                )
+                audioAutomaticSelected = false
+                settingsStore.setAudioSelection(
+                    media.id,
+                    choice.selectionId,
                 )
                 showAudioDialog = false
             },
@@ -13899,6 +13949,9 @@ private const val PLAYER_SUBTITLE_LABEL_PREFIX =
 private const val PLAYER_SUBTITLE_OFF =
     "subtitle:off"
 
+private const val PLAYER_AUDIO_AUTO =
+    "audio:auto"
+
 private fun playerTrackChoices(
     tracks: Tracks,
     trackType: Int,
@@ -13952,6 +14005,9 @@ private fun playerTrackChoices(
             val trackLanguage =
                 externalSubtitle?.language
                     ?: format.language
+                    ?: format.label
+                        ?.trim()
+                        ?.takeIf { it.length in 2..3 }
             val label = if (
                 trackType == C.TRACK_TYPE_TEXT
             ) {
@@ -13961,12 +14017,9 @@ private fun playerTrackChoices(
                         trackLanguage
                     )
             } else {
-                buildTrackLabel(
-                    trackType = trackType,
+                buildAudioTrackLabel(
                     formatLabel = format.label,
                     language = format.language,
-                    channelCount = format.channelCount,
-                    sampleMimeType = format.sampleMimeType,
                     fallbackIndex = result.size + 1,
                 )
             }
@@ -13976,6 +14029,14 @@ private fun playerTrackChoices(
                 "external:${externalSubtitle.providerId}:" +
                     "${externalSubtitle.id}:" +
                     externalSubtitle.url.hashCode()
+            } else if (trackType == C.TRACK_TYPE_AUDIO) {
+                buildAudioSelectionId(
+                    language = trackLanguage,
+                    formatLabel = format.label,
+                    channelCount = format.channelCount,
+                    sampleMimeType = format.sampleMimeType,
+                    trackId = format.id,
+                )
             } else {
                 "builtin:${canonicalSubtitleLanguage(trackLanguage)}:" +
                     "${format.label.orEmpty()}:$trackIndex"
@@ -14001,10 +14062,15 @@ private fun playerTrackChoices(
                     sourceLabel =
                         externalSubtitle?.providerName
                             ?: "Built-in",
-                    metadata =
-                        friendlySubtitleLanguageName(
-                            trackLanguage
-                        ),
+                    metadata = if (trackType == C.TRACK_TYPE_AUDIO) {
+                        buildAudioTrackMetadata(
+                            formatLabel = format.label,
+                            channelCount = format.channelCount,
+                            sampleMimeType = format.sampleMimeType,
+                        )
+                    } else {
+                        friendlySubtitleLanguageName(trackLanguage)
+                    },
                     selectionId = selectionId,
                 )
         }
@@ -14013,66 +14079,99 @@ private fun playerTrackChoices(
     return result
 }
 
-private fun buildTrackLabel(
-    trackType: Int,
+private fun buildAudioTrackLabel(
     formatLabel: String?,
     language: String?,
-    channelCount: Int,
-    sampleMimeType: String?,
     fallbackIndex: Int,
 ): String {
-    val primary =
-        formatLabel
-            ?.takeIf {
-                it.isNotBlank()
-            }
-            ?: language
-                ?.takeIf {
-                    it.isNotBlank()
-                }
-                ?.uppercase()
-            ?: if (
-                trackType ==
-                C.TRACK_TYPE_AUDIO
-            ) {
-                "Audio $fallbackIndex"
-            } else {
-                "Subtitle $fallbackIndex"
-            }
+    val languageName = friendlySubtitleLanguageName(language)
+    if (languageName != "Unknown") return languageName
 
-    val details =
-        buildList {
-            if (
-                trackType ==
-                    C.TRACK_TYPE_AUDIO &&
-                channelCount > 0
-            ) {
-                add(
-                    "${channelCount}ch"
-                )
-            }
+    val label = formatLabel?.trim().orEmpty()
+    val labelLanguage = friendlySubtitleLanguageName(label)
+    return when {
+        labelLanguage != "Unknown" && label.length in 2..3 -> labelLanguage
+        label.isNotBlank() -> label
+        else -> "Audio track $fallbackIndex"
+    }
+}
 
-            sampleMimeType
-                ?.substringAfterLast(
-                    "/"
-                )
-                ?.takeIf {
-                    it.isNotBlank()
-                }
-                ?.let {
-                    add(
-                        it.uppercase()
-                    )
-                }
-        }
+private fun buildAudioTrackMetadata(
+    formatLabel: String?,
+    channelCount: Int,
+    sampleMimeType: String?,
+): String = buildList {
+    when (channelCount) {
+        1 -> add("Mono")
+        2 -> add("Stereo")
+        6 -> add("5.1")
+        8 -> add("7.1")
+        in 3..Int.MAX_VALUE -> add("$channelCount channels")
+    }
+    friendlyAudioCodec(sampleMimeType)?.let(::add)
+    friendlyAudioVariant(formatLabel)?.let(::add)
+}.distinct().joinToString(" • ")
 
-    return if (
-        details.isEmpty()
-    ) {
-        primary
-    } else {
-        "$primary • " +
-            details.joinToString(" • ")
+private fun friendlyAudioCodec(value: String?): String? =
+    when (value?.lowercase()) {
+        "audio/mp4a-latm" -> "AAC"
+        "audio/ac3" -> "Dolby Digital"
+        "audio/eac3" -> "Dolby Digital Plus"
+        "audio/eac3-joc" -> "Dolby Atmos"
+        "audio/true-hd" -> "Dolby TrueHD"
+        "audio/vnd.dts" -> "DTS"
+        "audio/vnd.dts.hd" -> "DTS-HD"
+        "audio/opus" -> "Opus"
+        "audio/flac" -> "FLAC"
+        "audio/mpeg" -> "MP3"
+        else -> value
+            ?.substringAfterLast('/')
+            ?.takeIf { it.isNotBlank() }
+            ?.uppercase()
+    }
+
+private fun friendlyAudioVariant(value: String?): String? {
+    val label = value?.lowercase().orEmpty()
+    return when {
+        "commentary" in label -> "Commentary"
+        "original" in label -> "Original"
+        "dub" in label -> "Dub"
+        "descriptive" in label || "description" in label -> "Audio description"
+        else -> null
+    }
+}
+
+private fun buildAudioSelectionId(
+    language: String?,
+    formatLabel: String?,
+    channelCount: Int,
+    sampleMimeType: String?,
+    trackId: String?,
+): String = listOf(
+    "audio",
+    canonicalSubtitleLanguage(language),
+    formatLabel.orEmpty().trim().lowercase(),
+    channelCount.toString(),
+    sampleMimeType.orEmpty().lowercase(),
+    trackId.orEmpty().lowercase(),
+).joinToString(":")
+
+private fun findSavedAudioTrack(
+    tracks: List<PlayerTrackChoice>,
+    savedSelection: String?,
+): PlayerTrackChoice? {
+    if (savedSelection.isNullOrBlank()) return null
+    tracks.firstOrNull {
+        it.selectionId == savedSelection
+    }?.let { return it }
+
+    val savedLanguage = savedSelection
+        .split(':')
+        .getOrNull(1)
+        ?.takeIf { it.isNotBlank() && it != "und" }
+        ?: return null
+    return tracks.firstOrNull {
+        canonicalSubtitleLanguage(it.language) == savedLanguage
     }
 }
 
