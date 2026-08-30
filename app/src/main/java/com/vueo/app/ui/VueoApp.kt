@@ -2103,8 +2103,6 @@ private fun HomeFeaturedCarousel(
         if (
             items.size > 1
         ) {
-            val sourceAssessment =
-                PlayerSourcePolicy.assess(source)
             Row(
                 modifier =
                     Modifier
@@ -11040,6 +11038,8 @@ private fun StreamSourceCard(
     showTechnicalDetails: Boolean,
     onClick: (() -> Unit)? = null,
 ) {
+    val sourceAssessment =
+        PlayerSourcePolicy.assess(source)
     Card(
         modifier = Modifier
             .fillMaxWidth()
