@@ -33,6 +33,14 @@ enum class PreferredQuality(
     ),
 }
 
+enum class PlayerVideoFit(
+    val label: String,
+) {
+    FIT("Fit"),
+    FILL("Fill"),
+    ZOOM("Zoom"),
+}
+
 enum class SubtitleLanguage(
     val label: String,
     val languageCode: String?,
@@ -139,6 +147,40 @@ class SettingsStore(
             key = profileKey(KEY_PLAYER_ORIENTATION),
             default = PlayerOrientation.AUTO,
         )
+
+    fun playerPlaybackSpeed(): Float =
+        prefs.getFloat(
+            profileKey(KEY_PLAYER_PLAYBACK_SPEED),
+            1f,
+        ).coerceIn(0.5f, 2f)
+
+    fun setPlayerPlaybackSpeed(
+        speed: Float,
+    ) {
+        prefs.edit()
+            .putFloat(
+                profileKey(KEY_PLAYER_PLAYBACK_SPEED),
+                speed.coerceIn(0.5f, 2f),
+            )
+            .apply()
+    }
+
+    fun playerVideoFit(): PlayerVideoFit =
+        enumValue(
+            key = profileKey(KEY_PLAYER_VIDEO_FIT),
+            default = PlayerVideoFit.FIT,
+        )
+
+    fun setPlayerVideoFit(
+        value: PlayerVideoFit,
+    ) {
+        prefs.edit()
+            .putString(
+                profileKey(KEY_PLAYER_VIDEO_FIT),
+                value.name,
+            )
+            .apply()
+    }
 
     fun setPlayerOrientation(
         value: PlayerOrientation,
@@ -833,6 +875,12 @@ class SettingsStore(
 
         private const val KEY_PLAYER_ORIENTATION =
             "player_orientation"
+
+        private const val KEY_PLAYER_PLAYBACK_SPEED =
+            "player_playback_speed"
+
+        private const val KEY_PLAYER_VIDEO_FIT =
+            "player_video_fit"
 
         private const val KEY_AUTO_SOURCE_RECOVERY =
             "auto_source_recovery"
