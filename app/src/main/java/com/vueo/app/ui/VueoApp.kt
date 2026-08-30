@@ -8080,11 +8080,15 @@ private fun MediaDetailsScreen(
     sourcePickerStreams =
         cached?.streams
             ?: emptyList()
+
     sourcePickerProviderOrder =
-        appendPlayableProviderOrder(
-            existing = emptyList(),
-            sources = cached?.streams.orEmpty(),
-        )
+        cached?.streams
+            .orEmpty()
+            .asSequence()
+            .filter { it.isDirectPlayable }
+            .map(::sourceProviderTabKey)
+            .distinct()
+            .toList()
 
     sourcePickerSubtitles =
         emptyList()
@@ -8142,9 +8146,42 @@ private fun MediaDetailsScreen(
                         startedAt
                 ) / 1_000_000L
 
+            fun recordPlayableProviders(
+                candidates: List<StreamSource>,
+            ) {
+                val discovered =
+                    candidates
+                        .asSequence()
+                        .filter { it.isDirectPlayable }
+                        .map(::sourceProviderTabKey)
+                        .distinct()
+                        .toList()
+
+                if (discovered.isEmpty()) return
+
+                val next =
+                    sourcePickerProviderOrder
+                        .toMutableList()
+
+                discovered.forEach { provider ->
+                    if (provider !in next) {
+                        next += provider
+                    }
+                }
+
+                if (next != sourcePickerProviderOrder) {
+                    sourcePickerProviderOrder = next
+                }
+            }
+
             fun publish(
                 progress: String,
             ) {
+                recordPlayableProviders(
+                    freshAddonStreams +
+                        freshPluginStreams
+                )
+
                 val fresh =
                     SourceCleaner.clean(
                         sources =
@@ -8225,13 +8262,6 @@ private fun MediaDetailsScreen(
                             ) { progress ->
                                 freshAddonStreams =
                                     progress.streams
-                                sourcePickerProviderOrder =
-                                    appendPlayableProviderOrder(
-                                        existing =
-                                            sourcePickerProviderOrder,
-                                        sources =
-                                            progress.streams,
-                                    )
 
                                 addonRawCount =
                                     progress.rawCount
@@ -8311,13 +8341,6 @@ private fun MediaDetailsScreen(
                                     progress
                                         .result
                                         .streams
-                                sourcePickerProviderOrder =
-                                    appendPlayableProviderOrder(
-                                        existing =
-                                            sourcePickerProviderOrder,
-                                        sources =
-                                            freshPluginStreams,
-                                    )
 
                                 pluginRawCount =
                                     freshPluginStreams
@@ -8357,13 +8380,6 @@ private fun MediaDetailsScreen(
 
             freshAddonStreams =
                 finalAddonStreams
-            sourcePickerProviderOrder =
-                appendPlayableProviderOrder(
-                    existing =
-                        sourcePickerProviderOrder,
-                    sources =
-                        finalAddonStreams,
-                )
 
             if (pluginResult != null) {
                 freshPluginStreams =
@@ -8371,13 +8387,6 @@ private fun MediaDetailsScreen(
 
                 pluginRawCount =
                     pluginResult.streams.size
-                sourcePickerProviderOrder =
-                    appendPlayableProviderOrder(
-                        existing =
-                            sourcePickerProviderOrder,
-                        sources =
-                            pluginResult.streams,
-                    )
 
                 sourcePickerNotice =
                     "Plugins: ${pluginResult.attemptedProviders} checked • " +
@@ -8408,6 +8417,10 @@ private fun MediaDetailsScreen(
                 } else {
                     cachedStreams
                 }
+
+            recordPlayableProviders(
+                finalStreams
+            )
 
             sourcePickerStreams =
                 finalStreams
@@ -8577,13 +8590,13 @@ private fun MediaDetailsScreen(
                 episode = selectedEpisode,
             ),
             streams = streams,
-            providerOrder =
-                sourcePickerProviderOrder,
             rawCount = sourcePickerRawCount,
             notice = sourcePickerNotice,
             searching = sourcePickerSearching,
             progressText = sourcePickerProgress,
             firstResultMs = sourcePickerFirstResultMs,
+            providerOrder =
+                sourcePickerProviderOrder,
             showTechnicalDetails =
                 showSourceTechnicalDetails,
             onBack = {
@@ -10692,475 +10705,553 @@ private fun EpisodeSelector(
 private fun SourcePickerScreen(
     mediaTitle: String,
     streams: List<StreamSource>,
-    providerOrder: List<String>,
     rawCount: Int,
     notice: String?,
     searching: Boolean,
     progressText: String,
     firstResultMs: Long?,
+    providerOrder: List<String>,
     showTechnicalDetails: Boolean,
     onBack: () -> Unit,
     onPlay: (StreamSource) -> Unit,
 ) {
-    BackHandler {
-        onBack()
-    }
+    BackHandler { onBack() }
 
     val playable = streams.filter { it.isDirectPlayable }
     val best = playable.firstOrNull {
-        PlayerSourcePolicy
-            .assess(it)
+        PlayerSourcePolicy.assess(it)
             .quality
             .automaticRecoveryEligible
     } ?: playable.firstOrNull()
 
-    val currentProviderKeys =
-        playable
-            .map(::sourceProviderKey)
-            .distinct()
+    val currentProviders = playable
+        .asSequence()
+        .map(::sourceProviderTabKey)
+        .distinct()
+        .toList()
+
+    val visibleProviders = (
+        providerOrder.filter { it in currentProviders } +
+            currentProviders.filter { it !in providerOrder }
+        ).distinct()
 
     var selectedProvider by remember(mediaTitle) {
         mutableStateOf<String?>(null)
     }
+    var showEngineDetails by remember(mediaTitle) {
+        mutableStateOf(false)
+    }
 
-    val visibleProviderTabs =
-        (providerOrder + currentProviderKeys)
-            .distinct()
-            .filter {
-                it in currentProviderKeys
+    LaunchedEffect(visibleProviders) {
+        val selected = selectedProvider
+
+        when {
+            visibleProviders.isEmpty() -> selectedProvider = null
+            selected == null -> {
+                selectedProvider = visibleProviders.first()
             }
-
-    LaunchedEffect(
-        visibleProviderTabs,
-        selectedProvider,
-    ) {
-        if (
-            selectedProvider != null &&
-            selectedProvider !in
-                visibleProviderTabs
-        ) {
-            selectedProvider = null
+            selected != SOURCE_PROVIDER_ALL &&
+                selected !in visibleProviders -> {
+                selectedProvider = visibleProviders.firstOrNull()
+            }
         }
     }
 
-    val displayedSources =
-        if (selectedProvider == null) {
-            playable
-        } else {
-            playable.filter {
-                sourceProviderKey(it) ==
-                    selectedProvider
-            }
+    val filteredSources = when (val selected = selectedProvider) {
+        null,
+        SOURCE_PROVIDER_ALL -> playable
+
+        else -> playable.filter {
+            sourceProviderTabKey(it) == selected
         }
+    }
+
+    val selectedProviderLabel = when (val selected = selectedProvider) {
+        null,
+        SOURCE_PROVIDER_ALL -> "All"
+
+        else -> sourceProviderTabDisplayName(selected)
+    }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                VueoPalette.Background
-            ),
+            .background(VueoPalette.Background),
         contentPadding = PaddingValues(bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            ScreenHeader(
-                title = "Choose a Source",
-                subtitle = mediaTitle,
-                onBack = onBack,
-            )
-        }
-
-        item {
-            Card(
+        item(key = "source-picker-header") {
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .statusBarsPadding()
                     .padding(
-                        horizontal = 20.dp
+                        start = 14.dp,
+                        end = 18.dp,
+                        top = 8.dp,
+                        bottom = 4.dp,
                     ),
-                shape =
-                    RoundedCornerShape(
-                        18.dp
-                    ),
-                colors =
-                    CardDefaults.cardColors(
-                        containerColor =
-                            VueoPalette
-                                .SurfaceElevated
-                    ),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement =
-                        Arrangement.spacedBy(8.dp),
+                Surface(
+                    modifier = Modifier.size(46.dp),
+                    shape = CircleShape,
+                    color = VueoPalette.SurfaceElevated,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        VueoPalette.Stroke.copy(alpha = .42f),
+                    ),
                 ) {
-                    Row(
-                        verticalAlignment =
-                            Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            if (searching) {
-                                "SMART SOURCE ENGINE"
-                            } else {
-                                "SOURCE ENGINE"
-                            },
-                            color =
-                                MaterialTheme
-                                    .colorScheme
-                                    .primary,
-                            fontWeight =
-                                FontWeight.Black,
-                            fontSize = 11.sp,
-                            modifier =
-                                Modifier.weight(1f),
-                        )
-
-                        Text(
-                            if (searching) {
-                                "LIVE"
-                            } else {
-                                "READY"
-                            },
-                            color =
-                                MaterialTheme
-                                    .colorScheme
-                                    .primary,
-                            fontSize = 10.sp,
-                            fontWeight =
-                                FontWeight.Bold,
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White,
                         )
                     }
+                }
 
-                    if (searching) {
-                        LinearProgressIndicator(
-                            modifier =
-                                Modifier.fillMaxWidth()
-                        )
-                    }
+                Spacer(Modifier.width(14.dp))
 
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
                     Text(
-                        progressText,
-                        color =
-                            MaterialTheme
-                                .colorScheme
-                                .onSurface
-                                .copy(alpha = .68f),
-                        fontSize = 12.sp,
+                        "Sources",
+                        color = Color.White,
+                        fontSize = 27.sp,
+                        fontWeight = FontWeight.Black,
                     )
-
-                    firstResultMs?.let {
-                        Text(
-                            "First source in ${it} ms",
-                            color =
-                                MaterialTheme
-                                    .colorScheme
-                                    .onSurface
-                                    .copy(alpha = .5f),
-                            fontSize = 11.sp,
-                        )
-                    }
+                    Text(
+                        mediaTitle,
+                        color = VueoPalette.Muted,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }
 
-        if (!notice.isNullOrBlank()) {
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            horizontal = 20.dp
-                        ),
-                    shape =
-                        RoundedCornerShape(
-                            16.dp
-                        ),
-                    colors =
-                        CardDefaults.cardColors(
-                            containerColor =
-                                VueoPalette
-                                    .Surface
-                        ),
+        item(key = "smart-source-engine") {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = VueoPalette.SurfaceElevated
+                ),
+            ) {
+                Column(
+                    modifier = Modifier.padding(
+                        horizontal = 15.dp,
+                        vertical = 13.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(9.dp),
                 ) {
-                    Text(
-                        notice,
-                        modifier =
-                            Modifier.padding(14.dp),
-                        color =
-                            MaterialTheme
-                                .colorScheme
-                                .onSurface
-                                .copy(alpha = .65f),
-                        fontSize = 12.sp,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                "SMART SOURCE ENGINE",
+                                color = Color.White,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 11.sp,
+                                letterSpacing = .7.sp,
+                            )
+                            Text(
+                                if (searching) {
+                                    "Searching • ${playable.size} playable"
+                                } else {
+                                    "${playable.size} playable • ${streams.size} unique"
+                                },
+                                color = VueoPalette.Muted,
+                                fontSize = 11.sp,
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = VueoPalette.Accent.copy(alpha = .13f),
+                        ) {
+                            Text(
+                                if (searching) "LIVE" else "READY",
+                                modifier = Modifier.padding(
+                                    horizontal = 9.dp,
+                                    vertical = 5.dp,
+                                ),
+                                color = VueoPalette.Accent,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = .8.sp,
+                            )
+                        }
+                    }
+
+                    if (searching) {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(3.dp)
+                                .clip(CircleShape),
+                            color = VueoPalette.Accent,
+                            trackColor = VueoPalette.SurfaceStrong,
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            when {
+                                searching && playable.isEmpty() ->
+                                    "Waiting for the first playable source"
+                                searching ->
+                                    "Best source is ready while VUEO keeps searching"
+                                playable.isNotEmpty() ->
+                                    "Source search complete"
+                                else ->
+                                    "No playable source found"
+                            },
+                            modifier = Modifier.weight(1f),
+                            color = VueoPalette.Muted,
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+
+                        Text(
+                            if (showEngineDetails) {
+                                "Hide details"
+                            } else {
+                                "Details"
+                            },
+                            color = VueoPalette.Accent,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .clickable {
+                                    showEngineDetails = !showEngineDetails
+                                }
+                                .padding(
+                                    horizontal = 8.dp,
+                                    vertical = 5.dp,
+                                ),
+                        )
+                    }
+
+                    if (showEngineDetails) {
+                        HorizontalDivider(
+                            color = VueoPalette.Stroke.copy(alpha = .35f)
+                        )
+
+                        Text(
+                            progressText,
+                            color = Color.White.copy(alpha = .72f),
+                            fontSize = 10.sp,
+                            lineHeight = 15.sp,
+                        )
+
+                        firstResultMs?.let {
+                            Text(
+                                "First source in $it ms",
+                                color = VueoPalette.Muted,
+                                fontSize = 10.sp,
+                            )
+                        }
+
+                        if (rawCount > streams.size) {
+                            Text(
+                                "$rawCount raw results analysed • " +
+                                    "${rawCount - streams.size} duplicates removed",
+                                color = VueoPalette.Muted,
+                                fontSize = 10.sp,
+                            )
+                        }
+
+                        notice
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let {
+                                Text(
+                                    it,
+                                    color = VueoPalette.Muted,
+                                    fontSize = 10.sp,
+                                    lineHeight = 15.sp,
+                                )
+                            }
+                    }
                 }
             }
         }
 
         if (best != null) {
-            item {
-                val bestAssessment =
-                    PlayerSourcePolicy.assess(best)
+            item(key = "recommended-source") {
+                val assessment = PlayerSourcePolicy.assess(best)
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(
-                            horizontal = 20.dp
+                        .padding(horizontal = 16.dp)
+                        .border(
+                            1.dp,
+                            VueoPalette.Accent.copy(alpha = .42f),
+                            RoundedCornerShape(20.dp),
                         ),
-                    shape =
-                        RoundedCornerShape(
-                            22.dp
-                        ),
-                    colors =
-                        CardDefaults.cardColors(
-                            containerColor =
-                                VueoPalette
-                                    .SurfaceElevated
-                        ),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = VueoPalette.SurfaceElevated
+                    ),
                 ) {
                     Column(
-                        modifier = Modifier.padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(9.dp),
+                        modifier = Modifier.padding(15.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Text(
-                            "VUEO RECOMMENDS",
-                            color = VueoPalette.Accent,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 12.sp,
-                            letterSpacing = 1.2.sp,
-                        )
-
-                        Text(
-                            bestAssessment.quality.label,
-                            fontSize = 27.sp,
-                            fontWeight = FontWeight.Black,
-                        )
-
-                        Text(
-                            listOfNotNull(
-                                bestAssessment.summary,
-                                best.hdr,
-                                best.audio,
-                                best.providerName,
-                            ).joinToString(" • "),
-                            color = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = .66f
-                            ),
-                        )
-
-                        Button(
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            onClick = { onPlay(best) },
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(
-                                Icons.Default.PlayArrow,
-                                contentDescription = null,
+                            Text(
+                                "VUEO RECOMMENDS",
+                                modifier = Modifier.weight(1f),
+                                color = VueoPalette.Accent,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 10.sp,
+                                letterSpacing = 1.sp,
                             )
-                            Spacer(Modifier.width(8.dp))
-                            Text("Play Recommended")
+                            Text(
+                                "READY",
+                                color = VueoPalette.Success,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = .8.sp,
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                assessment.quality.label,
+                                color = Color.White,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Black,
+                            )
+                            Spacer(Modifier.width(11.dp))
+                            Text(
+                                sourceProviderTabDisplayName(
+                                    sourceProviderTabKey(best)
+                                ),
+                                color = Color.White.copy(alpha = .78f),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+
+                        val recommendedTags = listOfNotNull(
+                            assessment.summary,
+                            best.hdr,
+                            best.audio,
+                        )
+                            .filter { it.isNotBlank() }
+                            .distinct()
+                            .joinToString(" • ")
+
+                        if (recommendedTags.isNotBlank()) {
+                            Text(
+                                recommendedTags,
+                                color = VueoPalette.Muted,
+                                fontSize = 11.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .clickable { onPlay(best) },
+                            shape = RoundedCornerShape(50),
+                            color = VueoPalette.Accent,
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                Text(
+                                    "Play Recommended",
+                                    color = Color.Black,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Black,
+                                )
+                            }
                         }
                     }
                 }
             }
         } else if (!searching) {
-            item {
-                ElevatedCard(
+            item(key = "source-empty") {
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
+                        .padding(horizontal = 16.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    color = VueoPalette.SurfaceElevated,
                 ) {
                     Text(
                         if (streams.isEmpty()) {
                             "No sources were returned for this title."
                         } else {
-                            "Sources were found, but none are direct HTTPS/HLS/DASH streams that the current VUEO player can play. Torrent/debrid playback is a later layer."
+                            "Sources were found, but none are directly playable by the current VUEO player."
                         },
-                        modifier = Modifier.padding(18.dp),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = .7f),
+                        modifier = Modifier.padding(16.dp),
+                        color = VueoPalette.Muted,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp,
                     )
                 }
             }
         }
 
-        if (playable.isEmpty() && searching) {
-            item {
-                Text(
-                    "Playable sources will appear here as soon as a provider responds.",
-                    modifier =
-                        Modifier.padding(
-                            horizontal = 20.dp
-                        ),
-                    color =
-                        MaterialTheme
-                            .colorScheme
-                            .onSurface
-                            .copy(alpha = .5f),
-                    fontSize = 12.sp,
-                )
-            }
-        }
-
-        item {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement =
-                    Arrangement.spacedBy(10.dp),
-            ) {
+        if (playable.isNotEmpty()) {
+            item(key = "all-sources-header") {
                 Column(
-                    modifier =
-                        Modifier.padding(
-                            horizontal = 20.dp
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 2.dp,
                         ),
-                    verticalArrangement =
-                        Arrangement.spacedBy(3.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Text(
                         "All Sources · ${playable.size}",
-                        fontSize = 20.sp,
+                        color = Color.White,
+                        fontSize = 19.sp,
                         fontWeight = FontWeight.Black,
                     )
-
-                    if (
-                        rawCount > streams.size
-                    ) {
-                        Text(
-                            "$rawCount raw results analysed • " +
-                                "${rawCount - streams.size} exact duplicates removed",
-                            color =
-                                MaterialTheme
-                                    .colorScheme
-                                    .onSurface
-                                    .copy(alpha = .5f),
-                            fontSize = 11.sp,
-                        )
-                    }
+                    Text(
+                        "${visibleProviders.size} playable providers",
+                        color = VueoPalette.Muted,
+                        fontSize = 10.sp,
+                    )
                 }
+            }
 
+            item(key = "provider-tabs") {
                 LazyRow(
-                    contentPadding =
-                        PaddingValues(
-                            horizontal = 20.dp
-                        ),
-                    horizontalArrangement =
-                        Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    item(
-                        key = "provider:all"
-                    ) {
+                    item(key = SOURCE_PROVIDER_ALL) {
                         SourceProviderTab(
                             label = "All",
-                            selected =
-                                selectedProvider == null,
+                            selected = selectedProvider == SOURCE_PROVIDER_ALL,
                             onClick = {
-                                selectedProvider = null
+                                selectedProvider = SOURCE_PROVIDER_ALL
                             },
                         )
                     }
 
                     items(
-                        visibleProviderTabs,
-                        key = {
-                            "provider:$it"
-                        },
+                        items = visibleProviders,
+                        key = { "provider:$it" },
                     ) { provider ->
                         SourceProviderTab(
-                            label =
-                                sourceProviderTabLabel(
-                                    provider
-                                ),
-                            selected =
-                                selectedProvider ==
-                                    provider,
+                            label = sourceProviderTabDisplayName(provider),
+                            selected = selectedProvider == provider,
                             onClick = {
-                                selectedProvider =
-                                    provider
+                                selectedProvider = provider
                             },
                         )
                     }
                 }
+            }
 
+            item(key = "provider-result-summary") {
                 Text(
-                    if (selectedProvider == null) {
-                        "${displayedSources.size} playable"
-                    } else {
-                        "${sourceProviderTabLabel(selectedProvider!!)} • " +
-                            "${displayedSources.size} playable"
-                    },
-                    modifier =
-                        Modifier.padding(
-                            horizontal = 20.dp
-                        ),
-                    color =
-                        MaterialTheme
-                            .colorScheme
-                            .onSurface
-                            .copy(alpha = .58f),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
+                    "$selectedProviderLabel · ${filteredSources.size} playable",
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    color = VueoPalette.Muted,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
                 )
             }
-        }
 
-        items(
-            displayedSources,
-            key = {
-                listOf(
-                    sourceProviderKey(it),
-                    it.url,
-                    it.infoHash,
-                    it.fileIndex,
-                    it.providerId,
-                    it.name,
-                ).joinToString(":")
-            },
-        ) { source ->
-            StreamSourceCard(
-                source = source,
-                showTechnicalDetails =
-                    showTechnicalDetails,
-                onClick = {
-                    onPlay(source)
+            items(
+                items = filteredSources,
+                key = {
+                    listOf(
+                        sourceProviderTabKey(it),
+                        it.url,
+                        it.infoHash,
+                        it.fileIndex,
+                        it.providerId,
+                        it.name,
+                    ).joinToString(":")
                 },
-            )
+            ) { source ->
+                StreamSourceCard(
+                    source = source,
+                    showTechnicalDetails = showTechnicalDetails,
+                    onClick = { onPlay(source) },
+                )
+            }
+        } else if (searching) {
+            item(key = "source-search-waiting") {
+                Text(
+                    "Playable sources will appear as soon as a provider responds.",
+                    modifier = Modifier.padding(
+                        horizontal = 16.dp,
+                        vertical = 4.dp,
+                    ),
+                    color = VueoPalette.Muted,
+                    fontSize = 11.sp,
+                )
+            }
         }
     }
 }
 
-private fun sourceProviderKey(
+private const val SOURCE_PROVIDER_ALL =
+    "__vueo_all_sources__"
+
+private fun sourceProviderTabKey(
     source: StreamSource,
 ): String =
     source.providerName
         .trim()
-        .ifBlank {
-            "Unknown Provider"
-        }
+        .ifBlank { "Other" }
 
-private fun sourceProviderTabLabel(
+private fun sourceProviderTabDisplayName(
     provider: String,
 ): String =
     provider
-        .substringAfterLast("/")
+        .substringAfterLast(" / ", provider)
         .trim()
-        .ifBlank {
-            provider
-        }
-
-private fun appendPlayableProviderOrder(
-    existing: List<String>,
-    sources: List<StreamSource>,
-): List<String> {
-    val discovered =
-        sources
-            .asSequence()
-            .filter {
-                it.isDirectPlayable
-            }
-            .map(::sourceProviderKey)
-            .distinct()
-            .toList()
-
-    return (existing + discovered)
-        .distinct()
-}
+        .ifBlank { "Other" }
 
 @Composable
 private fun SourceProviderTab(
@@ -11169,44 +11260,41 @@ private fun SourceProviderTab(
     onClick: () -> Unit,
 ) {
     Surface(
-        modifier = Modifier
-            .clip(
-                RoundedCornerShape(50)
-            )
-            .clickable(
-                onClick = onClick
-            ),
+        modifier = Modifier.clickable(onClick = onClick),
         shape = RoundedCornerShape(50),
-        color =
+        color = if (selected) {
+            VueoPalette.Accent.copy(alpha = .16f)
+        } else {
+            VueoPalette.SurfaceElevated
+        },
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
             if (selected) {
-                VueoPalette.Accent
+                VueoPalette.Accent.copy(alpha = .55f)
             } else {
-                VueoPalette.SurfaceElevated
+                VueoPalette.Stroke.copy(alpha = .35f)
             },
+        ),
     ) {
         Text(
-            text = label,
-            modifier =
-                Modifier.padding(
-                    horizontal = 15.dp,
-                    vertical = 9.dp,
-                ),
-            color =
-                if (selected) {
-                    Color.Black
-                } else {
-                    Color.White.copy(
-                        alpha = .78f
-                    )
-                },
-            fontSize = 12.sp,
-            fontWeight =
-                if (selected) {
-                    FontWeight.Black
-                } else {
-                    FontWeight.Bold
-                },
+            label,
+            modifier = Modifier.padding(
+                horizontal = 14.dp,
+                vertical = 9.dp,
+            ),
+            color = if (selected) {
+                VueoPalette.Accent
+            } else {
+                Color.White.copy(alpha = .78f)
+            },
+            fontSize = 11.sp,
+            fontWeight = if (selected) {
+                FontWeight.Bold
+            } else {
+                FontWeight.Medium
+            },
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -11217,166 +11305,116 @@ private fun StreamSourceCard(
     showTechnicalDetails: Boolean,
     onClick: (() -> Unit)? = null,
 ) {
-    val sourceAssessment =
-        PlayerSourcePolicy.assess(source)
+    val assessment = PlayerSourcePolicy.assess(source)
+    val provider = sourceProviderTabDisplayName(
+        sourceProviderTabKey(source)
+    )
+    val metadata = listOfNotNull(
+        assessment.summary,
+        source.codec,
+        source.hdr,
+        source.audio,
+    )
+        .filter { it.isNotBlank() }
+        .distinct()
+        .joinToString(" • ")
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                horizontal = 20.dp
-            )
+            .padding(horizontal = 16.dp)
             .then(
                 if (onClick != null) {
-                    Modifier.clickable(
-                        onClick = onClick
-                    )
+                    Modifier.clickable(onClick = onClick)
                 } else {
                     Modifier
                 }
             ),
-        shape =
-            RoundedCornerShape(
-                16.dp
-            ),
-        colors =
-            CardDefaults.cardColors(
-                containerColor =
-                    VueoPalette.Surface
-            ),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = VueoPalette.Surface
+        ),
     ) {
         Column(
-            modifier =
-                Modifier.padding(
-                    14.dp
-                ),
-            verticalArrangement =
-                Arrangement.spacedBy(
-                    6.dp
-                ),
+            modifier = Modifier.padding(
+                horizontal = 13.dp,
+                vertical = 12.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             Row(
-                verticalAlignment =
-                    Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
-                    shape =
-                        RoundedCornerShape(
-                            50
-                        ),
-                    color =
-                        VueoPalette.Accent
-                            .copy(
-                                alpha = .12f
-                            ),
+                    shape = RoundedCornerShape(50),
+                    color = VueoPalette.SurfaceStrong,
                 ) {
                     Text(
-                        sourceAssessment
-                            .quality
-                            .label,
-                        modifier =
-                            Modifier.padding(
-                                horizontal =
-                                    9.dp,
-                                vertical =
-                                    5.dp,
-                            ),
-                        color =
-                            VueoPalette.Accent,
-                        fontWeight =
-                            FontWeight.Black,
+                        assessment.quality.label,
+                        modifier = Modifier.padding(
+                            horizontal = 10.dp,
+                            vertical = 6.dp,
+                        ),
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
                         fontSize = 11.sp,
                     )
                 }
 
-                Spacer(
-                    Modifier.width(8.dp)
-                )
+                Spacer(Modifier.width(10.dp))
 
                 Text(
-                    source.providerName,
-                    modifier =
-                        Modifier.weight(1f),
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 10.sp,
+                    provider,
+                    modifier = Modifier.weight(1f),
+                    color = Color.White.copy(alpha = .84f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
-                    overflow =
-                        TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis,
                 )
 
                 Text(
-                    when {
-                        source.isDirectPlayable &&
-                            !sourceAssessment
-                                .quality
-                                .automaticRecoveryEligible ->
-                            "MANUAL"
-
-                        source
-                            .isDirectPlayable ->
-                            "READY"
-
-                        source.infoHash !=
-                            null ->
-                            "TORRENT"
-
-                        else ->
-                            "OTHER"
+                    if (
+                        assessment.quality.automaticRecoveryEligible
+                    ) {
+                        "READY"
+                    } else {
+                        "PLAYABLE"
                     },
-                    color =
-                        if (
-                            source.isDirectPlayable &&
-                            sourceAssessment
-                                .quality
-                                .automaticRecoveryEligible
-                        ) {
-                            VueoPalette.Success
-                        } else {
-                            VueoPalette.Muted
-                        },
+                    color = VueoPalette.Success,
                     fontSize = 9.sp,
-                    fontWeight =
-                        FontWeight.Black,
-                    letterSpacing = .8.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = .7.sp,
                 )
             }
 
-            Text(
-                source.name,
-                color =
-                    Color.White.copy(
-                        alpha = .86f
-                    ),
-                maxLines = 2,
-                overflow =
-                    TextOverflow.Ellipsis,
-                fontSize = 12.sp,
-            )
-
-            val tags =
-                listOfNotNull(
-                    source.codec,
-                    source.hdr,
-                    source.audio,
-                ).joinToString(" • ")
+            if (metadata.isNotBlank()) {
+                Text(
+                    metadata,
+                    color = VueoPalette.Muted,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
 
             if (
                 showTechnicalDetails &&
-                tags.isNotBlank()
+                source.name.isNotBlank()
             ) {
                 Text(
-                    tags,
-                    color =
-                        VueoPalette.Muted,
+                    source.name,
+                    color = Color.White.copy(alpha = .55f),
                     fontSize = 10.sp,
                     maxLines = 1,
-                    overflow =
-                        TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
     }
 }
+
 
 private data class PlayerContentWarning(
     val label: String,
