@@ -1961,6 +1961,9 @@ internal fun PlaybackSettingsScreen(
             settingsStore.autoPlayNextEpisodeEnabled()
         )
     }
+    var skipSegments by remember {
+        mutableStateOf(settingsStore.skipSegmentsEnabled())
+    }
     var showOrientationDialog by remember {
         mutableStateOf(false)
     }
@@ -2154,6 +2157,18 @@ internal fun PlaybackSettingsScreen(
                 onCheckedChange = { enabled ->
                     contentWarnings = enabled
                     context.setContentWarningsEnabled(enabled)
+                },
+            )
+        }
+
+        item {
+            VueoSettingsToggleCard(
+                title = "Skip Intro & Ending",
+                subtitle = "Show contextual skip controls when verified intro, recap, or ending timestamps are available.",
+                checked = skipSegments,
+                onCheckedChange = { enabled ->
+                    skipSegments = enabled
+                    settingsStore.setSkipSegmentsEnabled(enabled)
                 },
             )
         }

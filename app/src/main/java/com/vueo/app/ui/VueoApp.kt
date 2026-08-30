@@ -180,6 +180,9 @@ import com.vueo.app.core.storage.LibraryPlaybackEntry
 import com.vueo.app.core.storage.PreferredQuality
 import com.vueo.app.core.storage.PlayerOrientation
 import com.vueo.app.core.storage.SettingsStore
+import com.vueo.app.core.player.PlayerSkipKind
+import com.vueo.app.core.player.PlayerSkipRepository
+import com.vueo.app.core.player.PlayerSkipSegment
 import com.vueo.app.core.storage.VueoDataMigration
 import com.vueo.app.core.stremio.SimpleHttp
 import com.vueo.app.core.update.VueoUpdateManager
@@ -11605,6 +11608,15 @@ private fun PlayerScreen(
     var contentWarningsShown by remember(mediaKey) {
         mutableStateOf(false)
     }
+    var skipSegmentsEnabled by remember(mediaKey) {
+        mutableStateOf(settingsStore.skipSegmentsEnabled())
+    }
+    var skipSegments by remember(mediaKey) {
+        mutableStateOf<List<PlayerSkipSegment>>(emptyList())
+    }
+    var dismissedSkipSegmentKey by remember(mediaKey) {
+        mutableStateOf<String?>(null)
+    }
 
     val playableSources = remember(
         availableSources,
@@ -11920,6 +11932,41 @@ private fun PlayerScreen(
     }
 
     LaunchedEffect(
+        media.id,
+        videoId,
+        episode?.id,
+        episode?.season,
+        episode?.episode,
+        skipSegmentsEnabled,
+    ) {
+        skipSegments = emptyList()
+        dismissedSkipSegmentKey = null
+        val currentEpisode = episode
+        if (!skipSegmentsEnabled || currentEpisode == null) {
+            return@LaunchedEffect
+        }
+
+        val directImdbId =
+            extractPlayerImdbId(media.id)
+                ?: extractPlayerImdbId(videoId)
+                ?: extractPlayerImdbId(currentEpisode.id)
+        val imdbId = directImdbId ?: runCatching {
+            TmdbEnhancementClient.prepareForCore(
+                item = media,
+                apiKey = playerPluginStore.tmdbApiKey(),
+            ).id
+        }.getOrNull()?.let(::extractPlayerImdbId)
+
+        if (imdbId != null) {
+            skipSegments = PlayerSkipRepository.segments(
+                imdbId = imdbId,
+                season = currentEpisode.season,
+                episode = currentEpisode.episode,
+            )
+        }
+    }
+
+    LaunchedEffect(
         isPlaying,
         contentWarnings,
         contentWarningsEnabled,
@@ -12106,12 +12153,18 @@ private fun PlayerScreen(
         durationMs,
         nextEpisode?.id,
         nextEpisodeCardDismissed,
+        skipSegments,
     ) {
         if (
             nextEpisode != null &&
             !nextEpisodeCardDismissed &&
             durationMs > 0L
         ) {
+            val endingStartMs = skipSegments
+                .firstOrNull {
+                    it.kind == PlayerSkipKind.ENDING
+                }
+                ?.startMs
             val remainingMs =
                 (durationMs - currentPositionMs)
                     .coerceAtLeast(0L)
@@ -12119,10 +12172,15 @@ private fun PlayerScreen(
                 currentPositionMs.toDouble() /
                     durationMs.toDouble()
 
-            if (
-                progress >= .95 &&
-                remainingMs <= 60_000L
-            ) {
+            val reachedNextEpisodePoint =
+                endingStartMs?.let {
+                    currentPositionMs >= it
+                } ?: (
+                    progress >= .95 &&
+                        remainingMs <= 60_000L
+                    )
+
+            if (reachedNextEpisodePoint) {
                 showNextEpisodeCard = true
                 controlsVisible = true
             }
@@ -12452,6 +12510,16 @@ private fun PlayerScreen(
                         },
                     )
                 }
+                PlayerMoreDialogRow(
+                    label = "Skip intro and ending",
+                    value = if (skipSegmentsEnabled) "On" else "Off",
+                    onClick = {
+                        skipSegmentsEnabled = !skipSegmentsEnabled
+                        settingsStore.setSkipSegmentsEnabled(
+                            skipSegmentsEnabled
+                        )
+                    },
+                )
                 PlayerMoreDialogRow(
                     label = "Retry current source",
                     onClick = {
@@ -12810,6 +12878,39 @@ private fun PlayerScreen(
                     },
                 )
             }
+        }
+
+        val activeSkipSegment = skipSegments
+            .firstOrNull {
+                currentPositionMs >= it.startMs &&
+                    currentPositionMs < it.endMs
+            }
+            ?.takeUnless {
+                it.key == dismissedSkipSegmentKey ||
+                    (
+                        it.kind == PlayerSkipKind.ENDING &&
+                            nextEpisode != null
+                        )
+            }
+
+        if (!controlsLocked) {
+            PlayerSkipControl(
+                segment = activeSkipSegment,
+                onSkip = {
+                    activeSkipSegment?.let { segment ->
+                        dismissedSkipSegmentKey = segment.key
+                        player.seekTo(
+                            segment.endMs.coerceAtMost(
+                                durationMs.takeIf { it > 0L }
+                                    ?: segment.endMs
+                            )
+                        )
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 32.dp, bottom = 118.dp),
+            )
         }
 
         if (controlsVisible && !controlsLocked) {
