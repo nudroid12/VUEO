@@ -168,6 +168,23 @@ class SettingsStore(
             .apply()
     }
 
+    fun autoPlayNextEpisodeEnabled(): Boolean =
+        prefs.getBoolean(
+            profileKey(KEY_AUTO_PLAY_NEXT_EPISODE),
+            true,
+        )
+
+    fun setAutoPlayNextEpisodeEnabled(
+        enabled: Boolean,
+    ) {
+        prefs.edit()
+            .putBoolean(
+                profileKey(KEY_AUTO_PLAY_NEXT_EPISODE),
+                enabled,
+            )
+            .apply()
+    }
+
     fun setPreferredQuality(
         value: PreferredQuality,
     ) {
@@ -738,6 +755,9 @@ class SettingsStore(
 
         private const val KEY_AUTO_SOURCE_RECOVERY =
             "auto_source_recovery"
+
+        private const val KEY_AUTO_PLAY_NEXT_EPISODE =
+            "auto_play_next_episode"
 
         private const val KEY_SOURCE_TECHNICAL_DETAILS =
             "source_technical_details"
