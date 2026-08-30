@@ -1,13 +1,11 @@
 package com.vueo.app.ui
 
 import android.app.Activity
-import android.app.PictureInPictureParams
 import android.net.Uri
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.graphics.Typeface
-import android.util.Rational
 import android.util.TypedValue
 import android.os.Build
 import android.os.SystemClock
@@ -79,6 +77,7 @@ import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SettingsInputComponent
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
@@ -11563,6 +11562,9 @@ private fun PlayerScreen(
     var controlsLocked by remember {
         mutableStateOf(false)
     }
+    var inPictureInPictureMode by remember {
+        mutableStateOf(false)
+    }
     var videoFit by remember {
         mutableStateOf(
             settingsStore.playerVideoFit()
@@ -11649,6 +11651,9 @@ private fun PlayerScreen(
     }
     var nextEpisodeCountdown by remember {
         mutableStateOf<Int?>(null)
+    }
+    var nextEpisodeSwitching by remember(mediaKey) {
+        mutableStateOf(false)
     }
     var showNextEpisodeCard by remember(mediaKey) {
         mutableStateOf(false)
@@ -11905,6 +11910,19 @@ private fun PlayerScreen(
             durationMs = player.duration,
         )
         recordLibraryProgress()
+    }
+
+    fun startNextEpisode() {
+        val next = nextEpisode ?: return
+        if (nextEpisodeSwitching) {
+            return
+        }
+        nextEpisodeSwitching = true
+        nextEpisodeCountdown = null
+        showNextEpisodeCard = false
+        controlsVisible = false
+        savePosition()
+        onNextEpisode(next)
     }
 
     fun handleSourceFailure(
@@ -12500,7 +12518,7 @@ private fun PlayerScreen(
             nextEpisode != null
         ) {
             nextEpisodeCountdown = null
-            onNextEpisode(nextEpisode)
+            startNextEpisode()
         }
     }
 
@@ -12526,8 +12544,31 @@ private fun PlayerScreen(
             settingsStore.playerOrientation(),
     )
 
-    PlayerPictureInPictureEffect(
+    VueoPictureInPictureEffect(
         activity = activity,
+        isPlaying = isPlaying,
+        hasNextEpisode = nextEpisode != null,
+        onTogglePlayback = {
+            if (player.isPlaying) {
+                player.pause()
+            } else {
+                player.play()
+            }
+        },
+        onNextEpisode = {
+            startNextEpisode()
+        },
+        onModeChanged = { inPictureInPicture ->
+            inPictureInPictureMode = inPictureInPicture
+            controlsVisible = !inPictureInPicture
+            if (inPictureInPicture) {
+                showAudioDialog = false
+                showSubtitleDialog = false
+                showSourceDialog = false
+                showEpisodeDialog = false
+                showMoreDialog = false
+            }
+        },
     )
 
     if (resumePromptVisible) {
@@ -12842,19 +12883,30 @@ private fun PlayerScreen(
                     this.player = player
                     useController = false
                     keepScreenOn = true
-                    applyVueoSubtitleStyle(subtitleStyle)
+                    applyVueoSubtitleStyle(
+                        style = subtitleStyle,
+                        fontScale =
+                            if (inPictureInPictureMode) .45f else 1f,
+                    )
                     resizeMode = videoFit.toMedia3ResizeMode()
                 }
             },
             update = { view ->
                 view.player = player
                 view.useController = false
-                view.applyVueoSubtitleStyle(subtitleStyle)
+                view.applyVueoSubtitleStyle(
+                    style = subtitleStyle,
+                    fontScale =
+                        if (inPictureInPictureMode) .45f else 1f,
+                )
                 view.resizeMode = videoFit.toMedia3ResizeMode()
             },
         )
 
-        if (!controlsLocked) {
+        if (
+            !controlsLocked &&
+            !inPictureInPictureMode
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -13234,6 +13286,19 @@ private fun PlayerScreen(
                     )
                 }
 
+                if (nextEpisode != null) {
+                    PlayerTopAction(
+                        icon = Icons.Default.SkipNext,
+                        contentDescription = "Next episode",
+                        enabled = !nextEpisodeSwitching,
+                        onClick = {
+                            startNextEpisode()
+                        },
+                    )
+
+                    Spacer(Modifier.width(8.dp))
+                }
+
                 PlayerTopAction(
                     icon =
                         Icons.Default.PictureInPictureAlt,
@@ -13241,9 +13306,17 @@ private fun PlayerScreen(
                         "Picture in picture",
                     enabled = Build.VERSION.SDK_INT >= 26,
                     onClick = {
-                        enterVueoPictureInPicture(
-                            activity
-                        )
+                        controlsVisible = false
+                        val entered =
+                            enterVueoPictureInPicture(
+                                activity = activity,
+                                isPlaying = isPlaying,
+                                hasNextEpisode =
+                                    nextEpisode != null,
+                            )
+                        if (!entered) {
+                            controlsVisible = true
+                        }
                     },
                 )
 
@@ -13431,9 +13504,7 @@ private fun PlayerScreen(
                                 }
                                 Button(
                                     onClick = {
-                                        nextEpisodeCountdown = null
-                                        showNextEpisodeCard = false
-                                        onNextEpisode(next)
+                                        startNextEpisode()
                                     },
                                 ) {
                                     Text(
@@ -13908,13 +13979,15 @@ private fun PlayerChoiceCard(
 
 private fun PlayerView.applyVueoSubtitleStyle(
     style: PlayerSubtitleStyleState,
+    fontScale: Float = 1f,
 ) {
     subtitleView?.apply {
         setApplyEmbeddedStyles(false)
         setApplyEmbeddedFontSizes(false)
         setFixedTextSize(
             TypedValue.COMPLEX_UNIT_SP,
-            style.fontSizeSp.toFloat(),
+            style.fontSizeSp.toFloat() *
+                fontScale.coerceIn(.35f, 1f),
         )
         setBottomPaddingFraction(
             style.bottomPaddingPercent / 100f
@@ -14053,63 +14126,6 @@ private fun PlayerFullscreenEffect(
                     previousFlags
             }
         }
-    }
-}
-
-@Composable
-private fun PlayerPictureInPictureEffect(
-    activity: Activity?,
-) {
-    DisposableEffect(activity) {
-        if (
-            activity != null &&
-            Build.VERSION.SDK_INT >= 31
-        ) {
-            activity.setPictureInPictureParams(
-                PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(16, 9))
-                    .setAutoEnterEnabled(true)
-                    .build()
-            )
-        }
-
-        onDispose {
-            if (
-                activity != null &&
-                Build.VERSION.SDK_INT >= 31 &&
-                !activity.isInPictureInPictureMode
-            ) {
-                activity.setPictureInPictureParams(
-                    PictureInPictureParams.Builder()
-                        .setAspectRatio(
-                            Rational(16, 9)
-                        )
-                        .setAutoEnterEnabled(false)
-                        .build()
-                )
-            }
-        }
-    }
-}
-
-private fun enterVueoPictureInPicture(
-    activity: Activity?,
-) {
-    if (
-        activity == null ||
-        Build.VERSION.SDK_INT < 26
-    ) {
-        return
-    }
-
-    runCatching {
-        activity.enterPictureInPictureMode(
-            PictureInPictureParams.Builder()
-                .setAspectRatio(
-                    Rational(16, 9)
-                )
-                .build()
-        )
     }
 }
 
