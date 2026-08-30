@@ -404,6 +404,36 @@ class SettingsStore(
             .apply()
     }
 
+    fun subtitleSelection(contentId: String): String? =
+        contentId
+            .trim()
+            .takeIf { it.isNotBlank() }
+            ?.let { normalizedId ->
+                prefs.getString(
+                    profileKey(
+                        "$KEY_SUBTITLE_SELECTION|$normalizedId"
+                    ),
+                    null,
+                )
+            }
+
+    fun setSubtitleSelection(
+        contentId: String,
+        selectionId: String,
+    ) {
+        val normalizedId =
+            contentId.trim().takeIf { it.isNotBlank() }
+                ?: return
+        prefs.edit()
+            .putString(
+                profileKey(
+                    "$KEY_SUBTITLE_SELECTION|$normalizedId"
+                ),
+                selectionId,
+            )
+            .apply()
+    }
+
     fun tmdbMetadataEnrichmentEnabled(): Boolean =
         prefs.getBoolean(
             KEY_TMDB_METADATA,
@@ -747,6 +777,9 @@ class SettingsStore(
 
         private const val KEY_SUBTITLE_BOTTOM_PADDING_PERCENT =
             "subtitle_bottom_padding_percent"
+
+        private const val KEY_SUBTITLE_SELECTION =
+            "subtitle_selection"
 
         private const val KEY_TMDB_METADATA =
             "tmdb_metadata_enrichment"
