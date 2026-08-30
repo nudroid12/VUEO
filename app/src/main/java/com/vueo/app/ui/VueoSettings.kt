@@ -178,13 +178,6 @@ internal fun VueoSettingsHub(
             profileStore.activeProfile()
         }
 
-    val profileCount =
-        remember(
-            profileVersion
-        ) {
-            profileStore.profiles().size
-        }
-
     val userDnaPreferences =
         remember {
             UserDnaPreferences(
@@ -211,20 +204,6 @@ internal fun VueoSettingsHub(
         } else {
             null
         }
-
-    val dnaStatus =
-        dnaSnapshot
-            ?.readiness
-            ?.name
-            ?.lowercase(
-                Locale.US
-            )
-            ?.replaceFirstChar {
-                it.titlecase(
-                    Locale.US
-                )
-            }
-            ?: "Off"
 
     val dnaTastePreview =
         dnaSnapshot
@@ -424,9 +403,13 @@ internal fun VueoSettingsHub(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .clickable(
-                                    onClick = onProfiles
-                                )
+                                .clickable {
+                                    if (dnaEnabled) {
+                                        showUserDna = true
+                                    } else {
+                                        showPersonalization = true
+                                    }
+                                }
                                 .padding(
                                     start = 16.dp,
                                     end = 16.dp,
@@ -537,13 +520,6 @@ internal fun VueoSettingsHub(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    if (dnaEnabled) {
-                                        showUserDna = true
-                                    } else {
-                                        showPersonalization = true
-                                    }
-                                }
                                 .padding(
                                     horizontal = 16.dp,
                                     vertical = 10.dp,
@@ -594,6 +570,36 @@ internal fun VueoSettingsHub(
                         )
                     }
 
+                    Text(
+                        text =
+                            dnaTastePreview
+                                .takeIf {
+                                    it.isNotBlank()
+                                }
+                                ?: if (
+                                    dnaEnabled
+                                ) {
+                                    "Keep watching to shape your DNA class."
+                                } else {
+                                    "Enable User DNA in Personalization."
+                                },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    start = 18.dp,
+                                    end = 18.dp,
+                                    top = 1.dp,
+                                    bottom = 12.dp,
+                                ),
+                        color =
+                            VueoPalette.Muted,
+                        fontSize = 10.sp,
+                        fontWeight =
+                            FontWeight.Medium,
+                        maxLines = 2,
+                    )
+
                     Surface(
                         modifier =
                             Modifier
@@ -603,18 +609,64 @@ internal fun VueoSettingsHub(
                                     end = 16.dp,
                                     bottom = 16.dp,
                                 )
-                                .clip(
-                                    RoundedCornerShape(
-                                        14.dp
-                                    )
+                                .clickable(
+                                    onClick = onProfiles
+                                ),
+                        shape =
+                            RoundedCornerShape(
+                                14.dp
+                            ),
+                        color =
+                            VueoPalette.Surface
+                                .copy(
+                                    alpha = .82f
+                                ),
+                    ) {
+                        Row(
+                            modifier =
+                                Modifier.padding(
+                                    horizontal = 13.dp,
+                                    vertical = 10.dp,
+                                ),
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "⇄",
+                                color =
+                                    VueoPalette.Accent,
+                                fontSize = 17.sp,
+                                fontWeight =
+                                    FontWeight.Black,
+                            )
+
+                            Spacer(
+                                Modifier.width(
+                                    10.dp
                                 )
-                                .clickable {
-                                    if (dnaEnabled) {
-                                        showUserDna = true
-                                    } else {
-                                        showPersonalization = true
-                                    }
-                                },
+                            )
+
+                            Text(
+                                text = "Switch Profiles",
+                                modifier =
+                                    Modifier.weight(
+                                        1f
+                                    ),
+                                color =
+                                    Color.White,
+                                fontSize = 12.sp,
+                                fontWeight =
+                                    FontWeight.Bold,
+                            )
+
+                            Text(
+                                text = "›",
+                                color =
+                                    VueoPalette.Muted,
+                                fontSize = 22.sp,
+                            )
+                        }
+                    },
                         shape =
                             RoundedCornerShape(
                                 14.dp
