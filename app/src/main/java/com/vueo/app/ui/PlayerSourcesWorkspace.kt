@@ -55,6 +55,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import com.vueo.app.core.model.StreamSource
+import com.vueo.app.core.player.PlayerSourcePolicy
+import com.vueo.app.core.player.PlayerSourceQuality
 import java.util.Locale
 
 private val SourceAccent = Color(0xFFB9FF3A)
@@ -66,6 +68,7 @@ internal fun PlayerSourcesWorkspace(
     sources: List<StreamSource>,
     currentSource: StreamSource,
     currentPlaybackFailed: Boolean,
+    failedSourceUrls: Set<String>,
     onSelect: (StreamSource) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -81,16 +84,23 @@ internal fun PlayerSourcesWorkspace(
     val visibleSources = sources.filter {
         activeFilter == null || sourceQualityBucket(it) == activeFilter
     }
-    val recommended = remember(sources, currentSource.url, currentPlaybackFailed) {
-        if (currentPlaybackFailed) {
-            sources.firstOrNull { it.url != currentSource.url }
-                ?: sources.firstOrNull()
-        } else {
-            sources.firstOrNull()
+    val recommended = remember(
+        sources,
+        currentSource.url,
+        currentPlaybackFailed,
+        failedSourceUrls,
+    ) {
+        sources.firstOrNull { candidate ->
+            candidate.url?.let { it !in failedSourceUrls } == true &&
+                PlayerSourcePolicy
+                    .assess(candidate)
+                    .quality
+                    .automaticRecoveryEligible &&
+                (!currentPlaybackFailed || candidate.url != currentSource.url)
+        } ?: sources.firstOrNull { candidate ->
+            candidate.url?.let { it !in failedSourceUrls } == true
         }
     }
-    val bestQualityOrder = sources
-        .minOfOrNull { sourceQualityOrder(sourceQualityBucket(it)) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -190,14 +200,19 @@ internal fun PlayerSourcesWorkspace(
                         key = { it.url ?: "${it.providerId}:${it.name}" },
                     ) { candidate ->
                         val current = candidate.url == currentSource.url
+                        val assessment = PlayerSourcePolicy.assess(candidate)
                         SourceListRow(
                             source = candidate,
                             current = current,
                             recommended = candidate.url == recommended?.url,
-                            bestQuality = sourceQualityOrder(
-                                sourceQualityBucket(candidate)
-                            ) == bestQualityOrder,
-                            playbackFailed = current && currentPlaybackFailed,
+                            automaticRecoveryEligible = assessment
+                                .quality
+                                .automaticRecoveryEligible,
+                            playbackFailed =
+                                candidate.url?.let {
+                                    it in failedSourceUrls
+                                } == true ||
+                                (current && currentPlaybackFailed),
                             onClick = {
                                 if (!current) onSelect(candidate)
                             },
@@ -216,6 +231,7 @@ private fun RecommendedSourceCard(
     recoverySuggestion: Boolean,
     onSelect: () -> Unit,
 ) {
+    val assessment = PlayerSourcePolicy.assess(source)
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -239,7 +255,7 @@ private fun RecommendedSourceCard(
                     letterSpacing = .7.sp,
                 )
                 Text(
-                    text = "${sourceQualityBucket(source)} • ${source.providerName}",
+                    text = "${assessment.quality.label} • ${source.providerName}",
                     color = Color.White,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -281,10 +297,11 @@ private fun SourceListRow(
     source: StreamSource,
     current: Boolean,
     recommended: Boolean,
-    bestQuality: Boolean,
+    automaticRecoveryEligible: Boolean,
     playbackFailed: Boolean,
     onClick: () -> Unit,
 ) {
+    val assessment = PlayerSourcePolicy.assess(source)
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -331,7 +348,7 @@ private fun SourceListRow(
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     Text(
-                        text = sourceQualityBucket(source),
+                        text = assessment.quality.label,
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -358,7 +375,7 @@ private fun SourceListRow(
                     playbackFailed -> SourceBadge("Problem")
                     current -> SourceBadge("Current", accent = true)
                     recommended -> SourceBadge("Recommended", accent = true)
-                    bestQuality -> SourceBadge("Best quality")
+                    !automaticRecoveryEligible -> SourceBadge("Manual only")
                     else -> SourceBadge("Direct")
                 }
             }
@@ -420,13 +437,12 @@ private fun SourceFilterChip(
 }
 
 private fun sourceQualityBucket(source: StreamSource): String {
-    val value = "${source.quality.orEmpty()} ${source.name}".lowercase()
-    return when {
-        "2160" in value || "4k" in value || "uhd" in value -> "4K"
-        "1080" in value -> "1080p"
-        "720" in value -> "720p"
-        "480" in value -> "480p"
-        else -> source.quality?.takeIf { it.isNotBlank() } ?: "Auto"
+    val quality = PlayerSourcePolicy.detectQuality(source)
+    return when (quality) {
+        PlayerSourceQuality.LOW ->
+            source.quality?.takeIf { it.isNotBlank() } ?: quality.label
+
+        else -> quality.label
     }
 }
 
@@ -435,8 +451,10 @@ private fun sourceQualityOrder(value: String): Int =
         "4k", "2160p", "uhd" -> 0
         "1080p" -> 1
         "720p" -> 2
-        "480p" -> 3
-        else -> 4
+        "auto" -> 3
+        "unknown" -> 4
+        "480p", "360p", "240p", "below 720p" -> 5
+        else -> 6
     }
 
 private fun sourceDetailLine(source: StreamSource): String =

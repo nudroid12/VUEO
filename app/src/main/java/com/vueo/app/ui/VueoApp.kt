@@ -183,6 +183,11 @@ import com.vueo.app.core.storage.SettingsStore
 import com.vueo.app.core.player.PlayerSkipKind
 import com.vueo.app.core.player.PlayerSkipRepository
 import com.vueo.app.core.player.PlayerSkipSegment
+import com.vueo.app.core.player.PlayerPlaybackPhase
+import com.vueo.app.core.player.PlayerSourcePolicy
+import com.vueo.app.core.player.PlayerSourceRecoverySession
+import com.vueo.app.core.player.PLAYER_REBUFFER_TIMEOUT_MS
+import com.vueo.app.core.player.PLAYER_STARTUP_TIMEOUT_MS
 import com.vueo.app.core.storage.VueoDataMigration
 import com.vueo.app.core.stremio.SimpleHttp
 import com.vueo.app.core.update.VueoUpdateManager
@@ -2098,6 +2103,8 @@ private fun HomeFeaturedCarousel(
         if (
             items.size > 1
         ) {
+            val sourceAssessment =
+                PlayerSourcePolicy.assess(source)
             Row(
                 modifier =
                     Modifier
@@ -10662,20 +10669,27 @@ private fun SourcePickerScreen(
     }
 
     val playable = streams.filter { it.isDirectPlayable }
-    val best = playable.firstOrNull()
+    val best = playable.firstOrNull {
+        PlayerSourcePolicy
+            .assess(it)
+            .quality
+            .automaticRecoveryEligible
+    } ?: playable.firstOrNull()
 
     val qualityGroups =
         listOf(
-            "4K",
             "1080p",
             "720p",
-            "Other",
+            "Auto",
+            "Unknown",
+            "4K",
+            "Below 720p",
         ).mapNotNull { bucket ->
             val matches =
                 streams.filter {
-                    SourceCleaner
-                        .qualityBucket(it) ==
-                        bucket
+                    PlayerSourcePolicy
+                        .detectQuality(it)
+                        .label == bucket
                 }
 
             if (matches.isEmpty()) {
@@ -10830,6 +10844,8 @@ private fun SourcePickerScreen(
 
         if (best != null) {
             item {
+                val bestAssessment =
+                    PlayerSourcePolicy.assess(best)
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -10860,14 +10876,14 @@ private fun SourcePickerScreen(
                         )
 
                         Text(
-                            best.quality ?: "Direct stream",
+                            bestAssessment.quality.label,
                             fontSize = 27.sp,
                             fontWeight = FontWeight.Black,
                         )
 
                         Text(
                             listOfNotNull(
-                                best.codec,
+                                bestAssessment.summary,
                                 best.hdr,
                                 best.audio,
                                 best.providerName,
@@ -10886,7 +10902,7 @@ private fun SourcePickerScreen(
                                 contentDescription = null,
                             )
                             Spacer(Modifier.width(8.dp))
-                            Text("Play Best")
+                            Text("Play Recommended")
                         }
                     }
                 }
@@ -11075,8 +11091,9 @@ private fun StreamSourceCard(
                             ),
                 ) {
                     Text(
-                        source.quality
-                            ?: "Source",
+                        sourceAssessment
+                            .quality
+                            .label,
                         modifier =
                             Modifier.padding(
                                 horizontal =
@@ -11110,6 +11127,12 @@ private fun StreamSourceCard(
 
                 Text(
                     when {
+                        source.isDirectPlayable &&
+                            !sourceAssessment
+                                .quality
+                                .automaticRecoveryEligible ->
+                            "MANUAL"
+
                         source
                             .isDirectPlayable ->
                             "READY"
@@ -11123,8 +11146,10 @@ private fun StreamSourceCard(
                     },
                     color =
                         if (
-                            source
-                                .isDirectPlayable
+                            source.isDirectPlayable &&
+                            sourceAssessment
+                                .quality
+                                .automaticRecoveryEligible
                         ) {
                             VueoPalette.Success
                         } else {
@@ -11487,6 +11512,24 @@ private fun PlayerScreen(
     var playbackError by remember {
         mutableStateOf<String?>(null)
     }
+    var playbackPhase by remember(mediaKey) {
+        mutableStateOf(PlayerPlaybackPhase.LOADING)
+    }
+    var hasRenderedFirstFrame by remember(mediaKey) {
+        mutableStateOf(false)
+    }
+    var recoveryInProgress by remember(mediaKey) {
+        mutableStateOf(false)
+    }
+    var retryGeneration by remember(mediaKey) {
+        mutableIntStateOf(0)
+    }
+    val sourceRecoverySession = remember(mediaKey) {
+        PlayerSourceRecoverySession()
+    }
+    var failedSourceUrls by remember(mediaKey) {
+        mutableStateOf<Set<String>>(emptySet())
+    }
     var isBuffering by remember {
         mutableStateOf(false)
     }
@@ -11593,11 +11636,6 @@ private fun PlayerScreen(
         mutableStateOf(
             settingsStore.autoPlayNextEpisodeEnabled()
         )
-    }
-    var autoRecoveryAttempted by remember(
-        source.url
-    ) {
-        mutableStateOf(false)
     }
     var contentWarnings by remember(mediaKey) {
         mutableStateOf<List<PlayerContentWarning>>(emptyList())
@@ -11850,6 +11888,43 @@ private fun PlayerScreen(
         recordLibraryProgress()
     }
 
+    fun handleSourceFailure(
+        message: String,
+    ) {
+        if (recoveryInProgress) {
+            return
+        }
+
+        sourceRecoverySession.markFailed(source)
+        failedSourceUrls =
+            sourceRecoverySession.failedSourceUrls()
+
+        val alternate = if (
+            settingsStore.autoSourceRecoveryEnabled()
+        ) {
+            sourceRecoverySession.next(playableSources)
+        } else {
+            null
+        }
+
+        if (alternate != null) {
+            recoveryInProgress = true
+            playbackPhase = PlayerPlaybackPhase.RECOVERING
+            playbackError = null
+            controlsVisible = true
+            gestureMessage = "Trying next source"
+            val position = player.currentPosition
+                .coerceAtLeast(currentPositionMs)
+                .coerceAtLeast(0L)
+            savePosition()
+            onSwitchSource(alternate, position)
+        } else {
+            playbackPhase = PlayerPlaybackPhase.FAILED
+            playbackError = message
+            controlsVisible = true
+        }
+    }
+
     fun refreshTrackChoices(
         tracks: Tracks = player.currentTracks,
     ) {
@@ -12092,28 +12167,9 @@ private fun PlayerScreen(
                     error: PlaybackException,
                 ) {
                     isBuffering = false
-                    playbackError =
+                    handleSourceFailure(
                         friendlyPlaybackError(error)
-
-                    val alternate =
-                        playableSources
-                            .firstOrNull {
-                                it.url != source.url
-                            }
-
-                    if (
-                        settingsStore
-                            .autoSourceRecoveryEnabled() &&
-                        !autoRecoveryAttempted &&
-                        alternate != null
-                    ) {
-                        autoRecoveryAttempted = true
-                        savePosition()
-                        onSwitchSource(
-                            alternate,
-                            player.currentPosition,
-                        )
-                    }
+                    )
                 }
 
                 override fun onTracksChanged(
@@ -12130,10 +12186,23 @@ private fun PlayerScreen(
                             Player.STATE_BUFFERING
 
                     if (
+                        playbackState == Player.STATE_BUFFERING
+                    ) {
+                        playbackPhase =
+                            if (hasRenderedFirstFrame) {
+                                PlayerPlaybackPhase.BUFFERING
+                            } else {
+                                PlayerPlaybackPhase.LOADING
+                            }
+                    }
+
+                    if (
                         playbackState ==
                             Player.STATE_READY
                     ) {
                         playbackError = null
+                        playbackPhase = PlayerPlaybackPhase.READY
+                        recoveryInProgress = false
                     }
 
                     if (
@@ -12183,6 +12252,13 @@ private fun PlayerScreen(
                         controlsVisible = true
                     }
                 }
+
+                override fun onRenderedFirstFrame() {
+                    hasRenderedFirstFrame = true
+                    playbackPhase = PlayerPlaybackPhase.READY
+                    playbackError = null
+                    recoveryInProgress = false
+                }
             }
 
         player.addListener(listener)
@@ -12193,6 +12269,70 @@ private fun PlayerScreen(
             savePosition()
             onLibraryChanged()
             player.release()
+        }
+    }
+
+    LaunchedEffect(
+        source.url,
+    ) {
+        sourceRecoverySession.begin(source)
+        playbackPhase = PlayerPlaybackPhase.LOADING
+        playbackError = null
+        isBuffering = false
+        hasRenderedFirstFrame = false
+        recoveryInProgress = false
+    }
+
+    LaunchedEffect(
+        player,
+        retryGeneration,
+        resumePromptVisible,
+        hasRenderedFirstFrame,
+    ) {
+        if (
+            resumePromptVisible ||
+            hasRenderedFirstFrame ||
+            playbackError != null
+        ) {
+            return@LaunchedEffect
+        }
+
+        delay(PLAYER_STARTUP_TIMEOUT_MS)
+        if (
+            !hasRenderedFirstFrame &&
+            playbackError == null &&
+            !recoveryInProgress
+        ) {
+            handleSourceFailure(
+                "This source did not start within 15 seconds. VUEO stopped waiting for it."
+            )
+        }
+    }
+
+    LaunchedEffect(
+        player,
+        isBuffering,
+        hasRenderedFirstFrame,
+        retryGeneration,
+    ) {
+        if (
+            !isBuffering ||
+            !hasRenderedFirstFrame ||
+            playbackError != null
+        ) {
+            return@LaunchedEffect
+        }
+
+        delay(PLAYER_REBUFFER_TIMEOUT_MS)
+        if (
+            isBuffering &&
+            hasRenderedFirstFrame &&
+            playbackError == null &&
+            !recoveryInProgress
+        ) {
+            handleSourceFailure(
+                "Playback remained stuck buffering for 25 seconds."
+            )
         }
     }
 
@@ -12478,6 +12618,7 @@ private fun PlayerScreen(
             sources = playableSources,
             currentSource = source,
             currentPlaybackFailed = playbackError != null,
+            failedSourceUrls = failedSourceUrls,
             onSelect = { candidate ->
                 val switchPosition = player.currentPosition
                     .coerceAtLeast(0L)
@@ -13035,9 +13176,18 @@ private fun PlayerScreen(
                     )
                 }
 
-                if (isBuffering) {
+                if (
+                    playbackPhase == PlayerPlaybackPhase.LOADING ||
+                    playbackPhase == PlayerPlaybackPhase.BUFFERING ||
+                    playbackPhase == PlayerPlaybackPhase.RECOVERING
+                ) {
                     Text(
-                        "BUFFERING",
+                        when (playbackPhase) {
+                            PlayerPlaybackPhase.LOADING -> "LOADING SOURCE"
+                            PlayerPlaybackPhase.BUFFERING -> "BUFFERING"
+                            PlayerPlaybackPhase.RECOVERING -> "TRYING NEXT SOURCE"
+                            else -> ""
+                        },
                         color = VueoPalette.Accent,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
@@ -13171,12 +13321,22 @@ private fun PlayerScreen(
                             ) {
                                 Button(
                                     onClick = {
+                                        sourceRecoverySession
+                                            .allowRetry(source)
+                                        failedSourceUrls =
+                                            sourceRecoverySession
+                                                .failedSourceUrls()
                                         playbackError = null
+                                        playbackPhase =
+                                            PlayerPlaybackPhase.LOADING
+                                        recoveryInProgress = false
+                                        hasRenderedFirstFrame = false
+                                        retryGeneration++
                                         player.prepare()
                                         player.play()
                                     },
                                 ) {
-                                    Text("Try Again")
+                                    Text("Retry")
                                 }
                                 OutlinedButton(
                                     enabled =
@@ -13185,7 +13345,7 @@ private fun PlayerScreen(
                                         showSourceDialog = true
                                     },
                                 ) {
-                                    Text("Switch Source")
+                                    Text("Choose Source")
                                 }
                             }
                         }
@@ -14439,39 +14599,54 @@ private fun friendlyPlaybackError(
             ?.takeIf {
                 it.isNotBlank()
             }
+    val diagnostic = generateSequence<Throwable>(error) {
+        it.cause
+    }.take(6)
+        .joinToString(" ") { cause ->
+            "${cause.javaClass.simpleName} ${cause.message.orEmpty()}"
+        }
 
     return when {
-        message
-            ?.contains(
+        diagnostic
+            .contains(
                 "403",
                 ignoreCase = true,
-            ) == true ->
+            ) ->
             "The stream server rejected this request. Try another source."
 
-        message
-            ?.contains(
+        diagnostic
+            .contains(
                 "404",
                 ignoreCase = true,
-            ) == true ->
+            ) ->
             "This stream is no longer available. Try another source."
 
-        message
-            ?.contains(
+        diagnostic
+            .contains(
                 "timeout",
                 ignoreCase = true,
-            ) == true ->
+            ) ->
             "The stream took too long to respond. Retry or choose another source."
 
-        message
-            ?.contains(
+        diagnostic.contains(
+            "UnknownHost",
+            ignoreCase = true,
+        ) || diagnostic.contains(
+            "Network is unreachable",
+            ignoreCase = true,
+        ) ->
+            "VUEO could not reach the stream server. Check your connection or choose another source."
+
+        diagnostic
+            .contains(
                 "decoder",
                 ignoreCase = true,
-            ) == true ||
-            message
-                ?.contains(
+            ) ||
+            diagnostic
+                .contains(
                     "codec",
                     ignoreCase = true,
-                ) == true ->
+                ) ->
             "This device may not support the stream codec. Try another source."
 
         else ->

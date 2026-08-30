@@ -2121,7 +2121,7 @@ internal fun PlaybackSettingsScreen(
         item {
             VueoSettingsValueCard(
                 title = "Preferred Quality",
-                subtitle = "Boost this resolution in Smart Source ranking without hiding alternatives.",
+                subtitle = "Prefer this resolution. Auto ranking avoids known quality below 720p unless you choose it manually.",
                 value = quality.label,
                 onClick = { showQualityDialog = true },
             )
@@ -2189,7 +2189,7 @@ internal fun PlaybackSettingsScreen(
         item {
             VueoSettingsToggleCard(
                 title = "Auto Source Recovery",
-                subtitle = "If a stream fails, automatically try the next playable source and keep the same timestamp.",
+                subtitle = "Try up to two ranked alternatives after an error or timeout while keeping the same timestamp.",
                 checked = autoRecovery,
                 onCheckedChange = { enabled ->
                     autoRecovery = enabled
@@ -2203,8 +2203,8 @@ internal fun PlaybackSettingsScreen(
 
         item {
             VueoInfoCard(
-                title = "Smart preference",
-                text = "Preferred Quality is a ranking boost, not a hard filter. VUEO can still choose another source when it is more reliable or playable.",
+                title = "Deterministic source selection",
+                text = "VUEO prioritises direct 1080p and 720p streams, accepts Auto or Unknown quality, and keeps lower known resolutions for manual selection.",
             )
         }
     }
