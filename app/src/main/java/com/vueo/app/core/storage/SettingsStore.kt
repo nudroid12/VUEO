@@ -498,6 +498,40 @@ class SettingsStore(
             .apply()
     }
 
+    fun lastSubtitleSelection(): String? =
+        prefs.getString(
+            profileKey(KEY_LAST_SUBTITLE_SELECTION),
+            null,
+        )
+
+    fun setLastSubtitleSelection(
+        selection: String,
+    ) {
+        prefs.edit()
+            .putString(
+                profileKey(KEY_LAST_SUBTITLE_SELECTION),
+                selection,
+            )
+            .apply()
+    }
+
+    fun lastAudioSelection(): String? =
+        prefs.getString(
+            profileKey(KEY_LAST_AUDIO_SELECTION),
+            null,
+        )
+
+    fun setLastAudioSelection(
+        selection: String,
+    ) {
+        prefs.edit()
+            .putString(
+                profileKey(KEY_LAST_AUDIO_SELECTION),
+                selection,
+            )
+            .apply()
+    }
+
     fun tmdbMetadataEnrichmentEnabled(): Boolean =
         prefs.getBoolean(
             KEY_TMDB_METADATA,
@@ -853,6 +887,12 @@ class SettingsStore(
 
         private const val KEY_AUDIO_SELECTION =
             "audio_selection"
+
+        private const val KEY_LAST_SUBTITLE_SELECTION =
+            "last_subtitle_selection"
+
+        private const val KEY_LAST_AUDIO_SELECTION =
+            "last_audio_selection"
 
         private const val KEY_TMDB_METADATA =
             "tmdb_metadata_enrichment"
