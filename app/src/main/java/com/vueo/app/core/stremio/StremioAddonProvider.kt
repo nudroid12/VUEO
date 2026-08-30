@@ -74,10 +74,6 @@ class StremioAddonProvider private constructor(
                 hdr = inferHdr(title),
                 providerId = descriptor.id,
                 providerName = descriptor.name,
-                name = item.optString(
-                    "title",
-                    item.optString("name"),
-                ).takeIf { it.isNotBlank() },
             )
         }
     }
@@ -115,6 +111,10 @@ class StremioAddonProvider private constructor(
                 url = subtitleUrl,
                 providerId = descriptor.id,
                 providerName = descriptor.name,
+                name = item.optString(
+                    "title",
+                    item.optString("name"),
+                ).takeIf { it.isNotBlank() },
             )
         }
     }
