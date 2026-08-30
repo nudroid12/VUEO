@@ -77,6 +77,8 @@ data class SubtitleTrack(
     val language: String,
     val url: String,
     val providerId: String,
+    val providerName: String,
+    val name: String? = null,
 )
 
 data class CatalogPage(
