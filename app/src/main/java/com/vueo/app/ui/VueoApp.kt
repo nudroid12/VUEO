@@ -10,6 +10,7 @@ import android.graphics.Typeface
 import android.util.Rational
 import android.util.TypedValue
 import android.os.Build
+import android.os.SystemClock
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -179,6 +180,7 @@ import com.vueo.app.core.storage.VueoProfile
 import com.vueo.app.core.storage.LibraryPlaybackEntry
 import com.vueo.app.core.storage.PreferredQuality
 import com.vueo.app.core.storage.PlayerOrientation
+import com.vueo.app.core.storage.PlayerVideoFit
 import com.vueo.app.core.storage.SettingsStore
 import com.vueo.app.core.player.PlayerSkipKind
 import com.vueo.app.core.player.PlayerSkipRepository
@@ -11309,6 +11311,17 @@ private fun Context.playerContentWarningsEnabled(): Boolean =
         Context.MODE_PRIVATE,
     ).getBoolean("content_warnings", true)
 
+private fun Context.setPlayerContentWarningsEnabled(
+    enabled: Boolean,
+) {
+    getSharedPreferences(
+        "vueo_player_gestures",
+        Context.MODE_PRIVATE,
+    ).edit()
+        .putBoolean("content_warnings", enabled)
+        .apply()
+}
+
 private fun Context.playerSubtitleDelayMs(mediaKey: String): Int =
     getSharedPreferences(
         "vueo_player_subtitles",
@@ -11477,8 +11490,10 @@ private fun PlayerScreen(
             context.applicationContext
         )
     }
-    val contentWarningsEnabled = remember(mediaKey) {
-        context.playerContentWarningsEnabled()
+    var contentWarningsEnabled by remember {
+        mutableStateOf(
+            context.playerContentWarningsEnabled()
+        )
     }
 
     val savedPositionMs = remember(mediaKey) {
@@ -11548,8 +11563,10 @@ private fun PlayerScreen(
     var controlsLocked by remember {
         mutableStateOf(false)
     }
-    var zoomed by remember {
-        mutableStateOf(false)
+    var videoFit by remember {
+        mutableStateOf(
+            settingsStore.playerVideoFit()
+        )
     }
     var gestureMessage by remember {
         mutableStateOf<String?>(null)
@@ -11610,18 +11627,25 @@ private fun PlayerScreen(
     var showMoreDialog by remember {
         mutableStateOf(false)
     }
-    var showSpeedDialog by remember {
-        mutableStateOf(false)
-    }
     val playerPanelVisible =
         showAudioDialog ||
             showSubtitleDialog ||
             showSourceDialog ||
             showEpisodeDialog ||
-            showMoreDialog ||
-            showSpeedDialog
+            showMoreDialog
     var playbackSpeed by remember {
-        mutableStateOf(1f)
+        mutableStateOf(
+            settingsStore.playerPlaybackSpeed()
+        )
+    }
+    var sleepTimerOption by remember {
+        mutableStateOf(PlayerSleepTimerOption.OFF)
+    }
+    var sleepTimerDeadlineMs by remember {
+        mutableStateOf<Long?>(null)
+    }
+    var sleepTimerRemainingSeconds by remember {
+        mutableStateOf<Long?>(null)
     }
     var nextEpisodeCountdown by remember {
         mutableStateOf<Int?>(null)
@@ -11694,11 +11718,6 @@ private fun PlayerScreen(
 
             showMoreDialog ->
                 showMoreDialog = false
-
-            showSpeedDialog -> {
-                showSpeedDialog = false
-                showMoreDialog = true
-            }
 
             controlsLocked ->
                 controlsLocked = false
@@ -12209,6 +12228,17 @@ private fun PlayerScreen(
                         playbackState ==
                             Player.STATE_ENDED
                     ) {
+                        val sleepAfterEpisode =
+                            sleepTimerOption ==
+                                PlayerSleepTimerOption.END_OF_EPISODE
+                        if (sleepAfterEpisode) {
+                            sleepTimerOption =
+                                PlayerSleepTimerOption.OFF
+                            sleepTimerDeadlineMs = null
+                            sleepTimerRemainingSeconds = null
+                            nextEpisodeCountdown = null
+                            gestureMessage = "Sleep timer ended"
+                        }
                         playbackStore.clearPosition(
                             mediaKey
                         )
@@ -12233,7 +12263,10 @@ private fun PlayerScreen(
                         ) {
                             showNextEpisodeCard = true
                             nextEpisodeCountdown =
-                                if (autoPlayNextEpisode) {
+                                if (
+                                    autoPlayNextEpisode &&
+                                    !sleepAfterEpisode
+                                ) {
                                     8
                                 } else {
                                     null
@@ -12333,6 +12366,40 @@ private fun PlayerScreen(
             handleSourceFailure(
                 "Playback remained stuck buffering for 25 seconds."
             )
+        }
+    }
+
+    LaunchedEffect(
+        player,
+        playbackSpeed,
+    ) {
+        player.setPlaybackSpeed(playbackSpeed)
+    }
+
+    LaunchedEffect(
+        player,
+        sleepTimerDeadlineMs,
+    ) {
+        val deadline = sleepTimerDeadlineMs
+            ?: return@LaunchedEffect
+
+        while (true) {
+            val remainingMs =
+                (deadline - SystemClock.elapsedRealtime())
+                    .coerceAtLeast(0L)
+            sleepTimerRemainingSeconds =
+                (remainingMs + 999L) / 1_000L
+
+            if (remainingMs <= 0L) {
+                player.pause()
+                sleepTimerOption = PlayerSleepTimerOption.OFF
+                sleepTimerDeadlineMs = null
+                sleepTimerRemainingSeconds = null
+                gestureMessage = "Sleep timer ended"
+                controlsVisible = true
+                break
+            }
+            delay(minOf(1_000L, remainingMs))
         }
     }
 
@@ -12688,97 +12755,78 @@ private fun PlayerScreen(
     }
 
     if (showMoreDialog) {
-        PlayerPanelWindow(
-            title = "More",
-            subtitle = "${source.providerName} • ${source.quality ?: "Auto"}",
-            onDismiss = { showMoreDialog = false },
-        ) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                PlayerMoreDialogRow(
-                    label = "Playback speed",
-                    value = "${playbackSpeed}x",
-                    onClick = {
-                        showMoreDialog = false
-                        showSpeedDialog = true
-                    },
-                )
-                PlayerMoreDialogRow(
-                    label = "Display",
-                    value = if (zoomed) "Zoom" else "Fit",
-                    onClick = {
-                        zoomed = !zoomed
-                        showMoreDialog = false
-                    },
-                )
-                if (nextEpisode != null) {
-                    PlayerMoreDialogRow(
-                        label = "Auto-play next episode",
-                        value = if (autoPlayNextEpisode) "On" else "Off",
-                        onClick = {
-                            autoPlayNextEpisode = !autoPlayNextEpisode
-                            settingsStore.setAutoPlayNextEpisodeEnabled(
-                                autoPlayNextEpisode
-                            )
-                            if (!autoPlayNextEpisode) {
-                                nextEpisodeCountdown = null
-                            }
-                        },
-                    )
-                }
-                PlayerMoreDialogRow(
-                    label = "Skip intro and ending",
-                    value = if (skipSegmentsEnabled) "On" else "Off",
-                    onClick = {
-                        skipSegmentsEnabled = !skipSegmentsEnabled
-                        settingsStore.setSkipSegmentsEnabled(
-                            skipSegmentsEnabled
-                        )
-                    },
-                )
-                PlayerMoreDialogRow(
-                    label = "Retry current source",
-                    onClick = {
-                        playbackError = null
-                        player.prepare()
-                        player.play()
-                        showMoreDialog = false
-                    },
-                )
-            }
-        }
-    }
-
-    if (showSpeedDialog) {
-        PlayerPanelWindow(
-            title = "Playback speed",
-            subtitle = "Current ${playbackSpeed}x",
-            onDismiss = {
-                showSpeedDialog = false
-                showMoreDialog = true
+        PlayerMoreWorkspace(
+            playbackSpeed = playbackSpeed,
+            videoFit = videoFit,
+            sleepTimer = sleepTimerOption,
+            sleepTimerRemainingSeconds =
+                sleepTimerRemainingSeconds,
+            autoPlayNextEpisode = autoPlayNextEpisode,
+            skipSegmentsEnabled = skipSegmentsEnabled,
+            contentWarningsEnabled = contentWarningsEnabled,
+            onPlaybackSpeedChange = { speed ->
+                playbackSpeed = speed
+                settingsStore.setPlayerPlaybackSpeed(speed)
+                player.setPlaybackSpeed(speed)
             },
-        ) {
-            LazyColumn(
-                modifier = Modifier.heightIn(max = 340.dp),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                items(
-                    listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f),
-                    key = { it },
-                ) { speed ->
-                    PlayerTrackDialogRow(
-                        label = "${speed}x",
-                        selected = playbackSpeed == speed,
-                        onClick = {
-                            playbackSpeed = speed
-                            player.setPlaybackSpeed(speed)
-                            showSpeedDialog = false
-                        },
-                    )
+            onVideoFitChange = { fit ->
+                videoFit = fit
+                settingsStore.setPlayerVideoFit(fit)
+            },
+            onSleepTimerChange = { option ->
+                sleepTimerOption = option
+                sleepTimerDeadlineMs = option.minutes?.let { minutes ->
+                    SystemClock.elapsedRealtime() +
+                        minutes * 60_000L
                 }
-            }
-        }
+                sleepTimerRemainingSeconds = option.minutes?.let {
+                    it * 60L
+                }
+                gestureMessage = when (option) {
+                    PlayerSleepTimerOption.OFF ->
+                        "Sleep timer off"
+                    PlayerSleepTimerOption.END_OF_EPISODE ->
+                        "Sleep after this episode"
+                    else -> "Sleep timer ${option.label}"
+                }
+            },
+            onAutoPlayNextEpisodeChange = { enabled ->
+                autoPlayNextEpisode = enabled
+                settingsStore.setAutoPlayNextEpisodeEnabled(enabled)
+                if (!enabled) {
+                    nextEpisodeCountdown = null
+                }
+            },
+            onSkipSegmentsChange = { enabled ->
+                skipSegmentsEnabled = enabled
+                settingsStore.setSkipSegmentsEnabled(enabled)
+            },
+            onContentWarningsChange = { enabled ->
+                contentWarningsEnabled = enabled
+                context.setPlayerContentWarningsEnabled(enabled)
+                if (!enabled) {
+                    showContentWarnings = false
+                }
+            },
+            onReset = {
+                playbackSpeed = 1f
+                player.setPlaybackSpeed(1f)
+                settingsStore.setPlayerPlaybackSpeed(1f)
+                videoFit = PlayerVideoFit.FIT
+                settingsStore.setPlayerVideoFit(PlayerVideoFit.FIT)
+                sleepTimerOption = PlayerSleepTimerOption.OFF
+                sleepTimerDeadlineMs = null
+                sleepTimerRemainingSeconds = null
+                autoPlayNextEpisode = true
+                settingsStore.setAutoPlayNextEpisodeEnabled(true)
+                skipSegmentsEnabled = true
+                settingsStore.setSkipSegmentsEnabled(true)
+                contentWarningsEnabled = true
+                context.setPlayerContentWarningsEnabled(true)
+                gestureMessage = "Player controls reset"
+            },
+            onDismiss = { showMoreDialog = false },
+        )
     }
 
     Box(
@@ -12795,28 +12843,14 @@ private fun PlayerScreen(
                     useController = false
                     keepScreenOn = true
                     applyVueoSubtitleStyle(subtitleStyle)
-                    resizeMode =
-                        if (zoomed) {
-                            AspectRatioFrameLayout
-                                .RESIZE_MODE_ZOOM
-                        } else {
-                            AspectRatioFrameLayout
-                                .RESIZE_MODE_FIT
-                        }
+                    resizeMode = videoFit.toMedia3ResizeMode()
                 }
             },
             update = { view ->
                 view.player = player
                 view.useController = false
                 view.applyVueoSubtitleStyle(subtitleStyle)
-                view.resizeMode =
-                    if (zoomed) {
-                        AspectRatioFrameLayout
-                            .RESIZE_MODE_ZOOM
-                    } else {
-                        AspectRatioFrameLayout
-                            .RESIZE_MODE_FIT
-                    }
+                view.resizeMode = videoFit.toMedia3ResizeMode()
             },
         )
 
@@ -12873,12 +12907,18 @@ private fun PlayerScreen(
                                         event.calculateZoom()
 
                                     if (zoomAmount > 1.06f) {
-                                        zoomed = true
+                                        videoFit = PlayerVideoFit.ZOOM
+                                        settingsStore.setPlayerVideoFit(
+                                            PlayerVideoFit.ZOOM
+                                        )
                                         gestureMessage = "Zoom"
                                     } else if (
                                         zoomAmount < .94f
                                     ) {
-                                        zoomed = false
+                                        videoFit = PlayerVideoFit.FIT
+                                        settingsStore.setPlayerVideoFit(
+                                            PlayerVideoFit.FIT
+                                        )
                                         gestureMessage = "Fit"
                                     }
 
@@ -13866,50 +13906,6 @@ private fun PlayerChoiceCard(
     }
 }
 
-@Composable
-private fun PlayerMoreDialogRow(
-    label: String,
-    value: String? = null,
-    onClick: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        color = Color.White.copy(alpha = .035f),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            Color.White.copy(alpha = .07f),
-        ),
-    ) {
-        Row(
-            modifier = Modifier.padding(
-                horizontal = 12.dp,
-                vertical = 13.dp,
-            ),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                label,
-                modifier = Modifier.weight(1f),
-                color = Color.White.copy(alpha = .90f),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            value?.let {
-                Text(
-                    it,
-                    color = VueoPlayerAccent,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        }
-    }
-}
-
 private fun PlayerView.applyVueoSubtitleStyle(
     style: PlayerSubtitleStyleState,
 ) {
@@ -14590,6 +14586,16 @@ private fun clearTrackOverride(
             )
             .build()
 }
+
+private fun PlayerVideoFit.toMedia3ResizeMode(): Int =
+    when (this) {
+        PlayerVideoFit.FIT ->
+            AspectRatioFrameLayout.RESIZE_MODE_FIT
+        PlayerVideoFit.FILL ->
+            AspectRatioFrameLayout.RESIZE_MODE_FILL
+        PlayerVideoFit.ZOOM ->
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+    }
 
 private fun friendlyPlaybackError(
     error: PlaybackException,
