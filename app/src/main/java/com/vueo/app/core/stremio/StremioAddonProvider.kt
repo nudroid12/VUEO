@@ -74,6 +74,10 @@ class StremioAddonProvider private constructor(
                 hdr = inferHdr(title),
                 providerId = descriptor.id,
                 providerName = descriptor.name,
+                name = item.optString(
+                    "title",
+                    item.optString("name"),
+                ).takeIf { it.isNotBlank() },
             )
         }
     }
@@ -95,10 +99,22 @@ class StremioAddonProvider private constructor(
                 ?: return@mapNotNull null
 
             SubtitleTrack(
-                id = "$index-${item.optString("id", item.optString("lang", "und"))}",
+                id = buildString {
+                    append(descriptor.id)
+                    append(":")
+                    append(index)
+                    append(":")
+                    append(
+                        item.optString(
+                            "id",
+                            item.optString("lang", "und"),
+                        )
+                    )
+                },
                 language = item.optString("lang", "und"),
                 url = subtitleUrl,
                 providerId = descriptor.id,
+                providerName = descriptor.name,
             )
         }
     }
