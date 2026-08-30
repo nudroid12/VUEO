@@ -185,6 +185,23 @@ class SettingsStore(
             .apply()
     }
 
+    fun skipSegmentsEnabled(): Boolean =
+        prefs.getBoolean(
+            profileKey(KEY_SKIP_SEGMENTS),
+            true,
+        )
+
+    fun setSkipSegmentsEnabled(
+        enabled: Boolean,
+    ) {
+        prefs.edit()
+            .putBoolean(
+                profileKey(KEY_SKIP_SEGMENTS),
+                enabled,
+            )
+            .apply()
+    }
+
     fun setPreferredQuality(
         value: PreferredQuality,
     ) {
@@ -758,6 +775,9 @@ class SettingsStore(
 
         private const val KEY_AUTO_PLAY_NEXT_EPISODE =
             "auto_play_next_episode"
+
+        private const val KEY_SKIP_SEGMENTS =
+            "skip_segments"
 
         private const val KEY_SOURCE_TECHNICAL_DETAILS =
             "source_technical_details"
