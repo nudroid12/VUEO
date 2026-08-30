@@ -78,9 +78,11 @@ internal fun PlayerSubtitleWorkspace(
     subtitlesDisabled: Boolean,
     preferredLanguageCode: String?,
     secondaryLanguageCode: String?,
+    subtitleDelayMs: Int,
     style: PlayerSubtitleStyleState,
     onDisable: () -> Unit,
     onSelect: (PlayerTrackChoice) -> Unit,
+    onSubtitleDelayChange: (Int) -> Unit,
     onStyleChange: (PlayerSubtitleStyleState) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -206,7 +208,9 @@ internal fun PlayerSubtitleWorkspace(
 
                     if (selectedTrack != null && !subtitlesDisabled) {
                         SubtitleStyleColumn(
+                            subtitleDelayMs = subtitleDelayMs,
                             style = style,
+                            onSubtitleDelayChange = onSubtitleDelayChange,
                             onStyleChange = onStyleChange,
                         )
                     }
@@ -356,11 +360,29 @@ private fun ProviderBadge(label: String, selected: Boolean) {
 
 @Composable
 private fun SubtitleStyleColumn(
+    subtitleDelayMs: Int,
     style: PlayerSubtitleStyleState,
+    onSubtitleDelayChange: (Int) -> Unit,
     onStyleChange: (PlayerSubtitleStyleState) -> Unit,
 ) {
     SubtitleColumn("Style", 232.dp) {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            item {
+                StyleStepper(
+                    label = "Sync",
+                    value = formatSubtitleDelay(subtitleDelayMs),
+                    onDecrease = {
+                        onSubtitleDelayChange(
+                            (subtitleDelayMs - 250).coerceAtLeast(-60_000)
+                        )
+                    },
+                    onIncrease = {
+                        onSubtitleDelayChange(
+                            (subtitleDelayMs + 250).coerceAtMost(60_000)
+                        )
+                    },
+                )
+            }
             item {
                 StyleStepper(
                     label = "Font Size",
@@ -489,6 +511,17 @@ private fun SubtitleStyleColumn(
             }
         }
     }
+}
+
+private fun formatSubtitleDelay(delayMs: Int): String {
+    val absoluteMs = kotlin.math.abs(delayMs)
+    val sign = when {
+        delayMs > 0 -> "+"
+        delayMs < 0 -> "-"
+        else -> ""
+    }
+    val hundredths = (absoluteMs % 1_000) / 10
+    return "$sign${absoluteMs / 1_000}.${hundredths.toString().padStart(2, '0')}s"
 }
 
 @Composable

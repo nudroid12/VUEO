@@ -114,6 +114,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -139,7 +140,11 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.ForwardingRenderer
+import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.common.C
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MimeTypes
@@ -8186,6 +8191,11 @@ private fun MediaDetailsScreen(
                     )
                 }
 
+            launch {
+                sourcePickerSubtitles =
+                    subtitlesDeferred.await()
+            }
+
             val addonDeferred =
                 async {
                     runCatching {
@@ -8313,9 +8323,6 @@ private fun MediaDetailsScreen(
 
             val pluginResult =
                 pluginDeferred.await()
-
-            sourcePickerSubtitles =
-                subtitlesDeferred.await()
 
             freshAddonStreams =
                 finalAddonStreams
@@ -8540,8 +8547,6 @@ private fun MediaDetailsScreen(
                 sourcePickerStreams = null
             },
             onPlay = { source ->
-                sourceDiscoveryJob?.cancel()
-                sourceDiscoveryJob = null
                 sourcePickerSearching = false
 
                 val videoId = selectedVideoId(item, selectedEpisode)
@@ -11276,6 +11281,28 @@ private fun Context.playerContentWarningsEnabled(): Boolean =
         Context.MODE_PRIVATE,
     ).getBoolean("content_warnings", true)
 
+private fun Context.playerSubtitleDelayMs(mediaKey: String): Int =
+    getSharedPreferences(
+        "vueo_player_subtitles",
+        Context.MODE_PRIVATE,
+    ).getInt("subtitle_delay_ms:$mediaKey", 0)
+        .coerceIn(-60_000, 60_000)
+
+private fun Context.setPlayerSubtitleDelayMs(
+    mediaKey: String,
+    delayMs: Int,
+) {
+    getSharedPreferences(
+        "vueo_player_subtitles",
+        Context.MODE_PRIVATE,
+    ).edit()
+        .putInt(
+            "subtitle_delay_ms:$mediaKey",
+            delayMs.coerceIn(-60_000, 60_000),
+        )
+        .apply()
+}
+
 @Composable
 private fun PlayerContentWarningsOverlay(
     warnings: List<PlayerContentWarning>,
@@ -11510,6 +11537,13 @@ private fun PlayerScreen(
             )
         )
     }
+    var subtitleDelayMs by remember(mediaKey) {
+        mutableIntStateOf(
+            context.playerSubtitleDelayMs(mediaKey)
+        )
+    }
+    val latestSubtitleDelayMs =
+        rememberUpdatedState(subtitleDelayMs)
     var subtitlesDisabled by remember(mediaKey) {
         mutableStateOf(
             !settingsStore.subtitlesOnByDefault()
@@ -11625,7 +11659,15 @@ private fun PlayerScreen(
             DefaultMediaSourceFactory(context)
                 .setDataSourceFactory(httpFactory)
 
-        ExoPlayer.Builder(context)
+        ExoPlayer.Builder(
+            context,
+            VueoSubtitleOffsetRenderersFactory(
+                context = context,
+                subtitleDelayUsProvider = {
+                    latestSubtitleDelayMs.value.toLong() * 1_000L
+                },
+            ),
+        )
             .setMediaSourceFactory(
                 mediaSourceFactory
             )
@@ -12166,6 +12208,7 @@ private fun PlayerScreen(
             secondaryLanguageCode = settingsStore
                 .secondarySubtitleLanguage()
                 .languageCode,
+            subtitleDelayMs = subtitleDelayMs,
             style = subtitleStyle,
             onDisable = {
                 clearTrackOverride(
@@ -12191,6 +12234,14 @@ private fun PlayerScreen(
                     choice.selectionId,
                 )
                 refreshTrackChoices()
+            },
+            onSubtitleDelayChange = { delayMs ->
+                subtitleDelayMs =
+                    delayMs.coerceIn(-60_000, 60_000)
+                context.setPlayerSubtitleDelayMs(
+                    mediaKey = mediaKey,
+                    delayMs = subtitleDelayMs,
+                )
             },
             onStyleChange = { updated ->
                 subtitleStyle = updated
@@ -13457,6 +13508,55 @@ private fun PlayerView.applyVueoSubtitleStyle(
                     Typeface.DEFAULT
                 },
             )
+        )
+    }
+}
+
+@androidx.annotation.OptIn(
+    androidx.media3.common.util.UnstableApi::class
+)
+private class VueoSubtitleOffsetRenderersFactory(
+    context: Context,
+    private val subtitleDelayUsProvider: () -> Long,
+) : DefaultRenderersFactory(context) {
+    override fun buildTextRenderers(
+        context: Context,
+        output: TextOutput,
+        outputLooper: android.os.Looper,
+        extensionRendererMode: Int,
+        out: ArrayList<Renderer>,
+    ) {
+        val firstTextRenderer = out.size
+        super.buildTextRenderers(
+            context,
+            output,
+            outputLooper,
+            extensionRendererMode,
+            out,
+        )
+        for (index in firstTextRenderer until out.size) {
+            out[index] = VueoSubtitleOffsetRenderer(
+                baseRenderer = out[index],
+                subtitleDelayUsProvider = subtitleDelayUsProvider,
+            )
+        }
+    }
+}
+
+private class VueoSubtitleOffsetRenderer(
+    baseRenderer: Renderer,
+    private val subtitleDelayUsProvider: () -> Long,
+) : ForwardingRenderer(baseRenderer) {
+    override fun render(
+        positionUs: Long,
+        elapsedRealtimeUs: Long,
+    ) {
+        val subtitlePositionUs =
+            (positionUs - subtitleDelayUsProvider())
+                .coerceAtLeast(0L)
+        super.render(
+            subtitlePositionUs,
+            elapsedRealtimeUs,
         )
     }
 }
