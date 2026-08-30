@@ -11298,7 +11298,7 @@ private fun PlayerContentWarningsOverlay(
     onAnimationComplete: () -> Unit,
 ) {
     val count = warnings.size
-    val totalLineHeight = (count * 17) + ((count - 1) * 2)
+    val totalLineHeight = (count * 14) + ((count - 1) * 2)
     val containerAlpha = remember { Animatable(0f) }
     val lineHeightFraction = remember { Animatable(0f) }
     val itemAlphas = remember(count) {
@@ -11361,7 +11361,6 @@ private fun PlayerContentWarningsOverlay(
             warnings.forEachIndexed { index, warning ->
                 Row(
                     modifier = Modifier
-                        .height(17.dp)
                         .alpha(
                             itemAlphas
                                 .getOrNull(index)
@@ -11373,13 +11372,15 @@ private fun PlayerContentWarningsOverlay(
                     Text(
                         warning.label,
                         color = Color.White.copy(alpha = .92f),
-                        fontSize = 11.sp,
+                        fontSize = 9.sp,
+                        lineHeight = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
                         " · ${warning.severity}",
                         color = Color.White.copy(alpha = .56f),
-                        fontSize = 11.sp,
+                        fontSize = 9.sp,
+                        lineHeight = 11.sp,
                     )
                 }
             }
@@ -12670,10 +12671,10 @@ private fun PlayerScreen(
         ) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
+                    .align(Alignment.TopStart)
                     .padding(
-                        start = 32.dp,
-                        bottom = 104.dp,
+                        start = 76.dp,
+                        top = 20.dp,
                     ),
             ) {
                 PlayerContentWarningsOverlay(
@@ -12728,17 +12729,21 @@ private fun PlayerScreen(
                     )
                 }
 
-                Text(
-                    episode?.let {
-                        "S${it.season} E${it.episode} • ${it.title}"
-                    } ?: title,
-                    modifier = Modifier.weight(1f),
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (showContentWarnings) {
+                    Spacer(Modifier.weight(1f))
+                } else {
+                    Text(
+                        episode?.let {
+                            "S${it.season} E${it.episode} • ${it.title}"
+                        } ?: title,
+                        modifier = Modifier.weight(1f),
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
 
                 if (isBuffering) {
                     Text(
