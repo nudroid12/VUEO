@@ -290,10 +290,116 @@ class SettingsStore(
     fun setSubtitleSize(
         value: SubtitleSize,
     ) {
+        val fontSizeSp = when (value) {
+            SubtitleSize.SMALL -> 16
+            SubtitleSize.MEDIUM -> 20
+            SubtitleSize.LARGE -> 24
+        }
         prefs.edit()
             .putString(
                 profileKey(KEY_SUBTITLE_SIZE),
                 value.name,
+            )
+            .putInt(
+                profileKey(KEY_SUBTITLE_FONT_SIZE_SP),
+                fontSizeSp,
+            )
+            .apply()
+    }
+
+    fun subtitleFontSizeSp(): Int {
+        val key = profileKey(KEY_SUBTITLE_FONT_SIZE_SP)
+        if (prefs.contains(key)) {
+            return prefs.getInt(key, 20).coerceIn(12, 40)
+        }
+
+        return when (subtitleSize()) {
+            SubtitleSize.SMALL -> 16
+            SubtitleSize.MEDIUM -> 20
+            SubtitleSize.LARGE -> 24
+        }
+    }
+
+    fun setSubtitleFontSizeSp(value: Int) {
+        prefs.edit()
+            .putInt(
+                profileKey(KEY_SUBTITLE_FONT_SIZE_SP),
+                value.coerceIn(12, 40),
+            )
+            .apply()
+    }
+
+    fun subtitleBold(): Boolean =
+        prefs.getBoolean(
+            profileKey(KEY_SUBTITLE_BOLD),
+            false,
+        )
+
+    fun setSubtitleBold(enabled: Boolean) {
+        prefs.edit()
+            .putBoolean(
+                profileKey(KEY_SUBTITLE_BOLD),
+                enabled,
+            )
+            .apply()
+    }
+
+    fun subtitleTextColor(): Int =
+        prefs.getInt(
+            profileKey(KEY_SUBTITLE_TEXT_COLOR),
+            0xFFFFFFFF.toInt(),
+        )
+
+    fun setSubtitleTextColor(value: Int) {
+        prefs.edit()
+            .putInt(
+                profileKey(KEY_SUBTITLE_TEXT_COLOR),
+                value,
+            )
+            .apply()
+    }
+
+    fun subtitleOutlineEnabled(): Boolean =
+        prefs.getBoolean(
+            profileKey(KEY_SUBTITLE_OUTLINE_ENABLED),
+            true,
+        )
+
+    fun setSubtitleOutlineEnabled(enabled: Boolean) {
+        prefs.edit()
+            .putBoolean(
+                profileKey(KEY_SUBTITLE_OUTLINE_ENABLED),
+                enabled,
+            )
+            .apply()
+    }
+
+    fun subtitleOutlineColor(): Int =
+        prefs.getInt(
+            profileKey(KEY_SUBTITLE_OUTLINE_COLOR),
+            0xFF000000.toInt(),
+        )
+
+    fun setSubtitleOutlineColor(value: Int) {
+        prefs.edit()
+            .putInt(
+                profileKey(KEY_SUBTITLE_OUTLINE_COLOR),
+                value,
+            )
+            .apply()
+    }
+
+    fun subtitleBottomPaddingPercent(): Int =
+        prefs.getInt(
+            profileKey(KEY_SUBTITLE_BOTTOM_PADDING_PERCENT),
+            22,
+        ).coerceIn(5, 40)
+
+    fun setSubtitleBottomPaddingPercent(value: Int) {
+        prefs.edit()
+            .putInt(
+                profileKey(KEY_SUBTITLE_BOTTOM_PADDING_PERCENT),
+                value.coerceIn(5, 40),
             )
             .apply()
     }
@@ -623,6 +729,24 @@ class SettingsStore(
 
         private const val KEY_SUBTITLE_SIZE =
             "subtitle_size"
+
+        private const val KEY_SUBTITLE_FONT_SIZE_SP =
+            "subtitle_font_size_sp"
+
+        private const val KEY_SUBTITLE_BOLD =
+            "subtitle_bold"
+
+        private const val KEY_SUBTITLE_TEXT_COLOR =
+            "subtitle_text_color"
+
+        private const val KEY_SUBTITLE_OUTLINE_ENABLED =
+            "subtitle_outline_enabled"
+
+        private const val KEY_SUBTITLE_OUTLINE_COLOR =
+            "subtitle_outline_color"
+
+        private const val KEY_SUBTITLE_BOTTOM_PADDING_PERCENT =
+            "subtitle_bottom_padding_percent"
 
         private const val KEY_TMDB_METADATA =
             "tmdb_metadata_enrichment"
