@@ -4,6 +4,7 @@ import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.core.model.MediaItem
 import com.vueo.app.core.model.StreamSource
 import com.vueo.app.core.model.SubtitleTrack
+import com.vueo.app.core.player.PlayerSourcePolicy
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -456,109 +457,9 @@ data class AddonStreamProgress(
 )
 
 object SourceRanker {
-    private fun score(
-        source: StreamSource,
-        preferredQuality: String? = null,
-    ): Int {
-        val q =
-            source.quality
-                .orEmpty()
-                .lowercase()
-
-        val hdr =
-            source.hdr
-                .orEmpty()
-                .lowercase()
-
-        val codec =
-            source.codec
-                .orEmpty()
-                .lowercase()
-
-        val detectedQuality =
-            when {
-                "2160" in q ||
-                    "4k" in q ||
-                    "uhd" in q ->
-                    "4K"
-
-                "1080" in q ->
-                    "1080p"
-
-                "720" in q ->
-                    "720p"
-
-                else ->
-                    "Other"
-            }
-
-        val preferenceBoost =
-            if (
-                preferredQuality != null &&
-                detectedQuality ==
-                    preferredQuality
-            ) {
-                55
-            } else {
-                0
-            }
-
-        return source.rankBoost +
-            preferenceBoost +
-            (
-                if (
-                    source.isDirectPlayable
-                ) {
-                    100
-                } else {
-                    0
-                }
-            ) +
-            when (
-                detectedQuality
-            ) {
-                "4K" -> 40
-                "1080p" -> 30
-                "720p" -> 20
-                else -> 10
-            } +
-            when {
-                "dolby vision" in hdr ||
-                    hdr == "dv" ->
-                    15
-
-                "hdr" in hdr ->
-                    10
-
-                else ->
-                    0
-            } +
-            when {
-                "hevc" in codec ||
-                    "h265" in codec ||
-                    "av1" in codec ->
-                    8
-
-                else ->
-                    0
-            }
-    }
-
     fun comparator(
         preferredQuality: String? = null,
-    ) =
-        compareByDescending<
-            StreamSource
-        > {
-            score(
-                source = it,
-                preferredQuality =
-                    preferredQuality,
-            )
-        }.thenBy {
-            it.sizeBytes
-                ?: Long.MAX_VALUE
-        }
+    ) = PlayerSourcePolicy.comparator(preferredQuality)
 }
 
 
