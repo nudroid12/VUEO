@@ -11549,7 +11549,7 @@ private fun PlayerScreen(
         rememberUpdatedState(subtitleDelayMs)
     var subtitlesDisabled by remember(mediaKey) {
         mutableStateOf(
-            !settingsStore.subtitlesOnByDefault()
+            !playerSubtitlesEnabledAtStart(settingsStore)
         )
     }
     var showAudioDialog by remember {
@@ -11622,13 +11622,20 @@ private fun PlayerScreen(
         availableSources,
         source.url,
     ) {
-        availableSources
+        (listOf(source) + availableSources)
             .filter {
                 it.isDirectPlayable
             }
             .distinctBy {
                 it.url
             }
+            .sortedWith(
+                SourceRanker.comparator(
+                    settingsStore
+                        .preferredQuality()
+                        .rankKey
+                )
+            )
     }
 
     BackHandler {
@@ -11709,16 +11716,17 @@ private fun PlayerScreen(
                             ),
                         subtitles = subtitles,
                         preferredLanguageCode =
-                            settingsStore
-                                .preferredSubtitleLanguage()
-                                .languageCode,
+                            playerPreferredSubtitleLanguageCode(
+                                settingsStore
+                            ),
                         secondaryLanguageCode =
                             settingsStore
                                 .secondarySubtitleLanguage()
                                 .languageCode,
                         subtitlesOnByDefault =
-                            settingsStore
-                                .subtitlesOnByDefault(),
+                            playerSubtitlesEnabledAtStart(
+                                settingsStore
+                            ),
                         autoSelectPreferred =
                             settingsStore
                                 .autoSelectPreferredSubtitle(),
@@ -11789,9 +11797,9 @@ private fun PlayerScreen(
                     sourceUrl = requireNotNull(source.url),
                     subtitles = subtitles,
                     preferredLanguageCode =
-                        settingsStore
-                            .preferredSubtitleLanguage()
-                            .languageCode,
+                        playerPreferredSubtitleLanguageCode(
+                            settingsStore
+                        ),
                     secondaryLanguageCode =
                         settingsStore
                             .secondarySubtitleLanguage()
@@ -11858,8 +11866,10 @@ private fun PlayerScreen(
         )
 
         if (!audioPreferenceRestored && audioTracks.isNotEmpty()) {
-            val savedSelection =
-                settingsStore.audioSelection(media.id)
+            val globalSelection =
+                settingsStore.lastAudioSelection()
+            val savedSelection = globalSelection
+                ?: settingsStore.audioSelection(media.id)
             val savedTrack = findSavedAudioTrack(
                 tracks = audioTracks,
                 savedSelection = savedSelection,
@@ -11867,6 +11877,11 @@ private fun PlayerScreen(
 
             when {
                 savedSelection == PLAYER_AUDIO_AUTO -> {
+                    if (globalSelection == null) {
+                        settingsStore.setLastAudioSelection(
+                            PLAYER_AUDIO_AUTO
+                        )
+                    }
                     audioPreferenceRestored = true
                     audioAutomaticSelected = true
                     clearTrackOverride(
@@ -11877,6 +11892,11 @@ private fun PlayerScreen(
                 }
 
                 savedTrack != null -> {
+                    if (globalSelection == null && savedSelection != null) {
+                        settingsStore.setLastAudioSelection(
+                            savedSelection
+                        )
+                    }
                     audioPreferenceRestored = true
                     audioAutomaticSelected = false
                     applyTrackChoice(
@@ -11894,14 +11914,37 @@ private fun PlayerScreen(
         }
 
         if (!subtitlePreferenceRestored && textTracks.isNotEmpty()) {
-            val savedSelection =
-                settingsStore.subtitleSelection(mediaKey)
-            val savedTrack = textTracks.firstOrNull {
-                it.selectionId == savedSelection
+            val globalSelection =
+                settingsStore.lastSubtitleSelection()
+            val savedSelection = globalSelection
+                ?: settingsStore.subtitleSelection(mediaKey)
+            val savedLanguage = savedSelection
+                ?.takeIf {
+                    it.startsWith(
+                        PLAYER_SUBTITLE_LANGUAGE_PREFIX
+                    )
+                }
+                ?.removePrefix(
+                    PLAYER_SUBTITLE_LANGUAGE_PREFIX
+                )
+            val savedTrack = if (savedLanguage != null) {
+                textTracks.firstOrNull {
+                    canonicalSubtitleLanguage(it.language) ==
+                        canonicalSubtitleLanguage(savedLanguage)
+                }
+            } else {
+                textTracks.firstOrNull {
+                    it.selectionId == savedSelection
+                }
             }
 
             when {
                 savedSelection == PLAYER_SUBTITLE_OFF -> {
+                    if (globalSelection == null) {
+                        settingsStore.setLastSubtitleSelection(
+                            PLAYER_SUBTITLE_OFF
+                        )
+                    }
                     subtitlePreferenceRestored = true
                     clearTrackOverride(
                         player = player,
@@ -11912,6 +11955,14 @@ private fun PlayerScreen(
                 }
 
                 savedTrack != null -> {
+                    if (globalSelection == null) {
+                        settingsStore.setLastSubtitleSelection(
+                            PLAYER_SUBTITLE_LANGUAGE_PREFIX +
+                                canonicalSubtitleLanguage(
+                                    savedTrack.language
+                                )
+                        )
+                    }
                     subtitlePreferenceRestored = true
                     applyTrackChoice(
                         player = player,
@@ -12331,9 +12382,8 @@ private fun PlayerScreen(
                     disable = false,
                 )
                 audioAutomaticSelected = true
-                settingsStore.setAudioSelection(
-                    media.id,
-                    PLAYER_AUDIO_AUTO,
+                settingsStore.setLastAudioSelection(
+                    PLAYER_AUDIO_AUTO
                 )
                 showAudioDialog = false
             },
@@ -12344,9 +12394,8 @@ private fun PlayerScreen(
                     choice = choice,
                 )
                 audioAutomaticSelected = false
-                settingsStore.setAudioSelection(
-                    media.id,
-                    choice.selectionId,
+                settingsStore.setLastAudioSelection(
+                    choice.selectionId
                 )
                 showAudioDialog = false
             },
@@ -12360,9 +12409,10 @@ private fun PlayerScreen(
         PlayerSubtitleWorkspace(
             tracks = textTracks,
             subtitlesDisabled = subtitlesDisabled,
-            preferredLanguageCode = settingsStore
-                .preferredSubtitleLanguage()
-                .languageCode,
+            preferredLanguageCode =
+                playerPreferredSubtitleLanguageCode(
+                    settingsStore
+                ),
             secondaryLanguageCode = settingsStore
                 .secondarySubtitleLanguage()
                 .languageCode,
@@ -12375,9 +12425,8 @@ private fun PlayerScreen(
                     disable = true,
                 )
                 subtitlesDisabled = true
-                settingsStore.setSubtitleSelection(
-                    mediaKey,
-                    PLAYER_SUBTITLE_OFF,
+                settingsStore.setLastSubtitleSelection(
+                    PLAYER_SUBTITLE_OFF
                 )
             },
             onSelect = { choice ->
@@ -12387,9 +12436,11 @@ private fun PlayerScreen(
                     choice = choice,
                 )
                 subtitlesDisabled = false
-                settingsStore.setSubtitleSelection(
-                    mediaKey,
-                    choice.selectionId,
+                settingsStore.setLastSubtitleSelection(
+                    PLAYER_SUBTITLE_LANGUAGE_PREFIX +
+                        canonicalSubtitleLanguage(
+                            choice.language
+                        )
                 )
                 refreshTrackChoices()
             },
@@ -12420,47 +12471,22 @@ private fun PlayerScreen(
     }
 
     if (showSourceDialog) {
-        PlayerPanelWindow(
-            title = "Sources",
-            subtitle = "${playableSources.size} playable",
+        PlayerSourcesWorkspace(
+            title = episode?.let {
+                "S${it.season} E${it.episode} • ${it.title}"
+            } ?: title,
+            sources = playableSources,
+            currentSource = source,
+            currentPlaybackFailed = playbackError != null,
+            onSelect = { candidate ->
+                val switchPosition = player.currentPosition
+                    .coerceAtLeast(0L)
+                savePosition()
+                showSourceDialog = false
+                onSwitchSource(candidate, switchPosition)
+            },
             onDismiss = { showSourceDialog = false },
-        ) {
-            LazyColumn(
-                modifier = Modifier.heightIn(max = 340.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                items(
-                    playableSources,
-                    key = { it.url ?: it.name },
-                ) { candidate ->
-                    val current = candidate.url == source.url
-                    PlayerChoiceCard(
-                        title = listOfNotNull(
-                            candidate.quality ?: "Auto",
-                            candidate.providerName,
-                        ).joinToString(" • "),
-                        detail = listOfNotNull(
-                            candidate.codec,
-                            candidate.hdr,
-                            candidate.audio,
-                        ).joinToString(" • ").ifBlank {
-                            "Direct playable stream"
-                        },
-                        selected = current,
-                        onClick = {
-                            if (!current) {
-                                savePosition()
-                                showSourceDialog = false
-                                onSwitchSource(
-                                    candidate,
-                                    player.currentPosition,
-                                )
-                            }
-                        },
-                    )
-                }
-            }
-        }
+        )
     }
 
     if (showEpisodeDialog) {
@@ -13949,8 +13975,41 @@ private const val PLAYER_SUBTITLE_LABEL_PREFIX =
 private const val PLAYER_SUBTITLE_OFF =
     "subtitle:off"
 
+private const val PLAYER_SUBTITLE_LANGUAGE_PREFIX =
+    "subtitle-language:"
+
 private const val PLAYER_AUDIO_AUTO =
     "audio:auto"
+
+private fun playerPreferredSubtitleLanguageCode(
+    settingsStore: SettingsStore,
+): String? {
+    val lastSelection = settingsStore.lastSubtitleSelection()
+    return lastSelection
+        ?.takeIf {
+            it.startsWith(
+                PLAYER_SUBTITLE_LANGUAGE_PREFIX
+            )
+        }
+        ?.removePrefix(
+            PLAYER_SUBTITLE_LANGUAGE_PREFIX
+        )
+        ?: settingsStore
+            .preferredSubtitleLanguage()
+            .languageCode
+}
+
+private fun playerSubtitlesEnabledAtStart(
+    settingsStore: SettingsStore,
+): Boolean =
+    when (val lastSelection = settingsStore.lastSubtitleSelection()) {
+        PLAYER_SUBTITLE_OFF -> false
+        null -> settingsStore.subtitlesOnByDefault()
+        else ->
+            lastSelection.startsWith(
+                PLAYER_SUBTITLE_LANGUAGE_PREFIX
+            ) || settingsStore.subtitlesOnByDefault()
+    }
 
 private fun playerTrackChoices(
     tracks: Tracks,
