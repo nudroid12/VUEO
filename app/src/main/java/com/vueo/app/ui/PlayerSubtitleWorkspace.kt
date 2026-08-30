@@ -1,5 +1,10 @@
 package com.vueo.app.ui
 
+import android.os.Build
+import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,17 +18,16 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
@@ -31,6 +35,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,12 +44,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import java.util.Locale
 
 internal data class PlayerSubtitleStyleState(
@@ -62,9 +69,8 @@ private data class SubtitleLanguageGroup(
     val tracks: List<PlayerTrackChoice>,
 )
 
-private val SubtitleAccent = Color(0xFFB6FF3B)
-private val SubtitlePanel = Color(0xE817191D)
-private val SubtitleBorder = Color.White.copy(alpha = .16f)
+private val SubtitleAccent = Color(0xFFB9FF3A)
+private val SubtitleItemShape = RoundedCornerShape(13.dp)
 
 @Composable
 internal fun PlayerSubtitleWorkspace(
@@ -90,11 +96,12 @@ internal fun PlayerSubtitleWorkspace(
         )
     }
     val selectedTrack = tracks.firstOrNull { it.selected }
-    var activeLanguageCode by remember(groups) {
+    var activeLanguageCode by remember(groups, selectedTrack?.selectionId) {
         mutableStateOf(
-            selectedTrack?.language?.let(::normaliseLanguageCode)
+            selectedTrack?.language
+                ?.let(::canonicalSubtitleLanguage)
                 ?: preferredLanguageCode
-                    ?.let(::normaliseLanguageCode)
+                    ?.let(::canonicalSubtitleLanguage)
                     ?.takeIf { preferred ->
                         groups.any { it.code == preferred }
                     }
@@ -113,129 +120,92 @@ internal fun PlayerSubtitleWorkspace(
             decorFitsSystemWindows = false,
         ),
     ) {
+        KeepSubtitleDialogImmersive()
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = .36f))
+                .background(Color.Black.copy(alpha = .28f))
                 .background(
                     Brush.horizontalGradient(
-                        listOf(
-                            Color.Black.copy(alpha = .96f),
-                            Color.Black.copy(alpha = .78f),
-                            Color.Transparent,
-                        )
+                        0f to Color.Black.copy(alpha = .96f),
+                        .46f to Color.Black.copy(alpha = .70f),
+                        1f to Color.Black.copy(alpha = .12f),
                     )
                 )
-                .padding(horizontal = 34.dp, vertical = 22.dp),
+                .padding(start = 34.dp, end = 24.dp, top = 20.dp, bottom = 16.dp),
         ) {
             IconButton(
                 onClick = onDismiss,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .background(
-                        Color.Black.copy(alpha = .52f),
-                        CircleShape,
-                    ),
+                modifier = Modifier.align(Alignment.TopEnd).size(38.dp),
             ) {
                 Icon(
                     Icons.Default.Close,
                     contentDescription = "Close subtitles",
                     tint = Color.White,
+                    modifier = Modifier.size(24.dp),
                 )
             }
 
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxHeight(.88f),
-            ) {
+            Column(Modifier.fillMaxHeight()) {
                 Text(
                     "Subtitles",
                     color = Color.White,
-                    fontSize = 24.sp,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Text(
-                    subtitleWorkspaceSummary(
-                        selectedTrack = selectedTrack,
-                        subtitlesDisabled = subtitlesDisabled,
-                    ),
-                    color = Color.White.copy(alpha = .58f),
-                    fontSize = 12.sp,
-                )
-                Spacer(Modifier.height(16.dp))
-
+                Spacer(Modifier.height(12.dp))
                 Row(
                     modifier = Modifier
-                        .horizontalScroll(rememberScrollState())
-                        .fillMaxHeight(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        .fillMaxHeight()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
-                    SubtitleRail(
-                        title = "Languages",
-                        subtitle = "${groups.size} available",
-                        width = 188.dp,
-                    ) {
-                        LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(5.dp),
-                        ) {
+                    SubtitleColumn("Languages", 142.dp) {
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             item {
-                                SubtitleWorkspaceRow(
-                                    title = "Off",
+                                LanguageRow(
+                                    label = "Off",
+                                    count = null,
                                     selected = subtitlesDisabled,
                                     onClick = onDisable,
                                 )
                             }
                             items(groups, key = { it.code }) { group ->
-                                SubtitleWorkspaceRow(
-                                    title = group.label,
-                                    detail = "${group.tracks.size}",
+                                LanguageRow(
+                                    label = group.label,
+                                    count = group.tracks.size,
                                     selected = !subtitlesDisabled &&
                                         group.code == activeLanguageCode,
-                                    onClick = {
-                                        activeLanguageCode = group.code
-                                    },
+                                    onClick = { activeLanguageCode = group.code },
                                 )
                             }
                         }
                     }
 
-                    SubtitleRail(
-                        title = "Tracks",
-                        subtitle = when {
-                            groups.isEmpty() -> "No tracks"
-                            visibleTracks.isEmpty() -> "Choose a language"
-                            else -> "${visibleTracks.size} available"
-                        },
-                        width = 286.dp,
-                    ) {
-                        if (visibleTracks.isEmpty()) {
-                            SubtitleEmptyState(
-                                if (groups.isEmpty()) {
-                                    "No subtitle tracks were returned. Install a subtitle addon or try another source."
-                                } else {
-                                    "Choose a language to view its subtitle tracks."
-                                }
-                            )
-                        } else {
-                            LazyColumn(
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                items(visibleTracks, key = { it.key }) { track ->
-                                    SubtitleWorkspaceRow(
-                                        title = track.label,
-                                        detail = track.sourceLabel,
-                                        supporting = track.metadata,
-                                        selected = !subtitlesDisabled && track.selected,
-                                        onClick = { onSelect(track) },
-                                    )
+                    SubtitleColumn("Subtitles", 292.dp) {
+                        when {
+                            visibleTracks.isNotEmpty() -> {
+                                LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                    items(visibleTracks, key = { it.key }) { track ->
+                                        SubtitleTrackRow(
+                                            track = track,
+                                            selected = !subtitlesDisabled && track.selected,
+                                            onClick = { onSelect(track) },
+                                        )
+                                    }
                                 }
                             }
+                            groups.isEmpty() -> SubtitleEmptyState(
+                                "No subtitles available. Try another source or install a subtitle addon."
+                            )
+                            else -> SubtitleEmptyState(
+                                "Choose a language to view its subtitles."
+                            )
                         }
                     }
 
                     if (selectedTrack != null && !subtitlesDisabled) {
-                        SubtitleStyleRail(
+                        SubtitleStyleColumn(
                             style = style,
                             onStyleChange = onStyleChange,
                         )
@@ -247,106 +217,190 @@ internal fun PlayerSubtitleWorkspace(
 }
 
 @Composable
-private fun SubtitleRail(
+private fun SubtitleColumn(
     title: String,
-    subtitle: String,
     width: androidx.compose.ui.unit.Dp,
     content: @Composable () -> Unit,
 ) {
-    Surface(
+    Column(Modifier.width(width).fillMaxHeight()) {
+        Text(
+            title,
+            color = Color.White.copy(alpha = .74f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        Spacer(Modifier.height(7.dp))
+        Box(Modifier.weight(1f)) { content() }
+    }
+}
+
+@Composable
+private fun LanguageRow(
+    label: String,
+    count: Int?,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
         modifier = Modifier
-            .width(width)
-            .fillMaxHeight(),
-        color = SubtitlePanel,
-        shape = RoundedCornerShape(18.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, SubtitleBorder),
+            .fillMaxWidth()
+            .background(if (selected) Color.White else Color.Transparent, SubtitleItemShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.padding(14.dp)) {
-            Text(
-                title,
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                subtitle,
-                color = Color.White.copy(alpha = .48f),
-                fontSize = 10.sp,
-            )
-            Spacer(Modifier.height(11.dp))
-            Box(Modifier.weight(1f)) { content() }
+        Text(
+            label,
+            modifier = Modifier.weight(1f),
+            color = if (selected) Color(0xFF202124) else Color.White,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        count?.let {
+            Surface(
+                color = if (selected) Color(0xFF202124).copy(alpha = .08f)
+                else Color.White.copy(alpha = .90f),
+                shape = CircleShape,
+            ) {
+                Text(
+                    it.toString(),
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                    color = Color(0xFF202124),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun SubtitleStyleRail(
+private fun SubtitleTrackRow(
+    track: PlayerTrackChoice,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val foreground = if (selected) Color(0xFF202124) else Color.White
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (selected) Color.White else Color.Black.copy(alpha = .20f),
+                SubtitleItemShape,
+            )
+            .border(
+                BorderStroke(
+                    1.dp,
+                    if (selected) Color.White else Color.White.copy(alpha = .08f),
+                ),
+                SubtitleItemShape,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ProviderBadge(track.sourceLabel, selected)
+            Spacer(Modifier.weight(1f))
+            if (selected) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = "Selected",
+                    tint = foreground,
+                    modifier = Modifier.size(17.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(5.dp))
+        Text(
+            track.label,
+            color = foreground,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            "${track.metadata ?: friendlySubtitleLanguageName(track.language)} (${track.sourceLabel})",
+            color = foreground.copy(alpha = .58f),
+            fontSize = 9.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun ProviderBadge(label: String, selected: Boolean) {
+    Surface(
+        color = if (selected) Color(0xFF202124).copy(alpha = .08f)
+        else Color.White.copy(alpha = .11f),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(
+            1.dp,
+            if (selected) Color(0xFF202124).copy(alpha = .18f)
+            else Color.White.copy(alpha = .12f),
+        ),
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+            color = if (selected) Color(0xFF202124).copy(alpha = .68f)
+            else Color.White.copy(alpha = .68f),
+            fontSize = 8.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun SubtitleStyleColumn(
     style: PlayerSubtitleStyleState,
     onStyleChange: (PlayerSubtitleStyleState) -> Unit,
 ) {
-    SubtitleRail(
-        title = "Style",
-        subtitle = "Live preview",
-        width = 272.dp,
-    ) {
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+    SubtitleColumn("Style", 232.dp) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(11.dp)) {
             item {
-                SubtitleStepper(
-                    label = "Font size",
-                    value = "${style.fontSizeSp} sp",
+                StyleStepper(
+                    label = "Font Size",
+                    value = "${style.fontSizeSp}sp",
                     onDecrease = {
-                        onStyleChange(
-                            style.copy(
-                                fontSizeSp = (style.fontSizeSp - 2).coerceAtLeast(12)
-                            )
-                        )
+                        onStyleChange(style.copy(fontSizeSp = (style.fontSizeSp - 2).coerceAtLeast(12)))
                     },
                     onIncrease = {
-                        onStyleChange(
-                            style.copy(
-                                fontSizeSp = (style.fontSizeSp + 2).coerceAtMost(40)
-                            )
-                        )
+                        onStyleChange(style.copy(fontSizeSp = (style.fontSizeSp + 2).coerceAtMost(40)))
                     },
                 )
             }
             item {
-                SubtitleToggleRow(
-                    label = "Bold text",
-                    enabled = style.bold,
-                    onClick = {
-                        onStyleChange(style.copy(bold = !style.bold))
-                    },
-                )
+                StyleToggle("Bold", style.bold) {
+                    onStyleChange(style.copy(bold = !style.bold))
+                }
             }
             item {
-                SubtitleColorPicker(
-                    label = "Text colour",
+                StyleColorPicker(
+                    label = "Text Color",
                     selected = style.textColor,
                     colours = listOf(
                         0xFFFFFFFF.toInt(),
                         0xFFFFFF66.toInt(),
                         0xFF66E7FF.toInt(),
-                        0xFFB6FF3B.toInt(),
-                        0xFFFF6B6B.toInt(),
+                        0xFFB9FF3A.toInt(),
+                        0xFFFF6577.toInt(),
                     ),
                     onSelect = { colour ->
                         val alpha = style.textColor ushr 24
                         onStyleChange(
-                            style.copy(
-                                textColor = (alpha shl 24) or
-                                    (colour and 0x00FFFFFF)
-                            )
+                            style.copy(textColor = (alpha shl 24) or (colour and 0x00FFFFFF))
                         )
                     },
                 )
             }
             item {
-                val opacity = ((style.textColor ushr 24) * 100 / 255)
-                SubtitleStepper(
-                    label = "Text opacity",
+                val opacity = ((style.textColor ushr 24) * 100 + 127) / 255
+                StyleStepper(
+                    label = "Text Opacity",
                     value = "$opacity%",
                     onDecrease = {
                         onStyleChange(
@@ -371,34 +425,28 @@ private fun SubtitleStyleRail(
                 )
             }
             item {
-                SubtitleToggleRow(
-                    label = "Outline",
-                    enabled = style.outlineEnabled,
-                    onClick = {
-                        onStyleChange(
-                            style.copy(outlineEnabled = !style.outlineEnabled)
-                        )
-                    },
-                )
+                StyleToggle("Outline", style.outlineEnabled) {
+                    onStyleChange(style.copy(outlineEnabled = !style.outlineEnabled))
+                }
             }
             if (style.outlineEnabled) {
                 item {
-                    SubtitleColorPicker(
-                        label = "Outline colour",
+                    StyleColorPicker(
+                        label = "Outline Color",
                         selected = style.outlineColor,
                         colours = listOf(
                             0xFF000000.toInt(),
                             0xFFFFFFFF.toInt(),
+                            0xFF38E8F2.toInt(),
+                            0xFFFF6577.toInt(),
                         ),
-                        onSelect = {
-                            onStyleChange(style.copy(outlineColor = it))
-                        },
+                        onSelect = { onStyleChange(style.copy(outlineColor = it)) },
                     )
                 }
             }
             item {
-                SubtitleStepper(
-                    label = "Vertical position",
+                StyleStepper(
+                    label = "Bottom Offset",
                     value = "${style.bottomPaddingPercent}%",
                     onDecrease = {
                         onStyleChange(
@@ -421,24 +469,21 @@ private fun SubtitleStyleRail(
             item {
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            onStyleChange(PlayerSubtitleStyleState())
-                        }
-                        .padding(vertical = 8.dp),
+                        .clickable { onStyleChange(PlayerSubtitleStyleState()) }
+                        .padding(vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
                         Icons.Default.Refresh,
                         contentDescription = null,
                         tint = Color.White.copy(alpha = .72f),
-                        modifier = Modifier.size(17.dp),
+                        modifier = Modifier.size(15.dp),
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(7.dp))
                     Text(
-                        "Reset style",
+                        "Reset Style",
                         color = Color.White.copy(alpha = .78f),
-                        fontSize = 12.sp,
+                        fontSize = 10.sp,
                     )
                 }
             }
@@ -447,160 +492,88 @@ private fun SubtitleStyleRail(
 }
 
 @Composable
-private fun SubtitleWorkspaceRow(
-    title: String,
-    detail: String? = null,
-    supporting: String? = null,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                if (selected) SubtitleAccent.copy(alpha = .13f)
-                else Color.White.copy(alpha = .035f),
-                RoundedCornerShape(11.dp),
-            )
-            .border(
-                1.dp,
-                if (selected) SubtitleAccent.copy(alpha = .7f)
-                else Color.Transparent,
-                RoundedCornerShape(11.dp),
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 11.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                color = if (selected) SubtitleAccent else Color.White,
-                fontSize = 12.sp,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            supporting?.takeIf { it.isNotBlank() }?.let {
-                Text(
-                    it,
-                    color = Color.White.copy(alpha = .42f),
-                    fontSize = 9.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        detail?.takeIf { it.isNotBlank() }?.let {
-            Text(
-                it,
-                color = Color.White.copy(alpha = .5f),
-                fontSize = 9.sp,
-                maxLines = 1,
-                modifier = Modifier
-                    .padding(start = 8.dp)
-                    .widthIn(max = 78.dp),
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-@Composable
-private fun SubtitleStepper(
+private fun StyleStepper(
     label: String,
     value: String,
     onDecrease: () -> Unit,
     onIncrease: () -> Unit,
 ) {
     Column {
-        Text(label, color = Color.White.copy(alpha = .6f), fontSize = 10.sp)
+        Text(label, color = Color.White.copy(alpha = .82f), fontSize = 10.sp)
         Spacer(Modifier.height(5.dp))
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color.White.copy(alpha = .055f), RoundedCornerShape(10.dp)),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            SubtitleStepButton("−", onDecrease)
-            Text(value, color = Color.White, fontSize = 11.sp)
-            SubtitleStepButton("+", onIncrease)
+            StepButton("−", onDecrease)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(38.dp)
+                    .background(Color.White.copy(alpha = .10f), RoundedCornerShape(11.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(value, color = Color.White, fontSize = 11.sp)
+            }
+            StepButton("+", onIncrease)
         }
     }
 }
 
 @Composable
-private fun SubtitleStepButton(label: String, onClick: () -> Unit) {
+private fun StepButton(label: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(34.dp)
+            .size(38.dp)
+            .background(Color.White.copy(alpha = .10f), RoundedCornerShape(11.dp))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = Color.White, fontSize = 17.sp)
+        Text(label, color = Color.White, fontSize = 16.sp)
     }
 }
 
 @Composable
-private fun SubtitleToggleRow(
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(label, color = Color.White.copy(alpha = .74f), fontSize = 11.sp)
-        Box(
-            modifier = Modifier
-                .width(34.dp)
-                .height(19.dp)
-                .background(
-                    if (enabled) SubtitleAccent else Color.White.copy(alpha = .16f),
-                    CircleShape,
-                )
-                .padding(2.dp),
-            contentAlignment = if (enabled) Alignment.CenterEnd else Alignment.CenterStart,
+private fun StyleToggle(label: String, enabled: Boolean, onClick: () -> Unit) {
+    Column {
+        Text(label, color = Color.White.copy(alpha = .82f), fontSize = 10.sp)
+        Spacer(Modifier.height(5.dp))
+        Surface(
+            modifier = Modifier.clickable(onClick = onClick),
+            color = if (enabled) Color.White else Color.White.copy(alpha = .10f),
+            shape = RoundedCornerShape(10.dp),
         ) {
-            Box(
-                Modifier
-                    .size(15.dp)
-                    .background(
-                        if (enabled) Color.Black else Color.White.copy(alpha = .72f),
-                        CircleShape,
-                    )
+            Text(
+                if (enabled) "On" else "Off",
+                modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
+                color = if (enabled) Color(0xFF202124) else Color.White,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
             )
         }
     }
 }
 
 @Composable
-private fun SubtitleColorPicker(
+private fun StyleColorPicker(
     label: String,
     selected: Int,
     colours: List<Int>,
     onSelect: (Int) -> Unit,
 ) {
     Column {
-        Text(label, color = Color.White.copy(alpha = .6f), fontSize = 10.sp)
-        Spacer(Modifier.height(7.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(label, color = Color.White.copy(alpha = .82f), fontSize = 10.sp)
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             colours.forEach { colour ->
-                val selectedRgb = selected and 0x00FFFFFF
-                val colourRgb = colour and 0x00FFFFFF
+                val isSelected =
+                    (selected and 0x00FFFFFF) == (colour and 0x00FFFFFF)
                 Box(
                     modifier = Modifier
                         .size(25.dp)
                         .border(
-                            if (selectedRgb == colourRgb) 2.dp else 1.dp,
-                            if (selectedRgb == colourRgb) SubtitleAccent
-                            else Color.White.copy(alpha = .25f),
+                            if (isSelected) 2.dp else 1.dp,
+                            if (isSelected) SubtitleAccent else Color.White.copy(alpha = .55f),
                             CircleShape,
                         )
                         .padding(3.dp)
@@ -616,11 +589,44 @@ private fun SubtitleColorPicker(
 private fun SubtitleEmptyState(message: String) {
     Text(
         message,
-        modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
-        color = Color.White.copy(alpha = .5f),
-        fontSize = 11.sp,
-        lineHeight = 15.sp,
+        color = Color.White.copy(alpha = .48f),
+        fontSize = 10.sp,
+        lineHeight = 14.sp,
+        modifier = Modifier.padding(top = 6.dp),
     )
+}
+
+@Composable
+private fun KeepSubtitleDialogImmersive() {
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val window = (view.parent as? DialogWindowProvider)?.window
+        val decor = window?.decorView
+        val previousFlags = decor?.systemUiVisibility ?: 0
+
+        window?.setDimAmount(0f)
+        if (Build.VERSION.SDK_INT >= 30) {
+            window?.insetsController?.apply {
+                hide(WindowInsets.Type.systemBars())
+                systemBarsBehavior =
+                    WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            decor?.systemUiVisibility =
+                View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        }
+
+        onDispose {
+            if (Build.VERSION.SDK_INT < 30) {
+                decor?.systemUiVisibility = previousFlags
+            }
+        }
+    }
 }
 
 private fun buildSubtitleLanguageGroups(
@@ -628,15 +634,15 @@ private fun buildSubtitleLanguageGroups(
     preferredLanguageCode: String?,
     secondaryLanguageCode: String?,
 ): List<SubtitleLanguageGroup> {
-    val preferred = preferredLanguageCode?.let(::normaliseLanguageCode)
-    val secondary = secondaryLanguageCode?.let(::normaliseLanguageCode)
+    val preferred = preferredLanguageCode?.let(::canonicalSubtitleLanguage)
+    val secondary = secondaryLanguageCode?.let(::canonicalSubtitleLanguage)
 
     return tracks
-        .groupBy { normaliseLanguageCode(it.language) }
+        .groupBy { canonicalSubtitleLanguage(it.language) }
         .map { (code, groupedTracks) ->
             SubtitleLanguageGroup(
                 code = code,
-                label = languageDisplayName(code),
+                label = friendlySubtitleLanguageName(code),
                 tracks = groupedTracks,
             )
         }
@@ -652,33 +658,49 @@ private fun buildSubtitleLanguageGroups(
         )
 }
 
-private fun normaliseLanguageCode(value: String?): String =
-    value
+internal fun canonicalSubtitleLanguage(value: String?): String {
+    val normalized = value
         ?.trim()
         ?.lowercase(Locale.ROOT)
         ?.replace('_', '-')
-        ?.substringBefore('-')
         ?.takeIf { it.isNotBlank() }
-        ?: "und"
+        ?: return "und"
 
-private fun languageDisplayName(code: String): String {
+    val language = normalized.substringBefore('-')
+    return when (language) {
+        "ind", "idn" -> "id"
+        "may", "msa", "zsm" -> "ms"
+        "eng" -> "en"
+        "spa" -> "es"
+        "por" -> "pt"
+        "fre", "fra" -> "fr"
+        "ger", "deu" -> "de"
+        "ita" -> "it"
+        "dut", "nld" -> "nl"
+        "chi", "zho" -> "zh"
+        "jpn" -> "ja"
+        "kor" -> "ko"
+        "ara" -> "ar"
+        "hin" -> "hi"
+        "tam" -> "ta"
+        "mac", "mkd" -> "mk"
+        "per", "fas" -> "fa"
+        else -> language.ifBlank { "und" }
+    }
+}
+
+internal fun friendlySubtitleLanguageName(value: String?): String {
+    val code = canonicalSubtitleLanguage(value)
     if (code == "und") return "Unknown"
-    return Locale(code).getDisplayLanguage(Locale.getDefault())
-        .takeIf { it.isNotBlank() && it != code }
-        ?.replaceFirstChar { it.titlecase(Locale.getDefault()) }
+
+    return Locale(code)
+        .getDisplayLanguage(Locale.ENGLISH)
+        .takeIf { it.isNotBlank() && !it.equals(code, true) }
+        ?.replaceFirstChar { it.titlecase(Locale.ENGLISH) }
         ?: code.uppercase(Locale.ROOT)
 }
 
-private fun subtitleWorkspaceSummary(
-    selectedTrack: PlayerTrackChoice?,
-    subtitlesDisabled: Boolean,
-): String = when {
-    subtitlesDisabled -> "Subtitles off"
-    selectedTrack != null -> "${selectedTrack.label} · ${selectedTrack.sourceLabel}"
-    else -> "Choose a language and track"
-}
-
 private fun withAlpha(colour: Int, opacityPercent: Int): Int {
-    val alpha = (opacityPercent.coerceIn(0, 100) * 255 / 100)
+    val alpha = opacityPercent.coerceIn(0, 100) * 255 / 100
     return (alpha shl 24) or (colour and 0x00FFFFFF)
 }

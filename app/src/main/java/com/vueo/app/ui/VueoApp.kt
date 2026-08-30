@@ -11690,6 +11690,9 @@ private fun PlayerScreen(
                 .distinct()
         )
     }
+    var subtitlePreferenceRestored by remember(player) {
+        mutableStateOf(false)
+    }
 
     LaunchedEffect(
         player,
@@ -11768,10 +11771,8 @@ private fun PlayerScreen(
     fun refreshTrackChoices(
         tracks: Tracks = player.currentTracks,
     ) {
-        val externalSubtitleProviders =
-            subtitles.associate {
-                it.id to it.providerId
-            }
+        val externalSubtitles =
+            subtitles.associateBy { it.id }
         audioTracks = playerTrackChoices(
             tracks = tracks,
             trackType = C.TRACK_TYPE_AUDIO,
@@ -11779,9 +11780,46 @@ private fun PlayerScreen(
         textTracks = playerTrackChoices(
             tracks = tracks,
             trackType = C.TRACK_TYPE_TEXT,
-            externalSubtitleProviders =
-                externalSubtitleProviders,
+            externalSubtitles = externalSubtitles,
         )
+
+        if (!subtitlePreferenceRestored && textTracks.isNotEmpty()) {
+            val savedSelection =
+                settingsStore.subtitleSelection(mediaKey)
+            val savedTrack = textTracks.firstOrNull {
+                it.selectionId == savedSelection
+            }
+
+            when {
+                savedSelection == PLAYER_SUBTITLE_OFF -> {
+                    subtitlePreferenceRestored = true
+                    clearTrackOverride(
+                        player = player,
+                        trackType = C.TRACK_TYPE_TEXT,
+                        disable = true,
+                    )
+                    subtitlesDisabled = true
+                }
+
+                savedTrack != null -> {
+                    subtitlePreferenceRestored = true
+                    applyTrackChoice(
+                        player = player,
+                        trackType = C.TRACK_TYPE_TEXT,
+                        choice = savedTrack,
+                    )
+                    subtitlesDisabled = false
+                }
+
+                savedSelection == null -> {
+                    subtitlePreferenceRestored = true
+                }
+
+                subtitles.isNotEmpty() -> {
+                    subtitlePreferenceRestored = true
+                }
+            }
+        }
     }
 
     LaunchedEffect(mediaKey) {
@@ -12136,6 +12174,10 @@ private fun PlayerScreen(
                     disable = true,
                 )
                 subtitlesDisabled = true
+                settingsStore.setSubtitleSelection(
+                    mediaKey,
+                    PLAYER_SUBTITLE_OFF,
+                )
             },
             onSelect = { choice ->
                 applyTrackChoice(
@@ -12144,6 +12186,10 @@ private fun PlayerScreen(
                     choice = choice,
                 )
                 subtitlesDisabled = false
+                settingsStore.setSubtitleSelection(
+                    mediaKey,
+                    choice.selectionId,
+                )
                 refreshTrackChoices()
             },
             onStyleChange = { updated ->
@@ -13548,12 +13594,19 @@ internal data class PlayerTrackChoice(
     val language: String?,
     val sourceLabel: String,
     val metadata: String?,
+    val selectionId: String,
 )
+
+private const val PLAYER_SUBTITLE_LABEL_PREFIX =
+    "vueo-subtitle:"
+
+private const val PLAYER_SUBTITLE_OFF =
+    "subtitle:off"
 
 private fun playerTrackChoices(
     tracks: Tracks,
     trackType: Int,
-    externalSubtitleProviders: Map<String, String> = emptyMap(),
+    externalSubtitles: Map<String, SubtitleTrack> = emptyMap(),
 ): List<PlayerTrackChoice> {
     val result =
         mutableListOf<
@@ -13588,28 +13641,49 @@ private fun playerTrackChoices(
                     trackIndex
                 )
 
-            val label =
-                buildTrackLabel(
-                    trackType =
-                        trackType,
-                    formatLabel =
-                        format.label,
-                    language =
-                        format.language,
-                    channelCount =
-                        format.channelCount,
-                    sampleMimeType =
-                        format.sampleMimeType,
-                    fallbackIndex =
-                        result.size + 1,
-                )
-            val externalProvider =
-                format.id?.let(externalSubtitleProviders::get)
-            val metadata =
-                format.sampleMimeType
-                    ?.substringAfterLast("/")
+            val externalSubtitle =
+                format.id?.let(externalSubtitles::get)
+                    ?: format.label
+                        ?.removePrefix(
+                            PLAYER_SUBTITLE_LABEL_PREFIX
+                        )
+                        ?.takeIf {
+                            format.label?.startsWith(
+                                PLAYER_SUBTITLE_LABEL_PREFIX
+                            ) == true
+                        }
+                        ?.let(externalSubtitles::get)
+            val trackLanguage =
+                externalSubtitle?.language
+                    ?: format.language
+            val label = if (
+                trackType == C.TRACK_TYPE_TEXT
+            ) {
+                externalSubtitle?.name
                     ?.takeIf { it.isNotBlank() }
-                    ?.uppercase()
+                    ?: friendlySubtitleLanguageName(
+                        trackLanguage
+                    )
+            } else {
+                buildTrackLabel(
+                    trackType = trackType,
+                    formatLabel = format.label,
+                    language = format.language,
+                    channelCount = format.channelCount,
+                    sampleMimeType = format.sampleMimeType,
+                    fallbackIndex = result.size + 1,
+                )
+            }
+            val selectionId = if (
+                externalSubtitle != null
+            ) {
+                "external:${externalSubtitle.providerId}:" +
+                    "${externalSubtitle.id}:" +
+                    externalSubtitle.url.hashCode()
+            } else {
+                "builtin:${canonicalSubtitleLanguage(trackLanguage)}:" +
+                    "${format.label.orEmpty()}:$trackIndex"
+            }
 
             result +=
                 PlayerTrackChoice(
@@ -13627,10 +13701,15 @@ private fun playerTrackChoices(
                             .isTrackSelected(
                                 trackIndex
                             ),
-                    language = format.language,
+                    language = trackLanguage,
                     sourceLabel =
-                        externalProvider ?: "Built-in",
-                    metadata = metadata,
+                        externalSubtitle?.providerName
+                            ?: "Built-in",
+                    metadata =
+                        friendlySubtitleLanguageName(
+                            trackLanguage
+                        ),
+                    selectionId = selectionId,
                 )
         }
     }
@@ -14040,7 +14119,8 @@ private fun buildPlayerMediaItem(
                             subtitle.id
                         )
                         .setLabel(
-                            subtitle.language
+                            PLAYER_SUBTITLE_LABEL_PREFIX +
+                                subtitle.id
                         )
                         .setLanguage(
                             subtitle.language
