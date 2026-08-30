@@ -11620,6 +11620,9 @@ private fun PlayerScreen(
     var showSubtitleDialog by remember {
         mutableStateOf(false)
     }
+    var showSubtitleStyleOverlay by remember {
+        mutableStateOf(false)
+    }
     var showSourceDialog by remember {
         mutableStateOf(false)
     }
@@ -11632,6 +11635,7 @@ private fun PlayerScreen(
     val playerPanelVisible =
         showAudioDialog ||
             showSubtitleDialog ||
+            showSubtitleStyleOverlay ||
             showSourceDialog ||
             showEpisodeDialog ||
             showMoreDialog
@@ -11709,6 +11713,11 @@ private fun PlayerScreen(
         when {
             showAudioDialog ->
                 showAudioDialog = false
+
+            showSubtitleStyleOverlay -> {
+                showSubtitleStyleOverlay = false
+                controlsVisible = true
+            }
 
             showSubtitleDialog -> {
                 showSubtitleDialog = false
@@ -12564,6 +12573,7 @@ private fun PlayerScreen(
             if (inPictureInPicture) {
                 showAudioDialog = false
                 showSubtitleDialog = false
+                showSubtitleStyleOverlay = false
                 showSourceDialog = false
                 showEpisodeDialog = false
                 showMoreDialog = false
@@ -12692,6 +12702,22 @@ private fun PlayerScreen(
                 )
                 refreshTrackChoices()
             },
+            onOpenStyle = {
+                showSubtitleDialog = false
+                showSubtitleStyleOverlay = true
+                controlsVisible = false
+            },
+            onDismiss = {
+                showSubtitleDialog = false
+                controlsVisible = true
+            },
+        )
+    }
+
+    if (showSubtitleStyleOverlay) {
+        PlayerSubtitleStyleOverlay(
+            subtitleDelayMs = subtitleDelayMs,
+            style = subtitleStyle,
             onSubtitleDelayChange = { delayMs ->
                 subtitleDelayMs =
                     delayMs.coerceIn(-60_000, 60_000)
@@ -12712,7 +12738,7 @@ private fun PlayerScreen(
                 )
             },
             onDismiss = {
-                showSubtitleDialog = false
+                showSubtitleStyleOverlay = false
                 controlsVisible = true
             },
         )
@@ -13650,6 +13676,7 @@ private fun PlayerScreen(
                                 label = "Subs",
                                 onClick = {
                                     controlsVisible = false
+                                    showSubtitleStyleOverlay = false
                                     showSubtitleDialog = true
                                 },
                             )
