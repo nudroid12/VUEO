@@ -11580,6 +11580,17 @@ private fun PlayerScreen(
     var nextEpisodeCountdown by remember {
         mutableStateOf<Int?>(null)
     }
+    var showNextEpisodeCard by remember(mediaKey) {
+        mutableStateOf(false)
+    }
+    var nextEpisodeCardDismissed by remember(mediaKey) {
+        mutableStateOf(false)
+    }
+    var autoPlayNextEpisode by remember {
+        mutableStateOf(
+            settingsStore.autoPlayNextEpisodeEnabled()
+        )
+    }
     var autoRecoveryAttempted by remember(
         source.url
     ) {
@@ -12004,8 +12015,17 @@ private fun PlayerScreen(
                                     .coerceAtLeast(0L),
                         )
                         onLibraryChanged()
-                        if (nextEpisode != null) {
-                            nextEpisodeCountdown = 8
+                        if (
+                            nextEpisode != null &&
+                            !nextEpisodeCardDismissed
+                        ) {
+                            showNextEpisodeCard = true
+                            nextEpisodeCountdown =
+                                if (autoPlayNextEpisode) {
+                                    8
+                                } else {
+                                    null
+                                }
                             controlsVisible = true
                         }
                     }
@@ -12066,16 +12086,46 @@ private fun PlayerScreen(
         controlsLocked,
         gestureActive,
         playerPanelVisible,
+        showNextEpisodeCard,
     ) {
         if (
             controlsVisible &&
             isPlaying &&
             !controlsLocked &&
             !gestureActive &&
-            !playerPanelVisible
+            !playerPanelVisible &&
+            !showNextEpisodeCard
         ) {
             delay(3_000L)
             controlsVisible = false
+        }
+    }
+
+    LaunchedEffect(
+        currentPositionMs,
+        durationMs,
+        nextEpisode?.id,
+        nextEpisodeCardDismissed,
+    ) {
+        if (
+            nextEpisode != null &&
+            !nextEpisodeCardDismissed &&
+            durationMs > 0L
+        ) {
+            val remainingMs =
+                (durationMs - currentPositionMs)
+                    .coerceAtLeast(0L)
+            val progress =
+                currentPositionMs.toDouble() /
+                    durationMs.toDouble()
+
+            if (
+                progress >= .95 &&
+                remainingMs <= 60_000L
+            ) {
+                showNextEpisodeCard = true
+                controlsVisible = true
+            }
         }
     }
 
@@ -12306,37 +12356,60 @@ private fun PlayerScreen(
     }
 
     if (showEpisodeDialog) {
-        PlayerPanelWindow(
-            title = "Episodes",
-            subtitle = "${episodes.size} available",
-            onDismiss = { showEpisodeDialog = false },
-        ) {
-            LazyColumn(
-                modifier = Modifier.heightIn(max = 340.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                items(
-                    episodes,
-                    key = { candidate ->
-                        "${candidate.season}:${candidate.episode}:${candidate.id}"
-                    },
-                ) { candidate ->
-                    val current = candidate.id == episode?.id
-                    PlayerChoiceCard(
-                        title = "S${candidate.season} E${candidate.episode}",
-                        detail = candidate.title,
-                        selected = current,
-                        onClick = {
-                            if (!current) {
-                                savePosition()
-                                showEpisodeDialog = false
-                                onEpisodeSelected(candidate)
-                            }
-                        },
-                    )
-                }
+        val episodeHistory = libraryStore.history()
+            .filter { entry ->
+                entry.media.type == media.type &&
+                    entry.media.id == media.id
             }
+        val progressByEpisodeId = episodes.associate { candidate ->
+            val stored = episodeHistory.firstOrNull { entry ->
+                entry.videoId == candidate.id ||
+                    (
+                        entry.season == candidate.season &&
+                            entry.episode == candidate.episode
+                    )
+            }
+            val isCurrent = candidate.id == episode?.id
+            val candidateDurationMs = if (isCurrent) {
+                durationMs
+            } else {
+                stored?.durationMs ?: 0L
+            }
+            val candidatePositionMs = if (isCurrent) {
+                currentPositionMs
+            } else {
+                stored?.positionMs ?: 0L
+            }
+            val fraction = if (candidateDurationMs > 0L) {
+                (
+                    candidatePositionMs.toDouble() /
+                        candidateDurationMs.toDouble()
+                ).coerceIn(0.0, 1.0).toFloat()
+            } else {
+                0f
+            }
+
+            candidate.id to PlayerEpisodeProgress(
+                fraction = fraction,
+                watched = stored?.isCompleted == true,
+            )
         }
+
+        PlayerEpisodesWorkspace(
+            seriesTitle = media.name,
+            episodes = episodes,
+            currentEpisode = episode,
+            progressByEpisodeId = progressByEpisodeId,
+            onEpisodeSelected = { candidate ->
+                savePosition()
+                showEpisodeDialog = false
+                nextEpisodeCountdown = null
+                showNextEpisodeCard = false
+                nextEpisodeCardDismissed = true
+                onEpisodeSelected(candidate)
+            },
+            onDismiss = { showEpisodeDialog = false },
+        )
     }
 
     if (showMoreDialog) {
@@ -12364,6 +12437,21 @@ private fun PlayerScreen(
                         showMoreDialog = false
                     },
                 )
+                if (nextEpisode != null) {
+                    PlayerMoreDialogRow(
+                        label = "Auto-play next episode",
+                        value = if (autoPlayNextEpisode) "On" else "Off",
+                        onClick = {
+                            autoPlayNextEpisode = !autoPlayNextEpisode
+                            settingsStore.setAutoPlayNextEpisodeEnabled(
+                                autoPlayNextEpisode
+                            )
+                            if (!autoPlayNextEpisode) {
+                                nextEpisodeCountdown = null
+                            }
+                        },
+                    )
+                }
                 PlayerMoreDialogRow(
                     label = "Retry current source",
                     onClick = {
@@ -12927,7 +13015,7 @@ private fun PlayerScreen(
                     }
                 }
 
-                nextEpisodeCountdown?.let { count ->
+                if (showNextEpisodeCard) {
                     nextEpisode?.let { next ->
                         Surface(
                             shape = RoundedCornerShape(16.dp),
@@ -12958,17 +13046,24 @@ private fun PlayerScreen(
                                 TextButton(
                                     onClick = {
                                         nextEpisodeCountdown = null
+                                        showNextEpisodeCard = false
+                                        nextEpisodeCardDismissed = true
                                     },
                                 ) {
-                                    Text("Cancel")
+                                    Text("Dismiss")
                                 }
                                 Button(
                                     onClick = {
                                         nextEpisodeCountdown = null
+                                        showNextEpisodeCard = false
                                         onNextEpisode(next)
                                     },
                                 ) {
-                                    Text("Play Now ($count)")
+                                    Text(
+                                        nextEpisodeCountdown
+                                            ?.let { "Play Now ($it)" }
+                                            ?: "Play Now"
+                                    )
                                 }
                             }
                         }

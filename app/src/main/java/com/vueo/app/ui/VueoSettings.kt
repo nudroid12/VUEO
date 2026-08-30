@@ -1956,6 +1956,11 @@ internal fun PlaybackSettingsScreen(
             settingsStore.autoSourceRecoveryEnabled()
         )
     }
+    var autoPlayNextEpisode by remember {
+        mutableStateOf(
+            settingsStore.autoPlayNextEpisodeEnabled()
+        )
+    }
     var showOrientationDialog by remember {
         mutableStateOf(false)
     }
@@ -2149,6 +2154,19 @@ internal fun PlaybackSettingsScreen(
                 onCheckedChange = { enabled ->
                     contentWarnings = enabled
                     context.setContentWarningsEnabled(enabled)
+                },
+            )
+        }
+
+        item {
+            VueoSettingsToggleCard(
+                title = "Auto-play Next Episode",
+                subtitle = "Start the next episode after an 8-second countdown when playback ends.",
+                checked = autoPlayNextEpisode,
+                onCheckedChange = { enabled ->
+                    autoPlayNextEpisode = enabled
+                    settingsStore
+                        .setAutoPlayNextEpisodeEnabled(enabled)
                 },
             )
         }
