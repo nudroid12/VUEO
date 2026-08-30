@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -129,6 +130,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -8058,6 +8061,9 @@ private fun MediaDetailsScreen(
         cached?.streams
             ?: emptyList()
 
+    sourcePickerSubtitles =
+        emptyList()
+
     sourcePickerRawCount =
         cached?.rawCount
             ?: 0
@@ -11488,6 +11494,11 @@ private fun PlayerScreen(
             emptyList()
         )
     }
+    var subtitlesDisabled by remember(mediaKey) {
+        mutableStateOf(
+            !settingsStore.subtitlesOnByDefault()
+        )
+    }
     var showAudioDialog by remember {
         mutableStateOf(false)
     }
@@ -11506,6 +11517,13 @@ private fun PlayerScreen(
     var showSpeedDialog by remember {
         mutableStateOf(false)
     }
+    val playerPanelVisible =
+        showAudioDialog ||
+            showSubtitleDialog ||
+            showSourceDialog ||
+            showEpisodeDialog ||
+            showMoreDialog ||
+            showSpeedDialog
     var playbackSpeed by remember {
         mutableStateOf(1f)
     }
@@ -11557,8 +11575,10 @@ private fun PlayerScreen(
             showMoreDialog ->
                 showMoreDialog = false
 
-            showSpeedDialog ->
+            showSpeedDialog -> {
                 showSpeedDialog = false
+                showMoreDialog = true
+            }
 
             controlsLocked ->
                 controlsLocked = false
@@ -11643,6 +11663,67 @@ private fun PlayerScreen(
                 playWhenReady =
                     !resumePromptVisible
             }
+    }
+
+    var appliedSubtitleUrls by remember(player) {
+        mutableStateOf(
+            subtitles
+                .map { it.url }
+                .distinct()
+        )
+    }
+
+    LaunchedEffect(
+        player,
+        subtitles,
+    ) {
+        val latestSubtitleUrls =
+            subtitles
+                .map { it.url }
+                .distinct()
+
+        if (latestSubtitleUrls != appliedSubtitleUrls) {
+            val positionMs =
+                player.currentPosition
+                    .coerceAtLeast(0L)
+            val continuePlaying =
+                player.playWhenReady
+
+            player.setMediaItem(
+                buildPlayerMediaItem(
+                    sourceUrl = requireNotNull(source.url),
+                    subtitles = subtitles,
+                    preferredLanguageCode =
+                        settingsStore
+                            .preferredSubtitleLanguage()
+                            .languageCode,
+                    secondaryLanguageCode =
+                        settingsStore
+                            .secondarySubtitleLanguage()
+                            .languageCode,
+                    subtitlesOnByDefault =
+                        !subtitlesDisabled,
+                    autoSelectPreferred =
+                        settingsStore
+                            .autoSelectPreferredSubtitle(),
+                    embeddedPriority =
+                        settingsStore
+                            .embeddedSubtitlePriority(),
+                ),
+                positionMs,
+            )
+            player.trackSelectionParameters =
+                player.trackSelectionParameters
+                    .buildUpon()
+                    .setTrackTypeDisabled(
+                        C.TRACK_TYPE_TEXT,
+                        subtitlesDisabled,
+                    )
+                    .build()
+            player.prepare()
+            player.playWhenReady = continuePlaying
+            appliedSubtitleUrls = latestSubtitleUrls
+        }
     }
 
     fun recordLibraryProgress() {
@@ -11880,12 +11961,14 @@ private fun PlayerScreen(
         isPlaying,
         controlsLocked,
         gestureActive,
+        playerPanelVisible,
     ) {
         if (
             controlsVisible &&
             isPlaying &&
             !controlsLocked &&
-            !gestureActive
+            !gestureActive &&
+            !playerPanelVisible
         ) {
             delay(3_000L)
             controlsVisible = false
@@ -11986,6 +12069,8 @@ private fun PlayerScreen(
             tracks = audioTracks,
             automaticLabel = "Auto",
             offLabel = null,
+            emptyMessage =
+                "No alternative audio tracks are available for this stream.",
             onAutomatic = {
                 clearTrackOverride(
                     player = player,
@@ -12015,12 +12100,16 @@ private fun PlayerScreen(
             tracks = textTracks,
             automaticLabel = "Auto",
             offLabel = "Off",
+            offSelected = subtitlesDisabled,
+            emptyMessage =
+                "No subtitle tracks were returned. Install a subtitle addon or choose a source that includes subtitles.",
             onAutomatic = {
                 clearTrackOverride(
                     player = player,
                     trackType = C.TRACK_TYPE_TEXT,
                     disable = false,
                 )
+                subtitlesDisabled = false
                 showSubtitleDialog = false
             },
             onOff = {
@@ -12029,6 +12118,7 @@ private fun PlayerScreen(
                     trackType = C.TRACK_TYPE_TEXT,
                     disable = true,
                 )
+                subtitlesDisabled = true
                 showSubtitleDialog = false
             },
             onSelect = { choice ->
@@ -12037,6 +12127,7 @@ private fun PlayerScreen(
                     trackType = C.TRACK_TYPE_TEXT,
                     choice = choice,
                 )
+                subtitlesDisabled = false
                 showSubtitleDialog = false
             },
             onDismiss = {
@@ -12046,301 +12137,150 @@ private fun PlayerScreen(
     }
 
     if (showSourceDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                showSourceDialog = false
-            },
-            title = {
-                Text("Sources")
-            },
-            text = {
-                LazyColumn(
-                    modifier =
-                        Modifier.heightIn(
-                            max = 420.dp
-                ),
-                verticalArrangement =
-                    Arrangement.spacedBy(6.dp),
-                ) {
-                    items(
-                        playableSources,
-                        key = {
-                            it.url ?: it.name
+        PlayerPanelWindow(
+            title = "Sources",
+            subtitle = "${playableSources.size} playable",
+            onDismiss = { showSourceDialog = false },
+        ) {
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 340.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                items(
+                    playableSources,
+                    key = { it.url ?: it.name },
+                ) { candidate ->
+                    val current = candidate.url == source.url
+                    PlayerChoiceCard(
+                        title = listOfNotNull(
+                            candidate.quality ?: "Auto",
+                            candidate.providerName,
+                        ).joinToString(" • "),
+                        detail = listOfNotNull(
+                            candidate.codec,
+                            candidate.hdr,
+                            candidate.audio,
+                        ).joinToString(" • ").ifBlank {
+                            "Direct playable stream"
                         },
-                    ) { candidate ->
-                        val current =
-                            candidate.url == source.url
-                        Surface(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clickable(
-                                        enabled = !current,
-                                    ) {
-                                        savePosition()
-                                        showSourceDialog = false
-                                        onSwitchSource(
-                                            candidate,
-                                            player.currentPosition,
-                                        )
-                                    },
-                            shape =
-                                RoundedCornerShape(14.dp),
-                            color =
-                                if (current) {
-                                    VueoPalette.Accent
-                                        .copy(alpha = .14f)
-                                } else {
-                                    VueoPalette.SurfaceStrong
-                                },
-                        ) {
-                            Column(
-                                modifier =
-                                    Modifier.padding(12.dp),
-                            ) {
-                                Text(
-                                    buildString {
-                                        if (current) {
-                                            append("✓ ")
-                                        }
-                                        append(
-                                            candidate.quality
-                                                ?: "Auto"
-                                        )
-                                        append(" • ")
-                                        append(
-                                            candidate.providerName
-                                        )
-                                    },
-                                    color = Color.White,
-                                    fontWeight =
-                                        FontWeight.Bold,
-                                )
-                                Text(
-                                    listOfNotNull(
-                                        candidate.codec,
-                                        candidate.hdr,
-                                        candidate.audio,
-                                    ).joinToString(" • ")
-                                        .ifBlank {
-                                            "Direct playable stream"
-                                        },
-                                    color = VueoPalette.Muted,
-                                    fontSize = 11.sp,
+                        selected = current,
+                        onClick = {
+                            if (!current) {
+                                savePosition()
+                                showSourceDialog = false
+                                onSwitchSource(
+                                    candidate,
+                                    player.currentPosition,
                                 )
                             }
-                        }
-                    }
+                        },
+                    )
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showSourceDialog = false
-                    },
-                ) {
-                    Text("Close")
-                }
-            },
-        )
+            }
+        }
     }
 
     if (showEpisodeDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                showEpisodeDialog = false
-            },
-            title = {
-                Text("Episodes")
-            },
-            text = {
-                LazyColumn(
-                    modifier = Modifier.heightIn(
-                        max = 420.dp
-                    ),
-                    verticalArrangement =
-                        Arrangement.spacedBy(6.dp),
-                ) {
-                    items(
-                        episodes,
-                        key = { candidate ->
-                            "${candidate.season}:" +
-                                "${candidate.episode}:" +
-                                candidate.id
-                        },
-                    ) { candidate ->
-                        val current =
-                            candidate.id == episode?.id
-
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(
-                                    enabled = !current,
-                                ) {
-                                    savePosition()
-                                    showEpisodeDialog = false
-                                    onEpisodeSelected(candidate)
-                                },
-                            shape = RoundedCornerShape(14.dp),
-                            color =
-                                if (current) {
-                                    VueoPalette.Accent
-                                        .copy(alpha = .14f)
-                                } else {
-                                    VueoPalette.SurfaceStrong
-                                },
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement =
-                                    Arrangement.spacedBy(3.dp),
-                            ) {
-                                Text(
-                                    buildString {
-                                        if (current) {
-                                            append("✓ ")
-                                        }
-                                        append(
-                                            "S${candidate.season} E${candidate.episode}"
-                                        )
-                                    },
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                                Text(
-                                    candidate.title,
-                                    color = VueoPalette.Muted,
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showEpisodeDialog = false
+        PlayerPanelWindow(
+            title = "Episodes",
+            subtitle = "${episodes.size} available",
+            onDismiss = { showEpisodeDialog = false },
+        ) {
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 340.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                items(
+                    episodes,
+                    key = { candidate ->
+                        "${candidate.season}:${candidate.episode}:${candidate.id}"
                     },
-                ) {
-                    Text("Close")
+                ) { candidate ->
+                    val current = candidate.id == episode?.id
+                    PlayerChoiceCard(
+                        title = "S${candidate.season} E${candidate.episode}",
+                        detail = candidate.title,
+                        selected = current,
+                        onClick = {
+                            if (!current) {
+                                savePosition()
+                                showEpisodeDialog = false
+                                onEpisodeSelected(candidate)
+                            }
+                        },
+                    )
                 }
-            },
-        )
+            }
+        }
     }
 
     if (showMoreDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                showMoreDialog = false
-            },
-            title = {
-                Text("More")
-            },
-            text = {
-                Column(
-                    verticalArrangement =
-                        Arrangement.spacedBy(6.dp),
-                ) {
-                    PlayerMoreDialogRow(
-                        label = "Playback speed",
-                        value = "${playbackSpeed}x",
-                        onClick = {
-                            showMoreDialog = false
-                            showSpeedDialog = true
-                        },
-                    )
-                    PlayerMoreDialogRow(
-                        label = "Display",
-                        value =
-                            if (zoomed) "Zoom" else "Fit",
-                        onClick = {
-                            zoomed = !zoomed
-                            showMoreDialog = false
-                        },
-                    )
-                    PlayerMoreDialogRow(
-                        label = "Retry current source",
-                        onClick = {
-                            playbackError = null
-                            player.prepare()
-                            player.play()
-                            showMoreDialog = false
-                        },
-                    )
-                    HorizontalDivider(
-                        color = Color.White.copy(alpha = .10f)
-                    )
-                    Text(
-                        "${source.providerName} • ${source.quality ?: "Auto"}",
-                        color = Color.White.copy(alpha = .72f),
-                        fontSize = 11.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
+        PlayerPanelWindow(
+            title = "More",
+            subtitle = "${source.providerName} • ${source.quality ?: "Auto"}",
+            onDismiss = { showMoreDialog = false },
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                PlayerMoreDialogRow(
+                    label = "Playback speed",
+                    value = "${playbackSpeed}x",
                     onClick = {
                         showMoreDialog = false
+                        showSpeedDialog = true
                     },
-                ) {
-                    Text("Close")
-                }
-            },
-        )
+                )
+                PlayerMoreDialogRow(
+                    label = "Display",
+                    value = if (zoomed) "Zoom" else "Fit",
+                    onClick = {
+                        zoomed = !zoomed
+                        showMoreDialog = false
+                    },
+                )
+                PlayerMoreDialogRow(
+                    label = "Retry current source",
+                    onClick = {
+                        playbackError = null
+                        player.prepare()
+                        player.play()
+                        showMoreDialog = false
+                    },
+                )
+            }
+        }
     }
 
     if (showSpeedDialog) {
-        AlertDialog(
-            onDismissRequest = {
+        PlayerPanelWindow(
+            title = "Playback speed",
+            subtitle = "Current ${playbackSpeed}x",
+            onDismiss = {
                 showSpeedDialog = false
+                showMoreDialog = true
             },
-            title = {
-                Text("Playback Speed")
-            },
-            text = {
-                Column(
-                    verticalArrangement =
-                        Arrangement.spacedBy(4.dp),
-                ) {
-                    listOf(
-                        0.5f,
-                        0.75f,
-                        1f,
-                        1.25f,
-                        1.5f,
-                        2f,
-                    ).forEach { speed ->
-                        PlayerTrackDialogRow(
-                            label = "${speed}x",
-                            selected =
-                                playbackSpeed == speed,
-                            onClick = {
-                                playbackSpeed = speed
-                                player.setPlaybackSpeed(
-                                    speed
-                                )
-                                showSpeedDialog = false
-                            },
-                        )
-                    }
+        ) {
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 340.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                items(
+                    listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f),
+                    key = { it },
+                ) { speed ->
+                    PlayerTrackDialogRow(
+                        label = "${speed}x",
+                        selected = playbackSpeed == speed,
+                        onClick = {
+                            playbackSpeed = speed
+                            player.setPlaybackSpeed(speed)
+                            showSpeedDialog = false
+                        },
+                    )
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showSpeedDialog = false
-                    },
-                ) {
-                    Text("Close")
-                }
-            },
-        )
+            }
+        }
     }
 
     Box(
@@ -13229,35 +13169,187 @@ private fun PlayerPanelAction(
 }
 
 @Composable
+private fun PlayerPanelWindow(
+    title: String,
+    subtitle: String? = null,
+    onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(.86f)
+                .widthIn(max = 520.dp)
+                .heightIn(max = 440.dp),
+            shape = RoundedCornerShape(24.dp),
+            color = Color(0xF2131416),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                Color.White.copy(alpha = .14f),
+            ),
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            title,
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        subtitle?.let {
+                            Text(
+                                it,
+                                color = Color.White.copy(alpha = .52f),
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Close",
+                            modifier = Modifier.size(19.dp),
+                            tint = Color.White.copy(alpha = .82f),
+                        )
+                    }
+                }
+
+                HorizontalDivider(
+                    color = Color.White.copy(alpha = .09f),
+                )
+
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerChoiceCard(
+    title: String,
+    detail: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        color = if (selected) {
+            VueoPlayerAccent.copy(alpha = .12f)
+        } else {
+            Color.White.copy(alpha = .035f)
+        },
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (selected) {
+                VueoPlayerAccent.copy(alpha = .42f)
+            } else {
+                Color.White.copy(alpha = .07f)
+            },
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(
+                horizontal = 13.dp,
+                vertical = 11.dp,
+            ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    title,
+                    color = Color.White.copy(alpha = .94f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    detail,
+                    color = Color.White.copy(alpha = .50f),
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            if (selected) {
+                Text(
+                    "Playing",
+                    color = VueoPlayerAccent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun PlayerMoreDialogRow(
     label: String,
     value: String? = null,
     onClick: () -> Unit,
 ) {
-    Row(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
-            .padding(
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        color = Color.White.copy(alpha = .035f),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            Color.White.copy(alpha = .07f),
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(
                 horizontal = 12.dp,
                 vertical = 13.dp,
             ),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            label,
-            modifier = Modifier.weight(1f),
-            color = Color.White,
-            fontWeight = FontWeight.SemiBold,
-        )
-        value?.let {
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
-                it,
-                color = VueoPalette.Accent,
+                label,
+                modifier = Modifier.weight(1f),
+                color = Color.White.copy(alpha = .90f),
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.SemiBold,
             )
+            value?.let {
+                Text(
+                    it,
+                    color = VueoPlayerAccent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
     }
 }
@@ -13539,83 +13631,74 @@ private fun PlayerTrackDialog(
     tracks: List<PlayerTrackChoice>,
     automaticLabel: String,
     offLabel: String?,
+    offSelected: Boolean = false,
+    emptyMessage: String,
     onAutomatic: () -> Unit,
     onOff: (() -> Unit)?,
     onSelect:
         (PlayerTrackChoice) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest =
-            onDismiss,
-        title = {
-            Text(title)
+    PlayerPanelWindow(
+        title = title,
+        subtitle = if (tracks.isEmpty()) {
+            "No selectable tracks"
+        } else {
+            "${tracks.size} available"
         },
-        text = {
-            LazyColumn(
-                modifier =
-                    Modifier.height(
-                        360.dp
-                    ),
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        4.dp
-                    ),
-            ) {
+        onDismiss = onDismiss,
+    ) {
+        LazyColumn(
+            modifier = Modifier.heightIn(max = 340.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            item {
+                PlayerTrackDialogRow(
+                    label = automaticLabel,
+                    selected =
+                        tracks.none { it.selected } &&
+                            !offSelected,
+                    onClick = onAutomatic,
+                )
+            }
+
+            if (offLabel != null && onOff != null) {
                 item {
                     PlayerTrackDialogRow(
-                        label =
-                            automaticLabel,
-                        selected =
-                            tracks.none {
-                                it.selected
-                            },
-                        onClick =
-                            onAutomatic,
+                        label = offLabel,
+                        selected = offSelected,
+                        onClick = onOff,
                     )
                 }
+            }
 
-                if (
-                    offLabel != null &&
-                    onOff != null
-                ) {
-                    item {
-                        PlayerTrackDialogRow(
-                            label =
-                                offLabel,
-                            selected = false,
-                            onClick =
-                                onOff,
-                        )
-                    }
+            if (tracks.isEmpty()) {
+                item {
+                    Text(
+                        emptyMessage,
+                        modifier = Modifier.padding(
+                            horizontal = 12.dp,
+                            vertical = 18.dp,
+                        ),
+                        color = Color.White.copy(alpha = .54f),
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    )
                 }
-
+            } else {
                 items(
                     tracks,
-                    key = {
-                        it.key
-                    },
+                    key = { it.key },
                 ) { track ->
                     PlayerTrackDialogRow(
-                        label =
-                            track.label,
-                        selected =
-                            track.selected,
-                        onClick = {
-                            onSelect(track)
-                        },
+                        label = track.label,
+                        selected = track.selected,
+                        onClick = { onSelect(track) },
                     )
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onDismiss,
-            ) {
-                Text("Close")
-            }
-        },
-    )
+        }
+    }
 }
 
 @Composable
@@ -13624,33 +13707,77 @@ private fun PlayerTrackDialogRow(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Row(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
             .clickable(
                 onClick = onClick
-            )
-            .padding(
-                vertical = 6.dp
             ),
-        verticalAlignment =
-            Alignment.CenterVertically,
+        shape = RoundedCornerShape(14.dp),
+        color = if (selected) {
+            VueoPlayerAccent.copy(alpha = .12f)
+        } else {
+            Color.White.copy(alpha = .035f)
+        },
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (selected) {
+                VueoPlayerAccent.copy(alpha = .42f)
+            } else {
+                Color.White.copy(alpha = .07f)
+            },
+        ),
     ) {
-        RadioButton(
-            selected = selected,
-            onClick = onClick,
-        )
+        Row(
+            modifier = Modifier.padding(
+                horizontal = 13.dp,
+                vertical = 11.dp,
+            ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .border(
+                        1.dp,
+                        if (selected) {
+                            VueoPlayerAccent
+                        } else {
+                            Color.White.copy(alpha = .36f)
+                        },
+                        CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (selected) {
+                    Box(
+                        modifier = Modifier
+                            .size(9.dp)
+                            .clip(CircleShape)
+                            .background(VueoPlayerAccent),
+                    )
+                }
+            }
 
-        Spacer(
-            Modifier.width(8.dp)
-        )
+            Spacer(Modifier.width(10.dp))
 
-        Text(
-            label,
-            maxLines = 2,
-            overflow =
-                TextOverflow.Ellipsis,
-        )
+            Text(
+                label,
+                color = Color.White.copy(
+                    alpha = if (selected) .96f else .76f
+                ),
+                fontSize = 12.sp,
+                fontWeight = if (selected) {
+                    FontWeight.SemiBold
+                } else {
+                    FontWeight.Normal
+                },
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
