@@ -6,7 +6,9 @@ import android.net.Uri
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
+import android.graphics.Typeface
 import android.util.Rational
+import android.util.TypedValue
 import android.os.Build
 import android.view.View
 import android.view.WindowInsets
@@ -134,6 +136,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -11494,6 +11497,19 @@ private fun PlayerScreen(
             emptyList()
         )
     }
+    var subtitleStyle by remember {
+        mutableStateOf(
+            PlayerSubtitleStyleState(
+                fontSizeSp = settingsStore.subtitleFontSizeSp(),
+                bold = settingsStore.subtitleBold(),
+                textColor = settingsStore.subtitleTextColor(),
+                outlineEnabled = settingsStore.subtitleOutlineEnabled(),
+                outlineColor = settingsStore.subtitleOutlineColor(),
+                bottomPaddingPercent =
+                    settingsStore.subtitleBottomPaddingPercent(),
+            )
+        )
+    }
     var subtitlesDisabled by remember(mediaKey) {
         mutableStateOf(
             !settingsStore.subtitlesOnByDefault()
@@ -11563,8 +11579,10 @@ private fun PlayerScreen(
             showAudioDialog ->
                 showAudioDialog = false
 
-            showSubtitleDialog ->
+            showSubtitleDialog -> {
                 showSubtitleDialog = false
+                controlsVisible = true
+            }
 
             showSourceDialog ->
                 showSourceDialog = false
@@ -11750,6 +11768,10 @@ private fun PlayerScreen(
     fun refreshTrackChoices(
         tracks: Tracks = player.currentTracks,
     ) {
+        val externalSubtitleProviders =
+            subtitles.associate {
+                it.id to it.providerId
+            }
         audioTracks = playerTrackChoices(
             tracks = tracks,
             trackType = C.TRACK_TYPE_AUDIO,
@@ -11757,6 +11779,8 @@ private fun PlayerScreen(
         textTracks = playerTrackChoices(
             tracks = tracks,
             trackType = C.TRACK_TYPE_TEXT,
+            externalSubtitleProviders =
+                externalSubtitleProviders,
         )
     }
 
@@ -12095,31 +12119,23 @@ private fun PlayerScreen(
     }
 
     if (showSubtitleDialog) {
-        PlayerTrackDialog(
-            title = "Subtitles",
+        PlayerSubtitleWorkspace(
             tracks = textTracks,
-            automaticLabel = "Auto",
-            offLabel = "Off",
-            offSelected = subtitlesDisabled,
-            emptyMessage =
-                "No subtitle tracks were returned. Install a subtitle addon or choose a source that includes subtitles.",
-            onAutomatic = {
-                clearTrackOverride(
-                    player = player,
-                    trackType = C.TRACK_TYPE_TEXT,
-                    disable = false,
-                )
-                subtitlesDisabled = false
-                showSubtitleDialog = false
-            },
-            onOff = {
+            subtitlesDisabled = subtitlesDisabled,
+            preferredLanguageCode = settingsStore
+                .preferredSubtitleLanguage()
+                .languageCode,
+            secondaryLanguageCode = settingsStore
+                .secondarySubtitleLanguage()
+                .languageCode,
+            style = subtitleStyle,
+            onDisable = {
                 clearTrackOverride(
                     player = player,
                     trackType = C.TRACK_TYPE_TEXT,
                     disable = true,
                 )
                 subtitlesDisabled = true
-                showSubtitleDialog = false
             },
             onSelect = { choice ->
                 applyTrackChoice(
@@ -12128,10 +12144,22 @@ private fun PlayerScreen(
                     choice = choice,
                 )
                 subtitlesDisabled = false
-                showSubtitleDialog = false
+                refreshTrackChoices()
+            },
+            onStyleChange = { updated ->
+                subtitleStyle = updated
+                settingsStore.setSubtitleFontSizeSp(updated.fontSizeSp)
+                settingsStore.setSubtitleBold(updated.bold)
+                settingsStore.setSubtitleTextColor(updated.textColor)
+                settingsStore.setSubtitleOutlineEnabled(updated.outlineEnabled)
+                settingsStore.setSubtitleOutlineColor(updated.outlineColor)
+                settingsStore.setSubtitleBottomPaddingPercent(
+                    updated.bottomPaddingPercent
+                )
             },
             onDismiss = {
                 showSubtitleDialog = false
+                controlsVisible = true
             },
         )
     }
@@ -12296,8 +12324,7 @@ private fun PlayerScreen(
                     this.player = player
                     useController = false
                     keepScreenOn = true
-                    subtitleView
-                        ?.setBottomPaddingFraction(.22f)
+                    applyVueoSubtitleStyle(subtitleStyle)
                     resizeMode =
                         if (zoomed) {
                             AspectRatioFrameLayout
@@ -12311,8 +12338,7 @@ private fun PlayerScreen(
             update = { view ->
                 view.player = player
                 view.useController = false
-                view.subtitleView
-                    ?.setBottomPaddingFraction(.22f)
+                view.applyVueoSubtitleStyle(subtitleStyle)
                 view.resizeMode =
                     if (zoomed) {
                         AspectRatioFrameLayout
@@ -12983,6 +13009,7 @@ private fun PlayerScreen(
                                 icon = Icons.Default.ClosedCaption,
                                 label = "Subs",
                                 onClick = {
+                                    controlsVisible = false
                                     showSubtitleDialog = true
                                 },
                             )
@@ -13354,6 +13381,40 @@ private fun PlayerMoreDialogRow(
     }
 }
 
+private fun PlayerView.applyVueoSubtitleStyle(
+    style: PlayerSubtitleStyleState,
+) {
+    subtitleView?.apply {
+        setApplyEmbeddedStyles(false)
+        setApplyEmbeddedFontSizes(false)
+        setFixedTextSize(
+            TypedValue.COMPLEX_UNIT_SP,
+            style.fontSizeSp.toFloat(),
+        )
+        setBottomPaddingFraction(
+            style.bottomPaddingPercent / 100f
+        )
+        setStyle(
+            CaptionStyleCompat(
+                style.textColor,
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+                if (style.outlineEnabled) {
+                    CaptionStyleCompat.EDGE_TYPE_OUTLINE
+                } else {
+                    CaptionStyleCompat.EDGE_TYPE_NONE
+                },
+                style.outlineColor,
+                if (style.bold) {
+                    Typeface.DEFAULT_BOLD
+                } else {
+                    Typeface.DEFAULT
+                },
+            )
+        )
+    }
+}
+
 @Composable
 private fun PlayerFullscreenEffect(
     context: android.content.Context,
@@ -13478,17 +13539,21 @@ private fun enterVueoPictureInPicture(
     }
 }
 
-private data class PlayerTrackChoice(
+internal data class PlayerTrackChoice(
     val key: String,
     val label: String,
     val override:
         TrackSelectionOverride,
     val selected: Boolean,
+    val language: String?,
+    val sourceLabel: String,
+    val metadata: String?,
 )
 
 private fun playerTrackChoices(
     tracks: Tracks,
     trackType: Int,
+    externalSubtitleProviders: Map<String, String> = emptyMap(),
 ): List<PlayerTrackChoice> {
     val result =
         mutableListOf<
@@ -13538,6 +13603,13 @@ private fun playerTrackChoices(
                     fallbackIndex =
                         result.size + 1,
                 )
+            val externalProvider =
+                format.id?.let(externalSubtitleProviders::get)
+            val metadata =
+                format.sampleMimeType
+                    ?.substringAfterLast("/")
+                    ?.takeIf { it.isNotBlank() }
+                    ?.uppercase()
 
             result +=
                 PlayerTrackChoice(
@@ -13555,6 +13627,10 @@ private fun playerTrackChoices(
                             .isTrackSelected(
                                 trackIndex
                             ),
+                    language = format.language,
+                    sourceLabel =
+                        externalProvider ?: "Built-in",
+                    metadata = metadata,
                 )
         }
     }
