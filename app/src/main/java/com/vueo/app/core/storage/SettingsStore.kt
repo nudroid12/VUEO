@@ -154,7 +154,7 @@ class SettingsStore(
     fun autoSourceRecoveryEnabled(): Boolean =
         prefs.getBoolean(
             profileKey(KEY_AUTO_SOURCE_RECOVERY),
-            false,
+            true,
         )
 
     fun setAutoSourceRecoveryEnabled(
