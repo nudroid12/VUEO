@@ -7735,6 +7735,9 @@ private fun MediaDetailsScreen(
     var sourcePickerFirstResultMs by remember {
         mutableStateOf<Long?>(null)
     }
+    var sourcePickerProviderOrder by remember {
+        mutableStateOf<List<String>>(emptyList())
+    }
     var sourceDiscoveryJob by remember {
         mutableStateOf<Job?>(null)
     }
@@ -8077,6 +8080,11 @@ private fun MediaDetailsScreen(
     sourcePickerStreams =
         cached?.streams
             ?: emptyList()
+    sourcePickerProviderOrder =
+        appendPlayableProviderOrder(
+            existing = emptyList(),
+            sources = cached?.streams.orEmpty(),
+        )
 
     sourcePickerSubtitles =
         emptyList()
@@ -8217,6 +8225,13 @@ private fun MediaDetailsScreen(
                             ) { progress ->
                                 freshAddonStreams =
                                     progress.streams
+                                sourcePickerProviderOrder =
+                                    appendPlayableProviderOrder(
+                                        existing =
+                                            sourcePickerProviderOrder,
+                                        sources =
+                                            progress.streams,
+                                    )
 
                                 addonRawCount =
                                     progress.rawCount
@@ -8296,6 +8311,13 @@ private fun MediaDetailsScreen(
                                     progress
                                         .result
                                         .streams
+                                sourcePickerProviderOrder =
+                                    appendPlayableProviderOrder(
+                                        existing =
+                                            sourcePickerProviderOrder,
+                                        sources =
+                                            freshPluginStreams,
+                                    )
 
                                 pluginRawCount =
                                     freshPluginStreams
@@ -8335,6 +8357,13 @@ private fun MediaDetailsScreen(
 
             freshAddonStreams =
                 finalAddonStreams
+            sourcePickerProviderOrder =
+                appendPlayableProviderOrder(
+                    existing =
+                        sourcePickerProviderOrder,
+                    sources =
+                        finalAddonStreams,
+                )
 
             if (pluginResult != null) {
                 freshPluginStreams =
@@ -8342,6 +8371,13 @@ private fun MediaDetailsScreen(
 
                 pluginRawCount =
                     pluginResult.streams.size
+                sourcePickerProviderOrder =
+                    appendPlayableProviderOrder(
+                        existing =
+                            sourcePickerProviderOrder,
+                        sources =
+                            pluginResult.streams,
+                    )
 
                 sourcePickerNotice =
                     "Plugins: ${pluginResult.attemptedProviders} checked • " +
@@ -8541,6 +8577,8 @@ private fun MediaDetailsScreen(
                 episode = selectedEpisode,
             ),
             streams = streams,
+            providerOrder =
+                sourcePickerProviderOrder,
             rawCount = sourcePickerRawCount,
             notice = sourcePickerNotice,
             searching = sourcePickerSearching,
@@ -10654,6 +10692,7 @@ private fun EpisodeSelector(
 private fun SourcePickerScreen(
     mediaTitle: String,
     streams: List<StreamSource>,
+    providerOrder: List<String>,
     rawCount: Int,
     notice: String?,
     searching: Boolean,
@@ -10675,26 +10714,42 @@ private fun SourcePickerScreen(
             .automaticRecoveryEligible
     } ?: playable.firstOrNull()
 
-    val qualityGroups =
-        listOf(
-            "1080p",
-            "720p",
-            "Auto",
-            "Unknown",
-            "4K",
-            "Below 720p",
-        ).mapNotNull { bucket ->
-            val matches =
-                streams.filter {
-                    PlayerSourcePolicy
-                        .detectQuality(it)
-                        .label == bucket
-                }
+    val currentProviderKeys =
+        playable
+            .map(::sourceProviderKey)
+            .distinct()
 
-            if (matches.isEmpty()) {
-                null
-            } else {
-                bucket to matches
+    var selectedProvider by remember(mediaTitle) {
+        mutableStateOf<String?>(null)
+    }
+
+    val visibleProviderTabs =
+        (providerOrder + currentProviderKeys)
+            .distinct()
+            .filter {
+                it in currentProviderKeys
+            }
+
+    LaunchedEffect(
+        visibleProviderTabs,
+        selectedProvider,
+    ) {
+        if (
+            selectedProvider != null &&
+            selectedProvider !in
+                visibleProviderTabs
+        ) {
+            selectedProvider = null
+        }
+    }
+
+    val displayedSources =
+        if (selectedProvider == null) {
+            playable
+        } else {
+            playable.filter {
+                sourceProviderKey(it) ==
+                    selectedProvider
             }
         }
 
@@ -10926,10 +10981,10 @@ private fun SourcePickerScreen(
             }
         }
 
-        if (streams.isEmpty() && searching) {
+        if (playable.isEmpty() && searching) {
             item {
                 Text(
-                    "Sources will appear here as soon as a provider responds.",
+                    "Playable sources will appear here as soon as a provider responds.",
                     modifier =
                         Modifier.padding(
                             horizontal = 20.dp
@@ -10946,90 +11001,213 @@ private fun SourcePickerScreen(
 
         item {
             Column(
-                modifier =
-                    Modifier.padding(
-                        horizontal = 20.dp
-                    ),
+                modifier = Modifier.fillMaxWidth(),
                 verticalArrangement =
-                    Arrangement.spacedBy(3.dp),
+                    Arrangement.spacedBy(10.dp),
             ) {
-                Text(
-                    "Unique Sources (${streams.size})",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Black,
-                )
-
-                if (
-                    rawCount > streams.size
-                ) {
-                    Text(
-                        "$rawCount raw results analysed • " +
-                            "${rawCount - streams.size} exact duplicates removed",
-                        color =
-                            MaterialTheme
-                                .colorScheme
-                                .onSurface
-                                .copy(alpha = .5f),
-                        fontSize = 11.sp,
-                    )
-                }
-            }
-        }
-
-        qualityGroups.forEach {
-            (bucket, sources) ->
-
-            item(
-                key = "group:$bucket"
-            ) {
-                Text(
-                    "$bucket • ${sources.size}",
+                Column(
                     modifier =
                         Modifier.padding(
-                            horizontal = 20.dp,
-                            vertical = 3.dp,
+                            horizontal = 20.dp
+                        ),
+                    verticalArrangement =
+                        Arrangement.spacedBy(3.dp),
+                ) {
+                    Text(
+                        "All Sources · ${playable.size}",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+
+                    if (
+                        rawCount > streams.size
+                    ) {
+                        Text(
+                            "$rawCount raw results analysed • " +
+                                "${rawCount - streams.size} exact duplicates removed",
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .onSurface
+                                    .copy(alpha = .5f),
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+
+                LazyRow(
+                    contentPadding =
+                        PaddingValues(
+                            horizontal = 20.dp
+                        ),
+                    horizontalArrangement =
+                        Arrangement.spacedBy(8.dp),
+                ) {
+                    item(
+                        key = "provider:all"
+                    ) {
+                        SourceProviderTab(
+                            label = "All",
+                            selected =
+                                selectedProvider == null,
+                            onClick = {
+                                selectedProvider = null
+                            },
+                        )
+                    }
+
+                    items(
+                        visibleProviderTabs,
+                        key = {
+                            "provider:$it"
+                        },
+                    ) { provider ->
+                        SourceProviderTab(
+                            label =
+                                sourceProviderTabLabel(
+                                    provider
+                                ),
+                            selected =
+                                selectedProvider ==
+                                    provider,
+                            onClick = {
+                                selectedProvider =
+                                    provider
+                            },
+                        )
+                    }
+                }
+
+                Text(
+                    if (selectedProvider == null) {
+                        "${displayedSources.size} playable"
+                    } else {
+                        "${sourceProviderTabLabel(selectedProvider!!)} • " +
+                            "${displayedSources.size} playable"
+                    },
+                    modifier =
+                        Modifier.padding(
+                            horizontal = 20.dp
                         ),
                     color =
                         MaterialTheme
                             .colorScheme
                             .onSurface
-                            .copy(alpha = .62f),
-                    fontWeight =
-                        FontWeight.Bold,
-                    fontSize = 13.sp,
-                )
-            }
-
-            items(
-                sources,
-                key = {
-                    listOf(
-                        bucket,
-                        it.url,
-                        it.infoHash,
-                        it.fileIndex,
-                        it.providerId,
-                        it.name,
-                    ).joinToString(":")
-                },
-            ) { source ->
-                StreamSourceCard(
-                    source = source,
-                    showTechnicalDetails =
-                        showTechnicalDetails,
-                    onClick =
-                        if (
-                            source.isDirectPlayable
-                        ) {
-                            {
-                                onPlay(source)
-                            }
-                        } else {
-                            null
-                        },
+                            .copy(alpha = .58f),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
                 )
             }
         }
+
+        items(
+            displayedSources,
+            key = {
+                listOf(
+                    sourceProviderKey(it),
+                    it.url,
+                    it.infoHash,
+                    it.fileIndex,
+                    it.providerId,
+                    it.name,
+                ).joinToString(":")
+            },
+        ) { source ->
+            StreamSourceCard(
+                source = source,
+                showTechnicalDetails =
+                    showTechnicalDetails,
+                onClick = {
+                    onPlay(source)
+                },
+            )
+        }
+    }
+}
+
+private fun sourceProviderKey(
+    source: StreamSource,
+): String =
+    source.providerName
+        .trim()
+        .ifBlank {
+            "Unknown Provider"
+        }
+
+private fun sourceProviderTabLabel(
+    provider: String,
+): String =
+    provider
+        .substringAfterLast("/")
+        .trim()
+        .ifBlank {
+            provider
+        }
+
+private fun appendPlayableProviderOrder(
+    existing: List<String>,
+    sources: List<StreamSource>,
+): List<String> {
+    val discovered =
+        sources
+            .asSequence()
+            .filter {
+                it.isDirectPlayable
+            }
+            .map(::sourceProviderKey)
+            .distinct()
+            .toList()
+
+    return (existing + discovered)
+        .distinct()
+}
+
+@Composable
+private fun SourceProviderTab(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .clip(
+                RoundedCornerShape(50)
+            )
+            .clickable(
+                onClick = onClick
+            ),
+        shape = RoundedCornerShape(50),
+        color =
+            if (selected) {
+                VueoPalette.Accent
+            } else {
+                VueoPalette.SurfaceElevated
+            },
+    ) {
+        Text(
+            text = label,
+            modifier =
+                Modifier.padding(
+                    horizontal = 15.dp,
+                    vertical = 9.dp,
+                ),
+            color =
+                if (selected) {
+                    Color.Black
+                } else {
+                    Color.White.copy(
+                        alpha = .78f
+                    )
+                },
+            fontSize = 12.sp,
+            fontWeight =
+                if (selected) {
+                    FontWeight.Black
+                } else {
+                    FontWeight.Bold
+                },
+            maxLines = 1,
+        )
     }
 }
 
