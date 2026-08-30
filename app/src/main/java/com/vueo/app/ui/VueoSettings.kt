@@ -666,65 +666,6 @@ internal fun VueoSettingsHub(
                                 fontSize = 22.sp,
                             )
                         }
-                    },
-                        shape =
-                            RoundedCornerShape(
-                                14.dp
-                            ),
-                        color =
-                            VueoPalette
-                                .SurfaceStrong
-                                .copy(
-                                    alpha = .72f
-                                ),
-                    ) {
-                        Row(
-                            modifier =
-                                Modifier.padding(
-                                    horizontal = 12.dp,
-                                    vertical = 10.dp,
-                                ),
-                            verticalAlignment =
-                                Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text =
-                                    dnaTastePreview
-                                        .takeIf {
-                                            it.isNotBlank()
-                                        }
-                                        ?: if (
-                                            dnaEnabled
-                                        ) {
-                                            "Keep watching to shape your DNA class."
-                                        } else {
-                                            "Enable User DNA in Personalization."
-                                        },
-                                modifier =
-                                    Modifier.weight(
-                                        1f
-                                    ),
-                                color =
-                                    VueoPalette.Muted,
-                                fontSize = 10.sp,
-                                fontWeight =
-                                    FontWeight.Medium,
-                                maxLines = 1,
-                            )
-
-                            Text(
-                                text = "›",
-                                color =
-                                    if (
-                                        dnaEnabled
-                                    ) {
-                                        VueoPalette.Accent
-                                    } else {
-                                        VueoPalette.Muted
-                                    },
-                                fontSize = 23.sp,
-                            )
-                        }
                     }
                 }
             }
