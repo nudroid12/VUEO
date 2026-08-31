@@ -67,6 +67,7 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Pause
@@ -93,6 +94,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -105,6 +107,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.DisposableEffect
@@ -126,11 +129,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -2281,43 +2286,60 @@ private fun HomeFeaturedCarousel(
     }
 }
 
-private fun Modifier.clickOrHoldThreeSeconds(
+@Composable
+private fun Modifier.clickOrHoldForMenu(
     onClick: () -> Unit,
     onHold: () -> Unit,
-): Modifier =
-    pointerInput(
-        onClick,
-        onHold,
-    ) {
-        detectTapGestures(
-            onPress = {
-                var holdTriggered = false
+): Modifier {
+    val hapticFeedback =
+        LocalHapticFeedback.current
 
-                coroutineScope {
-                    val holdJob =
-                        launch {
-                            delay(
-                                THREE_SECOND_HOLD_MS
-                            )
-                            holdTriggered = true
-                            onHold()
+    return pointerInput(
+            onClick,
+            onHold,
+        ) {
+            detectTapGestures(
+                onPress = {
+                    var holdTriggered = false
+
+                    coroutineScope {
+                        val holdJob =
+                            launch {
+                                delay(
+                                    MENU_HOLD_MS
+                                )
+                                holdTriggered = true
+                                hapticFeedback
+                                    .performHapticFeedback(
+                                        HapticFeedbackType
+                                            .LongPress
+                                    )
+                                onHold()
+                            }
+
+                        val released =
+                            tryAwaitRelease()
+
+                        holdJob.cancel()
+
+                        if (
+                            released &&
+                            !holdTriggered
+                        ) {
+                            onClick()
                         }
-
-                    val released =
-                        tryAwaitRelease()
-
-                    holdJob.cancel()
-
-                    if (
-                        released &&
-                        !holdTriggered
-                    ) {
-                        onClick()
                     }
-                }
-            },
-        )
-    }
+                },
+            )
+        }
+}
+
+private data class MediaMenuAction(
+    val label: String,
+    val icon: ImageVector,
+    val destructive: Boolean = false,
+    val onClick: () -> Unit,
+)
 
 @Composable
 private fun ContinueWatchingActionsDialog(
@@ -2327,7 +2349,7 @@ private fun ContinueWatchingActionsDialog(
     onViewDetails: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    MediaActionsDialog(
+    MediaActionsSheet(
         title = entry.media.name,
         subtitle =
             playbackEntrySubtitle(
@@ -2335,11 +2357,23 @@ private fun ContinueWatchingActionsDialog(
             ),
         actions =
             listOf(
-                "Resume" to onResume,
-                "View Details" to
-                    onViewDetails,
-                "Remove from Continue Watching" to
-                    onRemove,
+                MediaMenuAction(
+                    label = "Resume",
+                    icon =
+                        Icons.Default.PlayArrow,
+                    onClick = onResume,
+                ),
+                MediaMenuAction(
+                    label = "View Details",
+                    icon = Icons.Default.Info,
+                    onClick = onViewDetails,
+                ),
+                MediaMenuAction(
+                    label = "Remove from Continue Watching",
+                    icon = Icons.Default.Delete,
+                    destructive = true,
+                    onClick = onRemove,
+                ),
             ),
         onDismiss = onDismiss,
     )
@@ -2355,134 +2389,219 @@ private fun CatalogActionsDialog(
     onToggleWatchlist: () -> Unit,
     onToggleWatched: () -> Unit,
 ) {
-    MediaActionsDialog(
+    MediaActionsSheet(
         title = item.name,
         subtitle = "Catalog options",
         actions =
             listOf(
-                (
-                    if (isWatchlisted) {
-                        "Remove from My List"
-                    } else {
-                        "Add to My List"
-                    }
-                ) to onToggleWatchlist,
-                "View Details" to
-                    onViewDetails,
-                (
-                    if (isMarkedWatched) {
-                        "Mark as Unwatched"
-                    } else {
-                        "Mark as Watched"
-                    }
-                ) to onToggleWatched,
+                MediaMenuAction(
+                    label =
+                        if (isWatchlisted) {
+                            "Remove from My List"
+                        } else {
+                            "Add to My List"
+                        },
+                    icon =
+                        if (isWatchlisted) {
+                            Icons.Default.Delete
+                        } else {
+                            Icons.Default.Add
+                        },
+                    onClick =
+                        onToggleWatchlist,
+                ),
+                MediaMenuAction(
+                    label = "View Details",
+                    icon = Icons.Default.Info,
+                    onClick = onViewDetails,
+                ),
+                MediaMenuAction(
+                    label =
+                        if (isMarkedWatched) {
+                            "Mark as Unwatched"
+                        } else {
+                            "Mark as Watched"
+                        },
+                    icon =
+                        Icons.Default.VideoLibrary,
+                    onClick =
+                        onToggleWatched,
+                ),
             ),
         onDismiss = onDismiss,
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MediaActionsDialog(
+private fun MediaActionsSheet(
     title: String,
     subtitle: String?,
-    actions: List<
-        Pair<String, () -> Unit>
-    >,
+    actions: List<MediaMenuAction>,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
+    val sheetState =
+        rememberModalBottomSheetState(
+            skipPartiallyExpanded = true
+        )
+
+    ModalBottomSheet(
         onDismissRequest =
             onDismiss,
-        title = {
-            Column(
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        3.dp
+        sheetState = sheetState,
+        containerColor =
+            VueoPalette.Surface,
+        contentColor = Color.White,
+        shape =
+            RoundedCornerShape(
+                topStart = 26.dp,
+                topEnd = 26.dp,
+            ),
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(
+                        start = 20.dp,
+                        end = 20.dp,
+                        bottom = 18.dp,
                     ),
-            ) {
-                Text(
-                    text = title,
-                    color = Color.White,
-                    fontWeight =
-                        FontWeight.Black,
-                    maxLines = 1,
-                    overflow =
-                        TextOverflow.Ellipsis,
-                )
+            verticalArrangement =
+                Arrangement.spacedBy(
+                    4.dp
+                ),
+        ) {
+            Text(
+                text = title,
+                color = Color.White,
+                fontWeight =
+                    FontWeight.Black,
+                fontSize = 20.sp,
+                maxLines = 1,
+                overflow =
+                    TextOverflow.Ellipsis,
+            )
 
-                subtitle
-                    ?.takeIf {
-                        it.isNotBlank()
-                    }
-                    ?.let {
-                        Text(
-                            text = it,
-                            color =
-                                VueoPalette.Muted,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow =
-                                TextOverflow
-                                    .Ellipsis,
-                        )
-                    }
-            }
-        },
-        text = {
-            Column(
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        6.dp
-                    ),
-            ) {
-                actions.forEach {
-                    (label, action) ->
+            subtitle
+                ?.takeIf {
+                    it.isNotBlank()
+                }
+                ?.let {
+                    Text(
+                        text = it,
+                        color =
+                            VueoPalette.Muted,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow =
+                            TextOverflow.Ellipsis,
+                    )
+                }
+
+            Spacer(
+                Modifier.height(8.dp)
+            )
+
+            actions.forEach {
+                action ->
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(
+                                RoundedCornerShape(
+                                    13.dp
+                                )
+                            )
+                            .clickable(
+                                onClick =
+                                    action.onClick
+                            )
+                            .padding(
+                                horizontal =
+                                    10.dp,
+                                vertical = 9.dp,
+                            ),
+                    horizontalArrangement =
+                        Arrangement.spacedBy(
+                            12.dp
+                        ),
+                    verticalAlignment =
+                        Alignment.CenterVertically,
+                ) {
                     Surface(
                         modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable(
-                                    onClick = action
-                                ),
-                        shape =
-                            RoundedCornerShape(
-                                12.dp
-                            ),
+                            Modifier.size(36.dp),
+                        shape = CircleShape,
                         color =
-                            VueoPalette
-                                .SurfaceElevated,
+                            if (
+                                action.destructive
+                            ) {
+                                MaterialTheme
+                                    .colorScheme
+                                    .error
+                                    .copy(
+                                        alpha = .14f
+                                    )
+                            } else {
+                                VueoPalette
+                                    .SurfaceElevated
+                            },
                     ) {
-                        Text(
-                            text = label,
+                        Icon(
+                            imageVector =
+                                action.icon,
+                            contentDescription =
+                                null,
                             modifier =
                                 Modifier.padding(
-                                    horizontal =
-                                        15.dp,
-                                    vertical =
-                                        13.dp,
+                                    8.dp
                                 ),
-                            color = Color.White,
-                            fontSize = 14.sp,
-                            fontWeight =
-                                FontWeight.SemiBold,
+                            tint =
+                                if (
+                                    action.destructive
+                                ) {
+                                    MaterialTheme
+                                        .colorScheme
+                                        .error
+                                } else {
+                                    VueoPalette
+                                        .Accent
+                                },
                         )
                     }
+
+                    Text(
+                        text = action.label,
+                        modifier =
+                            Modifier.weight(1f),
+                        color =
+                            if (
+                                action.destructive
+                            ) {
+                                MaterialTheme
+                                    .colorScheme
+                                    .error
+                            } else {
+                                Color.White
+                            },
+                        fontSize = 14.sp,
+                        fontWeight =
+                            FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow =
+                            TextOverflow.Ellipsis,
+                    )
                 }
             }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss
-            ) {
-                Text("Cancel")
-            }
-        },
-    )
+        }
+    }
 }
 
-private const val THREE_SECOND_HOLD_MS =
-    3_000L
+private const val MENU_HOLD_MS =
+    800L
 
 @Composable
 private fun HomeContinueWatchingSection(
@@ -2555,7 +2674,7 @@ private fun HomeContinueWatchingCard(
                 .aspectRatio(
                     16f / 9f
                 )
-                .clickOrHoldThreeSeconds(
+                .clickOrHoldForMenu(
                     onClick = onClick,
                     onHold = onHold,
                 ),
@@ -3452,7 +3571,7 @@ private fun CatalogGridPoster(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .clickOrHoldThreeSeconds(
+                .clickOrHoldForMenu(
                     onClick = onClick,
                     onHold = onHold,
                 ),
@@ -3547,7 +3666,7 @@ private fun MediaPoster(
                     modifier ->
                     if (onHold != null) {
                         modifier
-                            .clickOrHoldThreeSeconds(
+                            .clickOrHoldForMenu(
                                 onClick = onClick,
                                 onHold = onHold,
                             )
@@ -8016,6 +8135,9 @@ private fun MediaDetailsScreen(
     var relatedUsesTmdb by remember {
         mutableStateOf(false)
     }
+    var relatedUsesVueo by remember {
+        mutableStateOf(false)
+    }
     var ratings by remember {
         mutableStateOf<
             List<MediaRating>
@@ -8171,6 +8293,7 @@ private fun MediaDetailsScreen(
         loadingMeta = true
         relatedItems = emptyList()
         relatedUsesTmdb = false
+        relatedUsesVueo = false
         ratings = emptyList()
 
         val tmdbKey =
@@ -8306,6 +8429,15 @@ private fun MediaDetailsScreen(
                         }
                         .distinct()
                         .sorted()
+                        .firstOrNull {
+                            it > 0
+                        }
+                    ?: item.episodes
+                        .map {
+                            it.season
+                        }
+                        .distinct()
+                        .sorted()
                         .firstOrNull()
 
             selectedSeason =
@@ -8343,6 +8475,8 @@ private fun MediaDetailsScreen(
 
         relatedItems =
             localRelated
+        relatedUsesVueo =
+            localRelated.isNotEmpty()
 
         loadingMeta = false
 
@@ -9949,32 +10083,62 @@ private fun MediaDetailsScreen(
                             10.dp
                         ),
                 ) {
-                    Column(
+                    Row(
                         modifier =
-                            Modifier.padding(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(
                                 horizontal =
                                     18.dp
-                            ),
-                        verticalArrangement =
+                                ),
+                        horizontalArrangement =
                             Arrangement.spacedBy(
-                                2.dp
+                                10.dp
                             ),
+                        verticalAlignment =
+                            Alignment.Bottom,
                     ) {
-                        Text(
-                            text =
-                                "More Like This",
-                            color = Color.White,
-                            fontSize = 20.sp,
-                            fontWeight =
-                                FontWeight.Black,
-                        )
+                        Column(
+                            modifier =
+                                Modifier.weight(1f),
+                            verticalArrangement =
+                                Arrangement.spacedBy(
+                                    2.dp
+                                ),
+                        ) {
+                            Text(
+                                text =
+                                    "More Like This",
+                                color = Color.White,
+                                fontSize = 20.sp,
+                                fontWeight =
+                                    FontWeight.Black,
+                            )
+
+                            Text(
+                                text =
+                                    "Recommended for you",
+                                color =
+                                    VueoPalette.Muted,
+                                fontSize = 10.sp,
+                            )
+                        }
 
                         Text(
                             text =
-                                "Recommended for you",
+                                moreLikeThisAttribution(
+                                    usesVueo =
+                                        relatedUsesVueo,
+                                    usesTmdb =
+                                        relatedUsesTmdb,
+                                ),
                             color =
-                                VueoPalette.Muted,
-                            fontSize = 10.sp,
+                                VueoPalette.Muted
+                                    .copy(
+                                        alpha = .72f
+                                    ),
+                            fontSize = 8.sp,
+                            maxLines = 1,
                         )
                     }
 
@@ -10840,6 +11004,21 @@ private fun detailsPlaybackEntry(
             }
     }
 
+private fun moreLikeThisAttribution(
+    usesVueo: Boolean,
+    usesTmdb: Boolean,
+): String =
+    when {
+        usesVueo && usesTmdb ->
+            "Powered by VUEO + TMDB"
+
+        usesTmdb ->
+            "Powered by TMDB"
+
+        else ->
+            "Powered by VUEO"
+    }
+
 @Composable
 private fun SeasonSelector(
     episodes: List<EpisodeItem>,
@@ -10852,7 +11031,15 @@ private fun SeasonSelector(
                 it.season
             }
             .distinct()
-            .sorted()
+            .sortedWith(
+                compareBy {
+                    if (it == 0) {
+                        Int.MAX_VALUE
+                    } else {
+                        it
+                    }
+                }
+            )
 
     Column(
         verticalArrangement =
@@ -10895,7 +11082,11 @@ private fun SeasonSelector(
                     label = {
                         Text(
                             text =
-                                "Season $season"
+                                if (season == 0) {
+                                    "Specials"
+                                } else {
+                                    "Season $season"
+                                }
                         )
                     },
                 )
