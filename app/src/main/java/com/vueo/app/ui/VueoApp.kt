@@ -13693,6 +13693,35 @@ private fun PlayerScreen(
                 )
                 refreshTrackChoices()
             },
+            onSubtitleDelayChange = { delayMs ->
+                subtitleDelayMs =
+                    delayMs.coerceIn(-60_000, 60_000)
+                context.setPlayerSubtitleDelayMs(
+                    mediaKey = mediaKey,
+                    delayMs = subtitleDelayMs,
+                )
+            },
+            onStyleChange = { updated ->
+                subtitleStyle = updated
+                settingsStore.setSubtitleFontSizeSp(
+                    updated.fontSizeSp
+                )
+                settingsStore.setSubtitleBold(
+                    updated.bold
+                )
+                settingsStore.setSubtitleTextColor(
+                    updated.textColor
+                )
+                settingsStore.setSubtitleOutlineEnabled(
+                    updated.outlineEnabled
+                )
+                settingsStore.setSubtitleOutlineColor(
+                    updated.outlineColor
+                )
+                settingsStore.setSubtitleBottomPaddingPercent(
+                    updated.bottomPaddingPercent
+                )
+            },
             onOpenStyle = {
                 showSubtitleDialog = false
                 showSubtitleStyleOverlay = true
@@ -13744,6 +13773,11 @@ private fun PlayerScreen(
             currentSource = source,
             currentPlaybackFailed = playbackError != null,
             failedSourceUrls = failedSourceUrls,
+            providerOrder =
+                playableSources
+                    .map(::sourceProviderTabKey)
+                    .distinct(),
+            switchingSourceUrl = null,
             onSelect = { candidate ->
                 val switchPosition = player.currentPosition
                     .coerceAtLeast(0L)
@@ -13800,6 +13834,13 @@ private fun PlayerScreen(
             episodes = episodes,
             currentEpisode = episode,
             progressByEpisodeId = progressByEpisodeId,
+            switchingEpisodeId =
+                if (nextEpisodeSwitching) {
+                    nextEpisode?.id
+                } else {
+                    null
+                },
+            switchingFailed = false,
             onEpisodeSelected = { candidate ->
                 savePosition()
                 showEpisodeDialog = false
