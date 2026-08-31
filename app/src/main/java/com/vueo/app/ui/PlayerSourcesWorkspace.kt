@@ -8,6 +8,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -18,7 +19,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,12 +28,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,7 +52,6 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import com.vueo.app.core.model.StreamSource
 import com.vueo.app.core.player.PlayerSourcePolicy
-import com.vueo.app.core.player.PlayerSourceQuality
 import java.util.Locale
 
 private val SourceAccent = Color(0xFFB9FF3A)
@@ -69,20 +64,30 @@ internal fun PlayerSourcesWorkspace(
     currentSource: StreamSource,
     currentPlaybackFailed: Boolean,
     failedSourceUrls: Set<String>,
+    providerOrder: List<String>,
+    switchingSourceUrl: String?,
     onSelect: (StreamSource) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val qualityFilters = remember(sources) {
+    val availableProviders = remember(sources) {
         sources
-            .map(::sourceQualityBucket)
+            .map(::sourceProviderKey)
             .distinct()
-            .sortedBy(::sourceQualityOrder)
     }
-    var activeFilter by remember(sources) {
+    val visibleProviders = remember(
+        providerOrder,
+        availableProviders,
+    ) {
+        (
+            providerOrder.filter { it in availableProviders } +
+                availableProviders.filter { it !in providerOrder }
+            ).distinct()
+    }
+    var activeProvider by remember(sources) {
         mutableStateOf<String?>(null)
     }
     val visibleSources = sources.filter {
-        activeFilter == null || sourceQualityBucket(it) == activeFilter
+        activeProvider == null || sourceProviderKey(it) == activeProvider
     }
     val recommended = remember(
         sources,
@@ -101,6 +106,19 @@ internal fun PlayerSourcesWorkspace(
             candidate.url?.let { it !in failedSourceUrls } == true
         }
     }
+    val orderedSources = remember(
+        visibleSources,
+        recommended?.url,
+    ) {
+        val recommendedUrl = recommended?.url
+        if (recommendedUrl == null) {
+            visibleSources
+        } else {
+            visibleSources.sortedByDescending {
+                it.url == recommendedUrl
+            }
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -116,176 +134,109 @@ internal fun PlayerSourcesWorkspace(
                 .background(Color.Black.copy(alpha = .24f))
                 .background(
                     Brush.horizontalGradient(
-                        0f to Color.Black.copy(alpha = .98f),
-                        .62f to Color.Black.copy(alpha = .84f),
-                        1f to Color.Black.copy(alpha = .20f),
+                        0f to Color.Black.copy(alpha = .12f),
+                        .38f to Color.Black.copy(alpha = .64f),
+                        1f to Color.Black.copy(alpha = .97f),
                     )
                 )
-                .padding(start = 34.dp, end = 22.dp, top = 18.dp, bottom = 20.dp),
+                .clickable(onClick = onDismiss)
+                .padding(start = 24.dp, end = 40.dp, top = 20.dp, bottom = 20.dp),
         ) {
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier.align(Alignment.TopEnd).size(38.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Close sources",
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
-
             val workspaceWidth = minOf(maxWidth * .64f, 720.dp)
-            Column(
+            Surface(
                 modifier = Modifier
                     .width(workspaceWidth)
-                    .fillMaxHeight(),
+                    .fillMaxHeight(.90f)
+                    .align(Alignment.CenterEnd)
+                    .clickable(
+                        interactionSource = remember {
+                            MutableInteractionSource()
+                        },
+                        indication = null,
+                        onClick = {},
+                    ),
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0xF2181A1C),
+                border = BorderStroke(
+                    1.dp,
+                    Color.White.copy(alpha = .09f),
+                ),
             ) {
-                Text(
-                    text = "Sources",
-                    color = Color.White,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "$title • ${sources.size} playable",
-                    color = Color.White.copy(alpha = .52f),
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-
-                recommended?.let { candidate ->
-                    Spacer(Modifier.height(10.dp))
-                    RecommendedSourceCard(
-                        source = candidate,
-                        current = candidate.url == currentSource.url,
-                        recoverySuggestion = currentPlaybackFailed &&
-                            candidate.url != currentSource.url,
-                        onSelect = { onSelect(candidate) },
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Sources",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.SemiBold,
                     )
-                }
-
-                Spacer(Modifier.height(9.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    SourceFilterChip(
-                        label = "All",
-                        selected = activeFilter == null,
-                        onClick = { activeFilter = null },
+                    Text(
+                        text = "$title • ${sources.size} playable",
+                        color = Color.White.copy(alpha = .52f),
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp),
                     )
-                    qualityFilters.forEach { quality ->
+
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
                         SourceFilterChip(
-                            label = quality,
-                            selected = activeFilter == quality,
-                            onClick = { activeFilter = quality },
+                            label = "All Sources",
+                            selected = activeProvider == null,
+                            onClick = { activeProvider = null },
                         )
+                        visibleProviders.forEach { provider ->
+                            SourceFilterChip(
+                                label = sourceProviderDisplayName(provider),
+                                selected = activeProvider == provider,
+                                onClick = { activeProvider = provider },
+                            )
+                        }
                     }
-                }
 
-                Spacer(Modifier.height(8.dp))
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    items(
-                        items = visibleSources,
-                        key = { it.url ?: "${it.providerId}:${it.name}" },
-                    ) { candidate ->
-                        val current = candidate.url == currentSource.url
-                        val assessment = PlayerSourcePolicy.assess(candidate)
-                        SourceListRow(
-                            source = candidate,
-                            current = current,
-                            recommended = candidate.url == recommended?.url,
-                            automaticRecoveryEligible = assessment
-                                .quality
-                                .automaticRecoveryEligible,
-                            playbackFailed =
-                                candidate.url?.let {
-                                    it in failedSourceUrls
-                                } == true ||
-                                (current && currentPlaybackFailed),
-                            onClick = {
-                                if (!current) onSelect(candidate)
-                            },
-                        )
+                    Spacer(Modifier.height(9.dp))
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        items(
+                            items = orderedSources,
+                            key = { it.url ?: "${it.providerId}:${it.name}" },
+                        ) { candidate ->
+                            val current = candidate.url == currentSource.url
+                            val switching =
+                                candidate.url == switchingSourceUrl
+                            val assessment =
+                                PlayerSourcePolicy.assess(candidate)
+                            SourceListRow(
+                                source = candidate,
+                                current = current,
+                                switching = switching,
+                                recommended =
+                                    candidate.url == recommended?.url,
+                                automaticRecoveryEligible = assessment
+                                    .quality
+                                    .automaticRecoveryEligible,
+                                playbackFailed =
+                                    candidate.url?.let {
+                                        it in failedSourceUrls
+                                    } == true ||
+                                    (current && currentPlaybackFailed),
+                                onClick = {
+                                    if (!current && !switching) {
+                                        onSelect(candidate)
+                                    }
+                                },
+                            )
+                        }
                     }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RecommendedSourceCard(
-    source: StreamSource,
-    current: Boolean,
-    recoverySuggestion: Boolean,
-    onSelect: () -> Unit,
-) {
-    val assessment = PlayerSourcePolicy.assess(source)
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = Color(0xFF181B17),
-        border = BorderStroke(1.dp, SourceAccent.copy(alpha = .42f)),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = if (recoverySuggestion) {
-                        "SUGGESTED ALTERNATIVE"
-                    } else {
-                        "VUEO RECOMMENDS"
-                    },
-                    color = SourceAccent,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = .7.sp,
-                )
-                Text(
-                    text = "${assessment.quality.label} • ${source.providerName}",
-                    color = Color.White,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-                Text(
-                    text = sourceDetailLine(source),
-                    color = Color.White.copy(alpha = .54f),
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-            if (current) {
-                SourceBadge("Playing", accent = true)
-            } else {
-                Button(
-                    onClick = onSelect,
-                    modifier = Modifier.heightIn(min = 36.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(17.dp),
-                    )
-                    Spacer(Modifier.width(3.dp))
-                    Text("Switch", fontSize = 11.sp)
                 }
             }
         }
@@ -296,6 +247,7 @@ private fun RecommendedSourceCard(
 private fun SourceListRow(
     source: StreamSource,
     current: Boolean,
+    switching: Boolean,
     recommended: Boolean,
     automaticRecoveryEligible: Boolean,
     playbackFailed: Boolean,
@@ -305,16 +257,19 @@ private fun SourceListRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = !current, onClick = onClick),
+            .clickable(
+                enabled = !current && !switching,
+                onClick = onClick,
+            ),
         shape = SourceCardShape,
-        color = if (current) {
+        color = if (current || switching) {
             SourceAccent.copy(alpha = .12f)
         } else {
             Color.White.copy(alpha = .04f)
         },
         border = BorderStroke(
             1.dp,
-            if (current) {
+            if (current || switching) {
                 SourceAccent.copy(alpha = .48f)
             } else {
                 Color.White.copy(alpha = .07f)
@@ -337,7 +292,11 @@ private fun SourceListRow(
                 Icon(
                     imageVector = Icons.Default.Dns,
                     contentDescription = null,
-                    tint = if (current) SourceAccent else Color.White.copy(alpha = .66f),
+                    tint = if (current || switching) {
+                        SourceAccent
+                    } else {
+                        Color.White.copy(alpha = .66f)
+                    },
                     modifier = Modifier.size(18.dp),
                 )
             }
@@ -347,14 +306,11 @@ private fun SourceListRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
+                    SourceQualityBadge(assessment.quality.label)
                     Text(
-                        text = assessment.quality.label,
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = source.providerName,
+                        text = sourceProviderDisplayName(
+                            sourceProviderKey(source)
+                        ),
                         color = Color.White.copy(alpha = .64f),
                         fontSize = 11.sp,
                         maxLines = 1,
@@ -372,8 +328,9 @@ private fun SourceListRow(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 when {
-                    playbackFailed -> SourceBadge("Problem")
-                    current -> SourceBadge("Current", accent = true)
+                    playbackFailed -> SourceBadge("Failed")
+                    switching -> SourceBadge("Switching", accent = true)
+                    current -> SourceBadge("Playing", accent = true)
                     recommended -> SourceBadge("Recommended", accent = true)
                     !automaticRecoveryEligible -> SourceBadge("Manual only")
                     else -> SourceBadge("Direct")
@@ -390,6 +347,22 @@ private fun SourceListRow(
             }
         }
     }
+}
+
+@Composable
+private fun SourceQualityBadge(label: String) {
+    Text(
+        text = label,
+        color = Color.White,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier
+            .background(
+                Color.White.copy(alpha = .08f),
+                RoundedCornerShape(50),
+            )
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+    )
 }
 
 @Composable
@@ -436,26 +409,16 @@ private fun SourceFilterChip(
     )
 }
 
-private fun sourceQualityBucket(source: StreamSource): String {
-    val quality = PlayerSourcePolicy.detectQuality(source)
-    return when (quality) {
-        PlayerSourceQuality.LOW ->
-            source.quality?.takeIf { it.isNotBlank() } ?: quality.label
+private fun sourceProviderKey(source: StreamSource): String =
+    source.providerName
+        .trim()
+        .ifBlank { "Other" }
 
-        else -> quality.label
-    }
-}
-
-private fun sourceQualityOrder(value: String): Int =
-    when (value.lowercase()) {
-        "4k", "2160p", "uhd" -> 0
-        "1080p" -> 1
-        "720p" -> 2
-        "auto" -> 3
-        "unknown" -> 4
-        "480p", "360p", "240p", "below 720p" -> 5
-        else -> 6
-    }
+private fun sourceProviderDisplayName(provider: String): String =
+    provider
+        .substringAfterLast(" / ", provider)
+        .trim()
+        .ifBlank { "Other" }
 
 private fun sourceDetailLine(source: StreamSource): String =
     buildList {

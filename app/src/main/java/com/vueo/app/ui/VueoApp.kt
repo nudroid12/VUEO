@@ -8531,6 +8531,8 @@ private fun MediaDetailsScreen(
             availableSources =
                 sourcePickerStreams
                     .orEmpty(),
+            sourceProviderOrder =
+                sourcePickerProviderOrder,
             subtitles =
                 sourcePickerSubtitles,
             initialPositionMs =
@@ -11671,6 +11673,7 @@ private fun PlayerScreen(
     episodes: List<EpisodeItem>,
     source: StreamSource,
     availableSources: List<StreamSource>,
+    sourceProviderOrder: List<String>,
     subtitles: List<SubtitleTrack>,
     initialPositionMs: Long,
     onLibraryChanged: () -> Unit,
@@ -11842,6 +11845,9 @@ private fun PlayerScreen(
     var showSourceDialog by remember {
         mutableStateOf(false)
     }
+    var switchingSourceUrl by remember(mediaKey) {
+        mutableStateOf<String?>(null)
+    }
     var showEpisodeDialog by remember {
         mutableStateOf(false)
     }
@@ -11940,8 +11946,10 @@ private fun PlayerScreen(
                 controlsVisible = true
             }
 
-            showSourceDialog ->
+            showSourceDialog -> {
                 showSourceDialog = false
+                switchingSourceUrl = null
+            }
 
             showEpisodeDialog ->
                 showEpisodeDialog = false
@@ -12179,6 +12187,10 @@ private fun PlayerScreen(
                 .coerceAtLeast(currentPositionMs)
                 .coerceAtLeast(0L)
             savePosition()
+            if (showSourceDialog) {
+                switchingSourceUrl = alternate.url
+            }
+            hasRenderedFirstFrame = false
             onSwitchSource(alternate, position)
         } else {
             playbackPhase = PlayerPlaybackPhase.FAILED
@@ -12557,6 +12569,25 @@ private fun PlayerScreen(
         isBuffering = false
         hasRenderedFirstFrame = false
         recoveryInProgress = false
+    }
+
+    LaunchedEffect(
+        showSourceDialog,
+        source.url,
+        hasRenderedFirstFrame,
+        switchingSourceUrl,
+    ) {
+        val pendingUrl = switchingSourceUrl
+        if (
+            showSourceDialog &&
+            pendingUrl != null &&
+            source.url == pendingUrl &&
+            hasRenderedFirstFrame
+        ) {
+            showSourceDialog = false
+            switchingSourceUrl = null
+            controlsVisible = true
+        }
     }
 
     LaunchedEffect(
@@ -12996,14 +13027,21 @@ private fun PlayerScreen(
             currentSource = source,
             currentPlaybackFailed = playbackError != null,
             failedSourceUrls = failedSourceUrls,
+            providerOrder = sourceProviderOrder,
+            switchingSourceUrl = switchingSourceUrl,
             onSelect = { candidate ->
                 val switchPosition = player.currentPosition
                     .coerceAtLeast(0L)
                 savePosition()
-                showSourceDialog = false
+                switchingSourceUrl = candidate.url
+                hasRenderedFirstFrame = false
+                playbackPhase = PlayerPlaybackPhase.LOADING
                 onSwitchSource(candidate, switchPosition)
             },
-            onDismiss = { showSourceDialog = false },
+            onDismiss = {
+                showSourceDialog = false
+                switchingSourceUrl = null
+            },
         )
     }
 
@@ -13724,6 +13762,7 @@ private fun PlayerScreen(
                                     enabled =
                                         playableSources.size > 1,
                                     onClick = {
+                                        switchingSourceUrl = null
                                         showSourceDialog = true
                                     },
                                 ) {
@@ -13936,6 +13975,7 @@ private fun PlayerScreen(
                                 enabled =
                                     playableSources.isNotEmpty(),
                                 onClick = {
+                                    switchingSourceUrl = null
                                     showSourceDialog = true
                                 },
                             )
