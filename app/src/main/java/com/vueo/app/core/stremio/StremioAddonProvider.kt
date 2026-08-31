@@ -430,10 +430,13 @@ private fun JSONArray?.toEpisodeList(): List<EpisodeItem> {
                 EpisodeItem(
                     id = id,
                     title =
-                        item.optString(
-                            "title",
-                            "Episode $episode",
-                        ),
+                        item.optString("title")
+                            .trim()
+                            .takeIf { it.isNotBlank() }
+                            ?: item.optString("name")
+                                .trim()
+                                .takeIf { it.isNotBlank() }
+                            ?: "Episode $episode",
                     season = season,
                     episode = episode,
                     released =
