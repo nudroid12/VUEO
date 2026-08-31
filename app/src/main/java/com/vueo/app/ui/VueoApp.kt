@@ -11932,7 +11932,7 @@ private fun PlayerScreen(
 
             showSubtitleStyleOverlay -> {
                 showSubtitleStyleOverlay = false
-                controlsVisible = true
+                controlsVisible = !showSubtitleDialog
             }
 
             showSubtitleDialog -> {
@@ -12918,8 +12918,34 @@ private fun PlayerScreen(
                 )
                 refreshTrackChoices()
             },
+            onSubtitleDelayChange = { delayMs ->
+                subtitleDelayMs =
+                    delayMs.coerceIn(-60_000, 60_000)
+                context.setPlayerSubtitleDelayMs(
+                    mediaKey = mediaKey,
+                    delayMs = subtitleDelayMs,
+                )
+            },
+            onStyleChange = { updated ->
+                subtitleStyle = updated
+                settingsStore.setSubtitleFontSizeSp(
+                    updated.fontSizeSp
+                )
+                settingsStore.setSubtitleBold(updated.bold)
+                settingsStore.setSubtitleTextColor(
+                    updated.textColor
+                )
+                settingsStore.setSubtitleOutlineEnabled(
+                    updated.outlineEnabled
+                )
+                settingsStore.setSubtitleOutlineColor(
+                    updated.outlineColor
+                )
+                settingsStore.setSubtitleBottomPaddingPercent(
+                    updated.bottomPaddingPercent
+                )
+            },
             onOpenStyle = {
-                showSubtitleDialog = false
                 showSubtitleStyleOverlay = true
                 controlsVisible = false
             },
@@ -12955,7 +12981,7 @@ private fun PlayerScreen(
             },
             onDismiss = {
                 showSubtitleStyleOverlay = false
-                controlsVisible = true
+                controlsVisible = !showSubtitleDialog
             },
         )
     }
