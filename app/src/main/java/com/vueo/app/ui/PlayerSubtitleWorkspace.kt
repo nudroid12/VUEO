@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -48,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -134,97 +134,93 @@ internal fun PlayerSubtitleWorkspace(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = .72f))
+                .background(Color.Black.copy(alpha = .28f))
+                .background(
+                    Brush.horizontalGradient(
+                        0f to Color.Black.copy(alpha = .96f),
+                        .46f to Color.Black.copy(alpha = .70f),
+                        1f to Color.Black.copy(alpha = .12f),
+                    )
+                )
                 .clickable(onClick = onDismiss)
                 .padding(horizontal = 24.dp, vertical = 18.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Surface(
+            Column(
                 modifier = Modifier
-                    .wrapContentWidth()
-                    .fillMaxHeight(.84f)
-                    .clickable(
-                        interactionSource = remember {
-                            MutableInteractionSource()
-                        },
-                        indication = null,
-                        onClick = {},
-                    ),
-                shape = RoundedCornerShape(22.dp),
-                color = Color(0xF4141618),
-                border = BorderStroke(
-                    1.dp,
-                    Color.White.copy(alpha = .10f),
-                ),
+                    .width(710.dp)
+                    .fillMaxHeight(),
             ) {
-                Column(
-                    modifier = Modifier.padding(15.dp),
+                Text(
+                    "Subtitles",
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "Choose a language, track and style",
+                    color = Color.White.copy(alpha = .52f),
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement =
+                        Arrangement.spacedBy(10.dp),
                 ) {
-                    Text(
-                        "Subtitles",
-                        color = Color.White,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        "Choose a language, track and style",
-                        color = Color.White.copy(alpha = .52f),
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement =
-                            Arrangement.spacedBy(10.dp),
+                    SubtitleSectionCard(
+                        title = "Languages",
+                        width = 152.dp,
                     ) {
-                        SubtitleSectionCard(
-                            title = "Languages",
-                            width = 152.dp,
+                        LazyColumn(
+                            verticalArrangement =
+                                Arrangement.spacedBy(3.dp)
                         ) {
-                            LazyColumn(
-                                verticalArrangement =
-                                    Arrangement.spacedBy(3.dp)
-                            ) {
-                                item {
-                                    LanguageRow(
-                                        label = "Off",
-                                        count = null,
-                                        selected =
-                                            subtitlesDisabled &&
-                                                activeLanguageCode == null,
-                                        onClick = {
-                                            activeLanguageCode = null
-                                            styleOpen = false
-                                            onDisable()
-                                        },
-                                    )
-                                }
-                                items(
-                                    groups,
-                                    key = { it.code },
-                                ) { group ->
-                                    LanguageRow(
-                                        label = group.label,
-                                        count = group.tracks.size,
-                                        selected =
-                                            group.code ==
-                                                activeLanguageCode ||
-                                                (
-                                                    activeLanguageCode == null &&
-                                                        !subtitlesDisabled &&
-                                                        group.code ==
-                                                        selectedLanguageCode
-                                                    ),
-                                        onClick = {
-                                            activeLanguageCode = group.code
-                                            styleOpen = false
-                                        },
-                                    )
-                                }
+                            item {
+                                LanguageRow(
+                                    label = "Off",
+                                    count = null,
+                                    selected =
+                                        subtitlesDisabled &&
+                                            activeLanguageCode == null,
+                                    onClick = {
+                                        activeLanguageCode = null
+                                        styleOpen = false
+                                        onDisable()
+                                    },
+                                )
+                            }
+                            items(
+                                groups,
+                                key = { it.code },
+                            ) { group ->
+                                LanguageRow(
+                                    label = group.label,
+                                    count = group.tracks.size,
+                                    selected =
+                                        group.code ==
+                                            activeLanguageCode ||
+                                            (
+                                                activeLanguageCode == null &&
+                                                    !subtitlesDisabled &&
+                                                    group.code ==
+                                                    selectedLanguageCode
+                                                ),
+                                    onClick = {
+                                        activeLanguageCode = group.code
+                                        styleOpen = false
+                                    },
+                                )
                             }
                         }
+                    }
 
+                    Box(
+                        modifier = Modifier
+                            .width(292.dp)
+                            .fillMaxHeight(),
+                    ) {
                         if (activeLanguageCode != null) {
                             SubtitleSectionCard(
                                 title = "Subtitles",
@@ -263,7 +259,13 @@ internal fun PlayerSubtitleWorkspace(
                                 }
                             }
                         }
+                    }
 
+                    Box(
+                        modifier = Modifier
+                            .width(246.dp)
+                            .fillMaxHeight(),
+                    ) {
                         if (styleOpen && !subtitlesDisabled) {
                             SubtitleStyleCard(
                                 subtitleDelayMs = subtitleDelayMs,
@@ -290,7 +292,14 @@ private fun SubtitleSectionCard(
     Surface(
         modifier = Modifier
             .width(width)
-            .fillMaxHeight(),
+            .fillMaxHeight()
+            .clickable(
+                interactionSource = remember {
+                    MutableInteractionSource()
+                },
+                indication = null,
+                onClick = {},
+            ),
         shape = RoundedCornerShape(18.dp),
         color = Color(0xF2181A1C),
         border = BorderStroke(
@@ -450,7 +459,14 @@ private fun SubtitleStyleCard(
     Surface(
         modifier = Modifier
             .width(246.dp)
-            .fillMaxHeight(),
+            .fillMaxHeight()
+            .clickable(
+                interactionSource = remember {
+                    MutableInteractionSource()
+                },
+                indication = null,
+                onClick = {},
+            ),
         shape = RoundedCornerShape(18.dp),
         color = Color(0xF2181A1C),
         border = BorderStroke(

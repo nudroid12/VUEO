@@ -33,6 +33,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -88,171 +89,150 @@ internal fun PlayerMoreWorkspace(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = .72f))
+                .background(Color.Black.copy(alpha = .28f))
+                .background(
+                    Brush.horizontalGradient(
+                        0f to Color.Black.copy(alpha = .98f),
+                        .72f to Color.Black.copy(alpha = .88f),
+                        1f to Color.Black.copy(alpha = .58f),
+                    )
+                )
                 .clickable(onClick = onDismiss)
-                .padding(horizontal = 28.dp, vertical = 18.dp),
-            contentAlignment = Alignment.Center,
+                .padding(horizontal = 34.dp, vertical = 18.dp),
         ) {
-            Surface(
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth(.92f)
-                    .fillMaxHeight(.86f)
-                    .clickable(
-                        interactionSource = remember {
-                            MutableInteractionSource()
-                        },
-                        indication = null,
-                        onClick = {},
-                    ),
-                shape = RoundedCornerShape(22.dp),
-                color = Color(0xF4141618),
-                border = BorderStroke(
-                    1.dp,
-                    Color.White.copy(alpha = .10f),
-                ),
+                    .fillMaxWidth(.88f)
+                    .fillMaxHeight(),
             ) {
-                Column(
+                Text(
+                    text = "More",
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Playback and session controls",
+                    color = Color.White.copy(alpha = .52f),
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+
+                Spacer(Modifier.height(12.dp))
+                Row(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
+                        .fillMaxWidth()
+                        .weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Text(
-                        text = "More",
-                        color = Color.White,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = "Playback and session controls",
-                        color = Color.White.copy(alpha = .52f),
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-
-                    Spacer(Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        horizontalArrangement =
-                            Arrangement.spacedBy(10.dp),
+                    MoreSectionCard(
+                        title = "Playback",
+                        modifier = Modifier.weight(1.05f),
                     ) {
-                        MoreSectionCard(
-                            title = "Playback",
-                            modifier = Modifier.weight(1.05f),
+                        MoreLabel("Speed")
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            MoreLabel("Speed")
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(
-                                        rememberScrollState()
-                                    ),
-                                horizontalArrangement =
-                                    Arrangement.spacedBy(6.dp),
-                            ) {
-                                listOf(
-                                    0.5f,
-                                    0.75f,
-                                    1f,
-                                    1.25f,
-                                    1.5f,
-                                    2f,
-                                ).forEach { speed ->
-                                    MoreChoiceChip(
-                                        label = formatSpeed(speed),
-                                        selected = playbackSpeed == speed,
-                                        onClick = {
-                                            onPlaybackSpeedChange(speed)
-                                        },
-                                    )
-                                }
-                            }
-
-                            Spacer(Modifier.height(14.dp))
-                            MoreLabel("Video fit")
-                            Row(
-                                horizontalArrangement =
-                                    Arrangement.spacedBy(6.dp),
-                            ) {
-                                PlayerVideoFit.values().forEach {
-                                        option ->
-                                    MoreChoiceChip(
-                                        label = option.label,
-                                        selected = videoFit == option,
-                                        onClick = {
-                                            onVideoFitChange(option)
-                                        },
-                                    )
-                                }
-                            }
-                            Text(
-                                text = when (videoFit) {
-                                    PlayerVideoFit.FIT ->
-                                        "Shows the complete frame."
-                                    PlayerVideoFit.FILL ->
-                                        "Fills the screen dimensions."
-                                    PlayerVideoFit.ZOOM ->
-                                        "Crops edges to fill without stretching."
-                                },
-                                color = Color.White.copy(alpha = .42f),
-                                fontSize = 9.sp,
-                                modifier = Modifier.padding(top = 7.dp),
-                            )
-                        }
-
-                        MoreSectionCard(
-                            title = "Sleep timer",
-                            subtitle = sleepTimerStatus(
-                                sleepTimer,
-                                sleepTimerRemainingSeconds,
-                            ),
-                            modifier = Modifier.weight(.9f),
-                        ) {
-                            Column(
-                                verticalArrangement =
-                                    Arrangement.spacedBy(6.dp),
-                            ) {
-                                PlayerSleepTimerOption.values()
-                                    .forEach { option ->
-                                        MoreOptionRow(
-                                            label = option.label,
-                                            selected = sleepTimer == option,
-                                            onClick = {
-                                                onSleepTimerChange(option)
-                                            },
-                                        )
-                                    }
+                            listOf(
+                                0.5f,
+                                0.75f,
+                                1f,
+                                1.25f,
+                                1.5f,
+                                2f,
+                            ).forEach { speed ->
+                                MoreChoiceChip(
+                                    label = formatSpeed(speed),
+                                    selected = playbackSpeed == speed,
+                                    onClick = {
+                                        onPlaybackSpeedChange(speed)
+                                    },
+                                )
                             }
                         }
 
-                        MoreSectionCard(
-                            title = "Behaviour",
-                            modifier = Modifier.weight(1f),
+                        Spacer(Modifier.height(14.dp))
+                        MoreLabel("Video fit")
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            MoreToggleRow(
-                                label = "Auto-play next episode",
-                                checked = autoPlayNextEpisode,
-                                onCheckedChange =
-                                    onAutoPlayNextEpisodeChange,
-                            )
-                            MoreToggleRow(
-                                label = "Skip intro and ending",
-                                checked = skipSegmentsEnabled,
-                                onCheckedChange = onSkipSegmentsChange,
-                            )
-                            MoreToggleRow(
-                                label = "Content warnings",
-                                checked = contentWarningsEnabled,
-                                onCheckedChange = onContentWarningsChange,
-                            )
-                            Spacer(Modifier.weight(1f))
-                            OutlinedButton(
-                                onClick = onReset,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text("Reset player controls")
+                            PlayerVideoFit.values().forEach { option ->
+                                MoreChoiceChip(
+                                    label = option.label,
+                                    selected = videoFit == option,
+                                    onClick = {
+                                        onVideoFitChange(option)
+                                    },
+                                )
                             }
+                        }
+                        Text(
+                            text = when (videoFit) {
+                                PlayerVideoFit.FIT ->
+                                    "Shows the complete frame."
+                                PlayerVideoFit.FILL ->
+                                    "Fills the screen dimensions."
+                                PlayerVideoFit.ZOOM ->
+                                    "Crops edges to fill without stretching."
+                            },
+                            color = Color.White.copy(alpha = .42f),
+                            fontSize = 9.sp,
+                            modifier = Modifier.padding(top = 7.dp),
+                        )
+                    }
+
+                    MoreSectionCard(
+                        title = "Sleep timer",
+                        subtitle = sleepTimerStatus(
+                            sleepTimer,
+                            sleepTimerRemainingSeconds,
+                        ),
+                        modifier = Modifier.weight(.9f),
+                    ) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            PlayerSleepTimerOption.values().forEach { option ->
+                                MoreOptionRow(
+                                    label = option.label,
+                                    selected = sleepTimer == option,
+                                    onClick = {
+                                        onSleepTimerChange(option)
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    MoreSectionCard(
+                        title = "Behaviour",
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        MoreToggleRow(
+                            label = "Auto-play next episode",
+                            checked = autoPlayNextEpisode,
+                            onCheckedChange =
+                                onAutoPlayNextEpisodeChange,
+                        )
+                        MoreToggleRow(
+                            label = "Skip intro and ending",
+                            checked = skipSegmentsEnabled,
+                            onCheckedChange = onSkipSegmentsChange,
+                        )
+                        MoreToggleRow(
+                            label = "Content warnings",
+                            checked = contentWarningsEnabled,
+                            onCheckedChange = onContentWarningsChange,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        OutlinedButton(
+                            onClick = onReset,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Reset player controls")
                         }
                     }
                 }
@@ -269,7 +249,15 @@ private fun MoreSectionCard(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
-        modifier = modifier.fillMaxHeight(),
+        modifier = modifier
+            .fillMaxHeight()
+            .clickable(
+                interactionSource = remember {
+                    MutableInteractionSource()
+                },
+                indication = null,
+                onClick = {},
+            ),
         shape = RoundedCornerShape(18.dp),
         color = MoreCard,
         border = BorderStroke(1.dp, Color.White.copy(alpha = .09f)),
