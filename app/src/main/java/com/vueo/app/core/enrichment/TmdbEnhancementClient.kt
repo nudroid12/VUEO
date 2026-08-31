@@ -1,9 +1,14 @@
 package com.vueo.app.core.enrichment
 
 import android.net.Uri
+import com.vueo.app.core.model.EpisodeItem
 import com.vueo.app.core.model.MediaItem
 import com.vueo.app.core.plugin.TmdbResolver
 import com.vueo.app.core.stremio.SimpleHttp
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -46,6 +51,18 @@ object TmdbEnhancementClient {
         ) {
             override fun removeEldestEntry(
                 eldest: MutableMap.MutableEntry<String, CacheEntry<List<MediaItem>>>?,
+            ): Boolean =
+                size > MAX_CACHE_ENTRIES
+        }
+
+    private val seasonEpisodesCache =
+        object : LinkedHashMap<String, CacheEntry<List<TmdbEpisodeMetadata>>>(
+            96,
+            0.75f,
+            true,
+        ) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<String, CacheEntry<List<TmdbEpisodeMetadata>>>?,
             ): Boolean =
                 size > MAX_CACHE_ENTRIES
         }
@@ -167,11 +184,35 @@ object TmdbEnhancementClient {
             )
                 ?: return item
 
-        return mergeDetails(
+        val enriched = mergeDetails(
             item = item,
             details = details,
             metadataEnabled = metadataEnabled,
             artworkEnabled = artworkEnabled,
+        )
+
+        if (
+            item.type != "series" ||
+            !metadataEnabled ||
+            item.episodes.isEmpty()
+        ) {
+            return enriched
+        }
+
+        val episodeMetadata =
+            episodeMetadata(
+                tmdbId = tmdbId,
+                seasons = item.episodes
+                    .map { it.season }
+                    .distinct(),
+                apiKey = apiKey,
+            )
+
+        return enriched.copy(
+            episodes = mergeEpisodeMetadata(
+                episodes = enriched.episodes,
+                metadata = episodeMetadata,
+            )
         )
     }
 
@@ -349,6 +390,110 @@ object TmdbEnhancementClient {
         return json
     }
 
+    private suspend fun episodeMetadata(
+        tmdbId: String,
+        seasons: List<Int>,
+        apiKey: String,
+    ): List<TmdbEpisodeMetadata> =
+        coroutineScope {
+            val requestSlots = Semaphore(4)
+            seasons
+                .filter { it >= 0 }
+                .map { season ->
+                    async {
+                        requestSlots.withPermit {
+                            seasonEpisodeMetadata(
+                                tmdbId = tmdbId,
+                                season = season,
+                                apiKey = apiKey,
+                            )
+                        }
+                    }
+                }
+                .map { it.await() }
+                .flatten()
+        }
+
+    private suspend fun seasonEpisodeMetadata(
+        tmdbId: String,
+        season: Int,
+        apiKey: String,
+    ): List<TmdbEpisodeMetadata> {
+        val cacheKey =
+            "tv:$tmdbId:season:$season"
+
+        cached(seasonEpisodesCache, cacheKey)
+            ?.let {
+                return it
+            }
+
+        val url =
+            "$API_BASE/tv/$tmdbId/season/$season" +
+                "?language=en-US" +
+                "&api_key=${Uri.encode(apiKey.trim())}"
+
+        val result =
+            runCatching {
+                val json =
+                    JSONObject(
+                        SimpleHttp.get(url)
+                    )
+                val entries =
+                    json.optJSONArray("episodes")
+                        ?: return@runCatching emptyList()
+
+                buildList {
+                    for (index in 0 until entries.length()) {
+                        val episode =
+                            entries.optJSONObject(index)
+                                ?: continue
+                        val episodeNumber =
+                            episode.optInt(
+                                "episode_number",
+                                -1,
+                            )
+                        if (episodeNumber < 0) {
+                            continue
+                        }
+
+                        val seasonNumber =
+                            episode.optInt(
+                                "season_number",
+                                season,
+                            )
+                        add(
+                            TmdbEpisodeMetadata(
+                                season = seasonNumber,
+                                episode = episodeNumber,
+                                title = episode
+                                    .optNullableString("name"),
+                                released = episode
+                                    .optNullableString("air_date"),
+                                overview = episode
+                                    .optNullableString("overview"),
+                                thumbnail = episode
+                                    .optNullableString("still_path")
+                                    ?.let {
+                                        "$IMAGE_BASE/w500$it"
+                                    },
+                            )
+                        )
+                    }
+                }
+            }.getOrDefault(emptyList())
+
+        synchronized(seasonEpisodesCache) {
+            seasonEpisodesCache[cacheKey] =
+                CacheEntry(
+                    value = result,
+                    updatedAt =
+                        System.currentTimeMillis(),
+                )
+        }
+
+        return result
+    }
+
     private suspend fun resolveTmdbId(
         media: MediaItem,
         apiKey: String,
@@ -505,6 +650,70 @@ object TmdbEnhancementClient {
         )
     }
 
+    private fun mergeEpisodeMetadata(
+        episodes: List<EpisodeItem>,
+        metadata: List<TmdbEpisodeMetadata>,
+    ): List<EpisodeItem> {
+        if (metadata.isEmpty()) {
+            return episodes
+        }
+
+        val metadataByNumber =
+            metadata.associateBy {
+                it.season to it.episode
+            }
+
+        return episodes.map { episode ->
+            val candidate =
+                metadataByNumber[
+                    episode.season to episode.episode
+                ] ?: return@map episode
+
+            episode.copy(
+                title =
+                    if (
+                        isGenericEpisodeTitle(
+                            title = episode.title,
+                            episodeNumber = episode.episode,
+                        ) &&
+                        !candidate.title.isNullOrBlank()
+                    ) {
+                        candidate.title.orEmpty()
+                    } else {
+                        episode.title
+                    },
+                released =
+                    episode.released
+                        ?: candidate.released,
+                overview = richerText(
+                    episode.overview,
+                    candidate.overview,
+                ),
+                thumbnail =
+                    episode.thumbnail
+                        ?: candidate.thumbnail,
+            )
+        }
+    }
+
+    private fun isGenericEpisodeTitle(
+        title: String,
+        episodeNumber: Int,
+    ): Boolean {
+        val normalized =
+            title
+                .trim()
+                .lowercase()
+
+        if (normalized.isBlank()) {
+            return true
+        }
+
+        return Regex(
+            "^(episode|ep|e)\\s*0*${episodeNumber}\$"
+        ).matches(normalized)
+    }
+
     private fun richerText(
         current: String?,
         candidate: String?,
@@ -555,6 +764,15 @@ object TmdbEnhancementClient {
     private data class CacheEntry<T>(
         val value: T,
         val updatedAt: Long,
+    )
+
+    private data class TmdbEpisodeMetadata(
+        val season: Int,
+        val episode: Int,
+        val title: String?,
+        val released: String?,
+        val overview: String?,
+        val thumbnail: String?,
     )
 }
 
