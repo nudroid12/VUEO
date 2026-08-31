@@ -7,13 +7,13 @@ import android.view.WindowInsetsController
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,14 +26,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -74,100 +73,108 @@ internal fun PlayerAudioWorkspace(
                 .background(Color.Black.copy(alpha = .22f))
                 .background(
                     Brush.horizontalGradient(
-                        0f to Color.Black.copy(alpha = .97f),
-                        .48f to Color.Black.copy(alpha = .78f),
-                        1f to Color.Black.copy(alpha = .16f),
+                        0f to Color.Black.copy(alpha = .12f),
+                        .52f to Color.Black.copy(alpha = .68f),
+                        1f to Color.Black.copy(alpha = .96f),
                     )
                 )
-                .padding(start = 38.dp, end = 24.dp, top = 20.dp, bottom = 28.dp),
+                .clickable(onClick = onDismiss)
+                .padding(start = 24.dp, end = 40.dp, top = 20.dp, bottom = 20.dp),
         ) {
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .size(38.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Close audio tracks",
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
-
-            val railWidth = minOf(maxWidth * .44f, 430.dp)
-            val listHeight = (maxHeight - 116.dp)
+            val panelWidth = minOf(
+                400.dp,
+                (maxWidth * .42f).coerceAtLeast(340.dp),
+            )
+            val listHeight = (maxHeight - 148.dp)
                 .coerceAtLeast(130.dp)
-                .coerceAtMost(420.dp)
+                .coerceAtMost(390.dp)
 
-            Column(
+            Surface(
                 modifier = Modifier
-                    .width(railWidth)
-                    .fillMaxHeight()
-                    .align(Alignment.BottomStart),
-                verticalArrangement = Arrangement.Bottom,
+                    .width(panelWidth)
+                    .heightIn(max = maxHeight - 40.dp)
+                    .align(Alignment.CenterEnd)
+                    .clickable(
+                        interactionSource = remember {
+                            MutableInteractionSource()
+                        },
+                        indication = null,
+                        onClick = {},
+                    ),
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0xF2181A1C),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = .09f),
+                ),
             ) {
-                Text(
-                    text = "Audio",
-                    color = Color.White,
-                    fontSize = 23.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = if (automaticSelected) {
-                        selectedTrack?.let {
-                            "Stream default • ${it.label}"
-                        } ?: "Using the stream default"
-                    } else {
-                        selectedTrack?.let {
-                            "${it.label} selected"
-                        } ?: "Choose an audio track"
-                    },
-                    color = Color.White.copy(alpha = .56f),
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(top = 3.dp),
-                )
-                Spacer(Modifier.height(12.dp))
-
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = listHeight),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                Column(
+                    modifier = Modifier.padding(16.dp),
                 ) {
-                    item(key = "audio:auto") {
-                        AudioTrackRow(
-                            title = "Stream default",
-                            detail = "Select audio automatically",
-                            selected = automaticSelected,
-                            onClick = onAutomatic,
-                        )
-                    }
+                    Text(
+                        text = "Audio",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = if (automaticSelected) {
+                            selectedTrack?.let {
+                                "Stream default • ${it.label}"
+                            } ?: "Using the stream default"
+                        } else {
+                            selectedTrack?.let {
+                                "${it.label} selected"
+                            } ?: "Choose an audio track"
+                        },
+                        color = Color.White.copy(alpha = .52f),
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                    Spacer(Modifier.height(12.dp))
 
-                    items(tracks, key = { it.key }) { track ->
-                        AudioTrackRow(
-                            title = track.label,
-                            detail = listOfNotNull(
-                                track.metadata?.takeIf { it.isNotBlank() },
-                                track.sourceLabel.takeIf { it.isNotBlank() },
-                            ).distinct().joinToString(" • "),
-                            selected = track.selected && !automaticSelected,
-                            onClick = { onSelect(track) },
-                        )
-                    }
-
-                    if (tracks.isEmpty()) {
-                        item(key = "audio:empty") {
-                            Text(
-                                text = "No selectable audio tracks are available for this stream.",
-                                color = Color.White.copy(alpha = .54f),
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp,
-                                modifier = Modifier.padding(
-                                    horizontal = 12.dp,
-                                    vertical = 14.dp,
-                                ),
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = listHeight),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        item(key = "audio:auto") {
+                            AudioTrackRow(
+                                title = "Stream default",
+                                detail = "Select audio automatically",
+                                selected = automaticSelected,
+                                onClick = onAutomatic,
                             )
+                        }
+
+                        items(tracks, key = { it.key }) { track ->
+                            AudioTrackRow(
+                                title = track.label,
+                                detail = listOfNotNull(
+                                    track.metadata?.takeIf { it.isNotBlank() },
+                                    track.sourceLabel.takeIf { it.isNotBlank() },
+                                ).distinct().joinToString(" • "),
+                                selected = track.selected && !automaticSelected,
+                                onClick = { onSelect(track) },
+                            )
+                        }
+
+                        if (tracks.isEmpty()) {
+                            item(key = "audio:empty") {
+                                Text(
+                                    text = "No selectable audio tracks are available for this stream.",
+                                    color = Color.White.copy(alpha = .54f),
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp,
+                                    modifier = Modifier.padding(
+                                        horizontal = 12.dp,
+                                        vertical = 14.dp,
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
@@ -203,12 +210,12 @@ private fun AudioTrackRow(
         ),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(30.dp)
                     .background(
                         color = if (selected) {
                             AudioAccent.copy(alpha = .14f)
@@ -226,12 +233,12 @@ private fun AudioTrackRow(
                     modifier = Modifier.size(17.dp),
                 )
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(9.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     text = title,
                     color = Color.White.copy(alpha = if (selected) .98f else .86f),
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -240,7 +247,7 @@ private fun AudioTrackRow(
                     Text(
                         text = detail,
                         color = Color.White.copy(alpha = .49f),
-                        fontSize = 10.sp,
+                        fontSize = 9.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 2.dp),
@@ -252,7 +259,7 @@ private fun AudioTrackRow(
                     imageVector = Icons.Default.Check,
                     contentDescription = "Selected",
                     tint = AudioAccent,
-                    modifier = Modifier.size(19.dp),
+                    modifier = Modifier.size(18.dp),
                 )
             }
         }
