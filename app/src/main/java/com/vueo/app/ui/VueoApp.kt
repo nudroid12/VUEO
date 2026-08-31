@@ -11971,6 +11971,9 @@ private fun PlayerScreen(
     var nextEpisodeCountdown by remember {
         mutableStateOf<Int?>(null)
     }
+    var nextEpisodeCardSwitchTarget by remember {
+        mutableStateOf<EpisodeItem?>(null)
+    }
     var nextEpisodeSwitching by remember(mediaKey) {
         mutableStateOf(false)
     }
@@ -11980,6 +11983,9 @@ private fun PlayerScreen(
     var nextEpisodeCardDismissed by remember(mediaKey) {
         mutableStateOf(false)
     }
+    val nextEpisodeCardVisible =
+        showNextEpisodeCard ||
+            nextEpisodeCardSwitchTarget != null
     var autoPlayNextEpisode by remember {
         mutableStateOf(
             settingsStore.autoPlayNextEpisodeEnabled()
@@ -12244,6 +12250,7 @@ private fun PlayerScreen(
             return
         }
         nextEpisodeSwitching = true
+        nextEpisodeCardSwitchTarget = next
         nextEpisodeCountdown = null
         showNextEpisodeCard = false
         controlsVisible = false
@@ -12653,6 +12660,12 @@ private fun PlayerScreen(
                             .value
                             ?.id == episode?.id
                     ) {
+                        if (
+                            nextEpisodeCardSwitchTarget
+                                ?.id == episode?.id
+                        ) {
+                            nextEpisodeCardSwitchTarget = null
+                        }
                         showEpisodeDialog = false
                         latestOnEpisodeSwitchCompleted
                             .value
@@ -12822,7 +12835,7 @@ private fun PlayerScreen(
         controlsLocked,
         gestureActive,
         playerPanelVisible,
-        showNextEpisodeCard,
+        nextEpisodeCardVisible,
     ) {
         if (
             controlsVisible &&
@@ -12830,7 +12843,7 @@ private fun PlayerScreen(
             !controlsLocked &&
             !gestureActive &&
             !playerPanelVisible &&
-            !showNextEpisodeCard
+            !nextEpisodeCardVisible
         ) {
             delay(3_000L)
             controlsVisible = false
@@ -13549,11 +13562,22 @@ private fun PlayerScreen(
                     .pointerInput(
                         player,
                         controlsLocked,
+                        showNextEpisodeCard,
+                        nextEpisodeCardSwitchTarget,
                     ) {
                         detectTapGestures(
                             onTap = {
-                                controlsVisible =
-                                    !controlsVisible
+                                if (
+                                    showNextEpisodeCard &&
+                                    nextEpisodeCardSwitchTarget == null
+                                ) {
+                                    nextEpisodeCountdown = null
+                                    showNextEpisodeCard = false
+                                    nextEpisodeCardDismissed = true
+                                } else {
+                                    controlsVisible =
+                                        !controlsVisible
+                                }
                             },
                             onDoubleTap = { offset ->
                                 when {
@@ -13820,6 +13844,47 @@ private fun PlayerScreen(
                 )
             }
 
+            val nextEpisodeCardEpisode =
+                nextEpisodeCardSwitchTarget
+                    ?: nextEpisode
+            if (
+                nextEpisodeCardEpisode != null &&
+                nextEpisodeCardVisible
+            ) {
+                PlayerNextEpisodeCard(
+                    episode = nextEpisodeCardEpisode,
+                    countdownSeconds =
+                        nextEpisodeCountdown,
+                    switching =
+                        nextEpisodeCardSwitchTarget != null &&
+                            !episodeSwitchFailed,
+                    failed =
+                        nextEpisodeCardSwitchTarget != null &&
+                            episodeSwitchFailed,
+                    onPlay = {
+                        if (
+                            episodeSwitchFailed &&
+                            nextEpisodeCardSwitchTarget != null
+                        ) {
+                            nextEpisodeSwitching = true
+                            nextEpisodeCountdown = null
+                            savePosition()
+                            onEpisodeSelected(
+                                nextEpisodeCardEpisode
+                            )
+                        } else {
+                            startNextEpisode()
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(
+                            end = 24.dp,
+                            bottom = 126.dp,
+                        ),
+                )
+            }
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -13883,59 +13948,6 @@ private fun PlayerScreen(
                                     },
                                 ) {
                                     Text("Choose Source")
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (showNextEpisodeCard) {
-                    nextEpisode?.let { next ->
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = VueoPalette.SurfaceElevated,
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment =
-                                    Alignment.CenterVertically,
-                            ) {
-                                Column(
-                                    modifier =
-                                        Modifier.weight(1f),
-                                ) {
-                                    Text(
-                                        "Next Episode",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    Text(
-                                        "S${next.season} E${next.episode} • ${next.title}",
-                                        color = VueoPalette.Muted,
-                                        fontSize = 11.sp,
-                                    )
-                                }
-                                TextButton(
-                                    onClick = {
-                                        nextEpisodeCountdown = null
-                                        showNextEpisodeCard = false
-                                        nextEpisodeCardDismissed = true
-                                    },
-                                ) {
-                                    Text("Dismiss")
-                                }
-                                Button(
-                                    onClick = {
-                                        startNextEpisode()
-                                    },
-                                ) {
-                                    Text(
-                                        nextEpisodeCountdown
-                                            ?.let { "Play Now ($it)" }
-                                            ?: "Play Now"
-                                    )
                                 }
                             }
                         }
@@ -14162,6 +14174,147 @@ private fun PlayerScreen(
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerNextEpisodeCard(
+    episode: EpisodeItem,
+    countdownSeconds: Int?,
+    switching: Boolean,
+    failed: Boolean,
+    onPlay: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val canPlay = !switching
+    Surface(
+        modifier = modifier
+            .fillMaxWidth(.38f)
+            .widthIn(min = 300.dp, max = 440.dp)
+            .clickable(
+                enabled = canPlay,
+                onClick = onPlay,
+            ),
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xED181A1C),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            Color.White.copy(alpha = .14f),
+        ),
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.padding(9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                NetworkImage(
+                    url = episode.thumbnail,
+                    contentDescription = episode.title,
+                    modifier = Modifier
+                        .width(92.dp)
+                        .height(52.dp)
+                        .clip(RoundedCornerShape(10.dp)),
+                    contentScale = ContentScale.Crop,
+                    fallbackText = "S${episode.season} E${episode.episode}",
+                )
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Text(
+                        text = when {
+                            failed -> "No playable source"
+                            switching -> "Finding source..."
+                            else -> "Next Episode"
+                        },
+                        color = when {
+                            failed -> Color(0xFFFF8A80)
+                            switching -> VueoPlayerAccent
+                            else -> Color.White.copy(alpha = .62f)
+                        },
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "S${episode.season} E${episode.episode} • " +
+                            episode.title.ifBlank {
+                                "Episode ${episode.episode}"
+                            },
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                OutlinedButton(
+                    enabled = canPlay,
+                    onClick = onPlay,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (canPlay) {
+                            VueoPlayerAccent.copy(alpha = .72f)
+                        } else {
+                            Color.White.copy(alpha = .14f)
+                        },
+                    ),
+                    contentPadding = PaddingValues(
+                        horizontal = 11.dp,
+                        vertical = 5.dp,
+                    ),
+                ) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = if (canPlay) {
+                            VueoPlayerAccent
+                        } else {
+                            Color.White.copy(alpha = .30f)
+                        },
+                    )
+                    Spacer(Modifier.width(3.dp))
+                    Text(
+                        text = when {
+                            failed -> "Retry"
+                            switching -> "Loading"
+                            countdownSeconds != null ->
+                                "Play in ${countdownSeconds}s"
+                            else -> "Play"
+                        },
+                        color = if (canPlay) {
+                            Color.White
+                        } else {
+                            Color.White.copy(alpha = .30f)
+                        },
+                        fontSize = 9.sp,
+                        maxLines = 1,
+                    )
+                }
+            }
+
+            countdownSeconds?.let { seconds ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .background(Color.White.copy(alpha = .12f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(
+                                (seconds / 8f).coerceIn(0f, 1f)
+                            )
+                            .fillMaxHeight()
+                            .background(VueoPlayerAccent),
+                    )
+                }
             }
         }
     }

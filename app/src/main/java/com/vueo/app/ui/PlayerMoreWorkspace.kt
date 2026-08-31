@@ -103,7 +103,8 @@ internal fun PlayerMoreWorkspace(
             Column(
                 modifier = Modifier
                     .fillMaxWidth(.88f)
-                    .fillMaxHeight(),
+                    .fillMaxHeight()
+                    .align(Alignment.Center),
             ) {
                 Text(
                     text = "More",
