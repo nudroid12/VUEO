@@ -1,6 +1,7 @@
 package com.vueo.app.core.extensions
 
 import com.vueo.app.core.model.CatalogRow
+import com.vueo.app.core.model.EpisodeItem
 import com.vueo.app.core.model.MediaItem
 import com.vueo.app.core.model.StreamSource
 import com.vueo.app.core.model.SubtitleTrack
@@ -300,29 +301,90 @@ class UnifiedMediaEngine {
 
     suspend fun loadMeta(
         item: MediaItem,
-    ): MediaItem {
-        val provider =
-            extension(
-                item.sourceExtensionId
-            )
-                ?.takeIf {
-                    isExtensionEnabled(
-                        it.descriptor.id
-                    )
+    ): MediaItem = coroutineScope {
+        val providers =
+            activeStremioAddons()
+                .filter { extension ->
+                    "meta" in extension.descriptor.resources &&
+                        (
+                            extension.descriptor.types.isEmpty() ||
+                                item.type in extension.descriptor.types
+                            )
                 }
-                ?: return item
+                .sortedBy { extension ->
+                    if (
+                        extension.descriptor.id ==
+                        item.sourceExtensionId
+                    ) {
+                        0
+                    } else {
+                        1
+                    }
+                }
 
-        return runCatching {
-            withTimeoutOrNull(
-                ADDON_REQUEST_TIMEOUT_MS
-            ) {
-                provider.meta(
-                    item.type,
-                    item.id,
-                )
+        if (providers.isEmpty()) {
+            return@coroutineScope item
+        }
+
+        val primaryProvider =
+            providers.firstOrNull {
+                it.descriptor.id == item.sourceExtensionId
             }
-        }.getOrNull()
-            ?: item
+        val primaryMetadata =
+            primaryProvider?.let { provider ->
+                runCatching {
+                    withTimeoutOrNull(
+                        ADDON_REQUEST_TIMEOUT_MS
+                    ) {
+                        provider.meta(
+                            item.type,
+                            item.id,
+                        )
+                    }
+                }.getOrNull()
+            }
+        val primaryResult =
+            primaryMetadata?.let { metadata ->
+                mergeMediaMetadata(
+                    current = item,
+                    candidate = metadata,
+                    sourceExtensionId = item.sourceExtensionId,
+                )
+            } ?: item
+
+        if (!needsMetadataFallback(primaryResult)) {
+            return@coroutineScope primaryResult
+        }
+
+        val fallbackMetadata =
+            providers
+                .filterNot {
+                    it.descriptor.id == primaryProvider?.descriptor?.id
+                }
+                .map { provider ->
+                    async {
+                        runCatching {
+                            withTimeoutOrNull(
+                                METADATA_FALLBACK_TIMEOUT_MS
+                            ) {
+                                provider.meta(
+                                    item.type,
+                                    item.id,
+                                )
+                            }
+                        }.getOrNull()
+                    }
+                }
+                .awaitAll()
+                .filterNotNull()
+
+        fallbackMetadata.fold(primaryResult) { merged, candidate ->
+            mergeMediaMetadata(
+                current = merged,
+                candidate = candidate,
+                sourceExtensionId = item.sourceExtensionId,
+            )
+        }
     }
 
     suspend fun resolveStreams(
@@ -444,10 +506,151 @@ class UnifiedMediaEngine {
         private const val ADDON_REQUEST_TIMEOUT_MS =
             8_000L
 
+        private const val METADATA_FALLBACK_TIMEOUT_MS =
+            4_000L
+
         private const val ADDON_STREAM_TIMEOUT_MS =
             10_000L
     }
 }
+
+private fun mergeMediaMetadata(
+    current: MediaItem,
+    candidate: MediaItem,
+    sourceExtensionId: String?,
+): MediaItem =
+    current.copy(
+        name = current.name.ifBlank { candidate.name },
+        poster = current.poster ?: candidate.poster,
+        background = current.background ?: candidate.background,
+        description = richerMetadataText(
+            current.description,
+            candidate.description,
+        ),
+        releaseInfo = current.releaseInfo ?: candidate.releaseInfo,
+        genres = (current.genres + candidate.genres).distinct(),
+        episodes = mergeMetadataEpisodes(
+            current.episodes,
+            candidate.episodes,
+        ),
+        sourceExtensionId = sourceExtensionId,
+        imdbRating = current.imdbRating ?: candidate.imdbRating,
+        tmdbRating = current.tmdbRating ?: candidate.tmdbRating,
+        runtimeMinutes = current.runtimeMinutes ?: candidate.runtimeMinutes,
+        certification = current.certification ?: candidate.certification,
+        directors = (current.directors + candidate.directors).distinct(),
+        creators = (current.creators + candidate.creators).distinct(),
+        writers = (current.writers + candidate.writers).distinct(),
+        cast = (current.cast + candidate.cast).distinctBy { it.name.lowercase() },
+        productionCompanies =
+            (current.productionCompanies + candidate.productionCompanies)
+                .distinctBy { it.name.lowercase() },
+        networks =
+            (current.networks + candidate.networks)
+                .distinctBy { it.name.lowercase() },
+    )
+
+private fun needsMetadataFallback(item: MediaItem): Boolean {
+    if (
+        item.description.isNullOrBlank() ||
+        item.poster.isNullOrBlank() ||
+        item.background.isNullOrBlank()
+    ) {
+        return true
+    }
+
+    if (item.type != "series") return false
+    if (item.episodes.isEmpty()) return true
+
+    return item.episodes.any { episode ->
+        isGenericEpisodeTitle(
+            title = episode.title,
+            episodeNumber = episode.episode,
+        ) ||
+            episode.overview.isNullOrBlank() ||
+            episode.thumbnail.isNullOrBlank()
+    }
+}
+
+private fun mergeMetadataEpisodes(
+    current: List<EpisodeItem>,
+    candidate: List<EpisodeItem>,
+): List<EpisodeItem> {
+    if (current.isEmpty()) return candidate
+    if (candidate.isEmpty()) return current
+
+    val candidateByPosition =
+        candidate.associateBy { it.season to it.episode }
+    val currentPositions =
+        current.mapTo(mutableSetOf()) { it.season to it.episode }
+
+    return (
+        current.map { episode ->
+            val fallback =
+                candidateByPosition[episode.season to episode.episode]
+                    ?: return@map episode
+
+            episode.copy(
+                title = preferredEpisodeTitle(
+                    current = episode.title,
+                    candidate = fallback.title,
+                    episodeNumber = episode.episode,
+                ),
+                released = episode.released ?: fallback.released,
+                overview = richerMetadataText(
+                    episode.overview,
+                    fallback.overview,
+                ),
+                thumbnail = episode.thumbnail ?: fallback.thumbnail,
+            )
+        } +
+            candidate.filter {
+                (it.season to it.episode) !in currentPositions
+            }
+        )
+        .sortedWith(
+            compareBy<EpisodeItem> { it.season }
+                .thenBy { it.episode }
+        )
+}
+
+private fun preferredEpisodeTitle(
+    current: String,
+    candidate: String,
+    episodeNumber: Int,
+): String {
+    val currentIsGeneric =
+        isGenericEpisodeTitle(current, episodeNumber)
+    val candidateIsGeneric =
+        isGenericEpisodeTitle(candidate, episodeNumber)
+
+    return when {
+        currentIsGeneric && !candidateIsGeneric -> candidate
+        current.isBlank() && candidate.isNotBlank() -> candidate
+        else -> current
+    }
+}
+
+private fun isGenericEpisodeTitle(
+    title: String,
+    episodeNumber: Int,
+): Boolean =
+    title.isBlank() ||
+        Regex(
+            pattern = "^(?:episode|ep|e)\\s*0*$episodeNumber$",
+            option = RegexOption.IGNORE_CASE,
+        ).matches(title.trim())
+
+private fun richerMetadataText(
+    current: String?,
+    candidate: String?,
+): String? =
+    when {
+        current.isNullOrBlank() -> candidate?.takeIf { it.isNotBlank() }
+        candidate.isNullOrBlank() -> current
+        candidate.length > current.length -> candidate
+        else -> current
+    }
 
 data class AddonStreamProgress(
     val streams: List<StreamSource>,
