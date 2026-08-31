@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets as ComposeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -49,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -131,6 +134,14 @@ internal fun PlayerSubtitleWorkspace(
         .firstOrNull { it.code == activeLanguageCode }
         ?.tracks
         .orEmpty()
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val visualCentreOffset = with(density) {
+        (
+            ComposeWindowInsets.navigationBars
+                .getRight(this, layoutDirection) / 2
+            ).toDp()
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -158,7 +169,8 @@ internal fun PlayerSubtitleWorkspace(
             Column(
                 modifier = Modifier
                     .width(710.dp)
-                    .fillMaxHeight(),
+                    .fillMaxHeight()
+                    .offset(x = visualCentreOffset),
             ) {
                 Text(
                     "Subtitles",
