@@ -13782,6 +13782,16 @@ private fun PlayerScreen(
                 Spacer(Modifier.width(8.dp))
 
                 PlayerTopAction(
+                    icon = Icons.Default.MoreHoriz,
+                    contentDescription = "More controls",
+                    onClick = {
+                        showMoreDialog = true
+                    },
+                )
+
+                Spacer(Modifier.width(8.dp))
+
+                PlayerTopAction(
                     icon = Icons.Default.ArrowBack,
                     contentDescription = "Back",
                     onClick = {
@@ -14116,13 +14126,6 @@ private fun PlayerScreen(
                                     },
                                 )
                             }
-                            PlayerPanelAction(
-                                icon = Icons.Default.MoreHoriz,
-                                label = "More",
-                                onClick = {
-                                    showMoreDialog = true
-                                },
-                            )
                         }
                     }
                 }

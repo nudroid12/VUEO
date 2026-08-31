@@ -135,7 +135,7 @@ internal fun PlayerEpisodesWorkspace(
                 .clickable(onClick = onDismiss)
                 .padding(start = 24.dp, end = 40.dp, top = 20.dp, bottom = 20.dp),
         ) {
-            val workspaceWidth = minOf(maxWidth * .64f, 720.dp)
+            val workspaceWidth = minOf(maxWidth * .56f, 620.dp)
             Surface(
                 modifier = Modifier
                     .width(workspaceWidth)
@@ -302,8 +302,8 @@ private fun EpisodeWorkspaceRow(
         ) {
             Box(
                 modifier = Modifier
-                    .width(112.dp)
-                    .height(63.dp)
+                    .width(120.dp)
+                    .height(68.dp)
                     .clip(RoundedCornerShape(9.dp))
                     .background(Color.White.copy(alpha = .06f)),
             ) {
@@ -386,7 +386,7 @@ private fun EpisodeWorkspaceRow(
                             color = Color.White.copy(alpha = .48f),
                             fontSize = 9.sp,
                             lineHeight = 12.sp,
-                            maxLines = 1,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
