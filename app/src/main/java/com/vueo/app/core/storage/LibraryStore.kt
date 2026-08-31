@@ -198,12 +198,27 @@ class LibraryStore(
 
     @Synchronized
     fun continueWatching():
-        List<LibraryPlaybackEntry> =
-        history()
+        List<LibraryPlaybackEntry> {
+        val hiddenTitleKeys =
+            dismissedContinueWatchingKeys() +
+                markedWatchedKeys()
+
+        return history()
             .filter {
                 it.positionMs > 5_000L &&
                     !it.isCompleted
             }
+            .filterNot {
+                continueWatchingTitleKey(
+                    it.media
+                ) in hiddenTitleKeys
+            }
+            .distinctBy {
+                continueWatchingTitleKey(
+                    it.media
+                )
+            }
+    }
 
     @Synchronized
     fun recordPlayback(
@@ -215,6 +230,10 @@ class LibraryStore(
         positionMs: Long,
         durationMs: Long,
     ) {
+        restoreContinueWatching(
+            media
+        )
+
         val key =
             "${media.type}:${media.id}:$videoId"
 
@@ -272,6 +291,56 @@ class LibraryStore(
     }
 
     @Synchronized
+    fun removeFromContinueWatching(
+        entry: LibraryPlaybackEntry,
+    ) {
+        val dismissed =
+            dismissedContinueWatchingKeys()
+                .toMutableSet()
+
+        dismissed +=
+            continueWatchingTitleKey(
+                entry.media
+            )
+
+        writeDismissedContinueWatchingKeys(
+            dismissed
+        )
+    }
+
+    @Synchronized
+    fun isMarkedWatched(
+        media: MediaItem,
+    ): Boolean =
+        continueWatchingTitleKey(
+            media
+        ) in markedWatchedKeys()
+
+    @Synchronized
+    fun setMarkedWatched(
+        media: MediaItem,
+        watched: Boolean,
+    ) {
+        val key =
+            continueWatchingTitleKey(
+                media
+            )
+        val marked =
+            markedWatchedKeys()
+                .toMutableSet()
+
+        if (watched) {
+            marked += key
+        } else {
+            marked -= key
+        }
+
+        writeMarkedWatchedKeys(
+            marked
+        )
+    }
+
+    @Synchronized
     fun clearHistory() {
         prefs.edit()
             .remove(
@@ -279,22 +348,115 @@ class LibraryStore(
                     KEY_HISTORY
                 )
             )
+            .remove(
+                scopedKey(
+                    KEY_DISMISSED_CONTINUE_WATCHING
+                )
+            )
+            .remove(
+                scopedKey(
+                    KEY_MARKED_WATCHED
+                )
+            )
             .apply()
     }
 
     @Synchronized
     fun clearContinueWatching() {
-        val completedOnly =
-            readHistory()
-                .filter {
-                    it.isCompleted ||
-                        it.positionMs <=
-                            5_000L
-                }
-
-        writeHistory(
-            completedOnly
+        writeDismissedContinueWatchingKeys(
+            dismissedContinueWatchingKeys() +
+                history()
+                    .asSequence()
+                    .filter {
+                        it.positionMs > 5_000L &&
+                            !it.isCompleted
+                    }
+                    .map {
+                        continueWatchingTitleKey(
+                            it.media
+                        )
+                    }
+                    .toSet()
         )
+    }
+
+    private fun continueWatchingTitleKey(
+        media: MediaItem,
+    ): String =
+        "${media.type}:${media.id}"
+
+    private fun dismissedContinueWatchingKeys():
+        Set<String> =
+        prefs.getStringSet(
+            scopedKey(
+                KEY_DISMISSED_CONTINUE_WATCHING
+            ),
+            emptySet(),
+        )
+            ?.toSet()
+            .orEmpty()
+
+    private fun writeDismissedContinueWatchingKeys(
+        keys: Set<String>,
+    ) {
+        prefs.edit()
+            .putStringSet(
+                scopedKey(
+                    KEY_DISMISSED_CONTINUE_WATCHING
+                ),
+                keys.toSet(),
+            )
+            .apply()
+    }
+
+    private fun markedWatchedKeys():
+        Set<String> =
+        prefs.getStringSet(
+            scopedKey(
+                KEY_MARKED_WATCHED
+            ),
+            emptySet(),
+        )
+            ?.toSet()
+            .orEmpty()
+
+    private fun writeMarkedWatchedKeys(
+        keys: Set<String>,
+    ) {
+        prefs.edit()
+            .putStringSet(
+                scopedKey(
+                    KEY_MARKED_WATCHED
+                ),
+                keys.toSet(),
+            )
+            .apply()
+    }
+
+    private fun restoreContinueWatching(
+        media: MediaItem,
+    ) {
+        val key =
+            continueWatchingTitleKey(
+                media
+            )
+        val dismissed =
+            dismissedContinueWatchingKeys()
+
+        if (key in dismissed) {
+            writeDismissedContinueWatchingKeys(
+                dismissed - key
+            )
+        }
+
+        val marked =
+            markedWatchedKeys()
+
+        if (key in marked) {
+            writeMarkedWatchedKeys(
+                marked - key
+            )
+        }
     }
 
     private fun readWatchlist():
@@ -629,6 +791,12 @@ class LibraryStore(
 
         private const val KEY_HISTORY =
             "history"
+
+        private const val KEY_DISMISSED_CONTINUE_WATCHING =
+            "dismissed_continue_watching"
+
+        private const val KEY_MARKED_WATCHED =
+            "marked_watched"
 
         private const val MAX_HISTORY =
             150

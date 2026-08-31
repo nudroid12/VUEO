@@ -213,6 +213,7 @@ import com.vueo.app.ui.components.NetworkImage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -540,6 +541,13 @@ fun VueoApp() {
         CatalogSeeAllScreen(
             row =
                 selectedCatalogRow!!,
+            libraryStore =
+                libraryStore,
+            libraryVersion =
+                libraryVersion,
+            onLibraryChanged = {
+                libraryVersion++
+            },
             onBack = {
                 selectedCatalogRow =
                     null
@@ -1386,6 +1394,18 @@ private fun HomeScreen(
         )
     }
 
+    var continueWatchingAction by remember {
+        mutableStateOf<
+            LibraryPlaybackEntry?
+        >(null)
+    }
+
+    var catalogAction by remember {
+        mutableStateOf<MediaItem?>(
+            null
+        )
+    }
+
     LaunchedEffect(
         contentVersion
     ) {
@@ -1808,6 +1828,10 @@ private fun HomeScreen(
                         continueWatching,
                     onPlaybackClick =
                         onPlaybackClick,
+                    onHold = {
+                        continueWatchingAction =
+                            it
+                    },
                 )
             }
         }
@@ -1828,6 +1852,9 @@ private fun HomeScreen(
                     forYouItems,
                 onMediaClick =
                     onMediaClick,
+                onMediaHold = {
+                    catalogAction = it
+                },
             )
         }
     }
@@ -1853,6 +1880,9 @@ private fun HomeScreen(
                     becauseYouWatchedItems,
                 onMediaClick =
                     onMediaClick,
+                onMediaHold = {
+                    catalogAction = it
+                },
             )
         }
     }
@@ -1868,11 +1898,93 @@ private fun HomeScreen(
                 row = row,
                 onMediaClick =
                     onMediaClick,
+                onMediaHold = {
+                    catalogAction = it
+                },
                 onSeeAll = {
                     onSeeAll(row)
                 },
             )
         }
+    }
+
+    continueWatchingAction?.let {
+        entry ->
+        ContinueWatchingActionsDialog(
+            entry = entry,
+            onDismiss = {
+                continueWatchingAction =
+                    null
+            },
+            onResume = {
+                continueWatchingAction =
+                    null
+                onPlaybackClick(
+                    entry
+                )
+            },
+            onViewDetails = {
+                continueWatchingAction =
+                    null
+                onMediaClick(
+                    entry.media
+                )
+            },
+            onRemove = {
+                libraryStore
+                    .removeFromContinueWatching(
+                        entry
+                    )
+                continueWatchingAction =
+                    null
+                onLibraryChanged()
+            },
+        )
+    }
+
+    catalogAction?.let {
+        item ->
+        CatalogActionsDialog(
+            item = item,
+            isWatchlisted =
+                libraryStore
+                    .isWatchlisted(
+                        item
+                    ),
+            isMarkedWatched =
+                libraryStore
+                    .isMarkedWatched(
+                        item
+                    ),
+            onDismiss = {
+                catalogAction = null
+            },
+            onViewDetails = {
+                catalogAction = null
+                onMediaClick(item)
+            },
+            onToggleWatchlist = {
+                libraryStore
+                    .toggleWatchlist(
+                        item
+                    )
+                catalogAction = null
+                onLibraryChanged()
+            },
+            onToggleWatched = {
+                libraryStore
+                    .setMarkedWatched(
+                        media = item,
+                        watched =
+                            !libraryStore
+                                .isMarkedWatched(
+                                    item
+                                ),
+                    )
+                catalogAction = null
+                onLibraryChanged()
+            },
+        )
     }
 }
 
@@ -2169,11 +2281,216 @@ private fun HomeFeaturedCarousel(
     }
 }
 
+private fun Modifier.clickOrHoldThreeSeconds(
+    onClick: () -> Unit,
+    onHold: () -> Unit,
+): Modifier =
+    pointerInput(
+        onClick,
+        onHold,
+    ) {
+        detectTapGestures(
+            onPress = {
+                var holdTriggered = false
+
+                coroutineScope {
+                    val holdJob =
+                        launch {
+                            delay(
+                                THREE_SECOND_HOLD_MS
+                            )
+                            holdTriggered = true
+                            onHold()
+                        }
+
+                    val released =
+                        tryAwaitRelease()
+
+                    holdJob.cancel()
+
+                    if (
+                        released &&
+                        !holdTriggered
+                    ) {
+                        onClick()
+                    }
+                }
+            },
+        )
+    }
+
+@Composable
+private fun ContinueWatchingActionsDialog(
+    entry: LibraryPlaybackEntry,
+    onDismiss: () -> Unit,
+    onResume: () -> Unit,
+    onViewDetails: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    MediaActionsDialog(
+        title = entry.media.name,
+        subtitle =
+            playbackEntrySubtitle(
+                entry
+            ),
+        actions =
+            listOf(
+                "Resume" to onResume,
+                "View Details" to
+                    onViewDetails,
+                "Remove from Continue Watching" to
+                    onRemove,
+            ),
+        onDismiss = onDismiss,
+    )
+}
+
+@Composable
+private fun CatalogActionsDialog(
+    item: MediaItem,
+    isWatchlisted: Boolean,
+    isMarkedWatched: Boolean,
+    onDismiss: () -> Unit,
+    onViewDetails: () -> Unit,
+    onToggleWatchlist: () -> Unit,
+    onToggleWatched: () -> Unit,
+) {
+    MediaActionsDialog(
+        title = item.name,
+        subtitle = "Catalog options",
+        actions =
+            listOf(
+                (
+                    if (isWatchlisted) {
+                        "Remove from My List"
+                    } else {
+                        "Add to My List"
+                    }
+                ) to onToggleWatchlist,
+                "View Details" to
+                    onViewDetails,
+                (
+                    if (isMarkedWatched) {
+                        "Mark as Unwatched"
+                    } else {
+                        "Mark as Watched"
+                    }
+                ) to onToggleWatched,
+            ),
+        onDismiss = onDismiss,
+    )
+}
+
+@Composable
+private fun MediaActionsDialog(
+    title: String,
+    subtitle: String?,
+    actions: List<
+        Pair<String, () -> Unit>
+    >,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest =
+            onDismiss,
+        title = {
+            Column(
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        3.dp
+                    ),
+            ) {
+                Text(
+                    text = title,
+                    color = Color.White,
+                    fontWeight =
+                        FontWeight.Black,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                )
+
+                subtitle
+                    ?.takeIf {
+                        it.isNotBlank()
+                    }
+                    ?.let {
+                        Text(
+                            text = it,
+                            color =
+                                VueoPalette.Muted,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow =
+                                TextOverflow
+                                    .Ellipsis,
+                        )
+                    }
+            }
+        },
+        text = {
+            Column(
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        6.dp
+                    ),
+            ) {
+                actions.forEach {
+                    (label, action) ->
+                    Surface(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    onClick = action
+                                ),
+                        shape =
+                            RoundedCornerShape(
+                                12.dp
+                            ),
+                        color =
+                            VueoPalette
+                                .SurfaceElevated,
+                    ) {
+                        Text(
+                            text = label,
+                            modifier =
+                                Modifier.padding(
+                                    horizontal =
+                                        15.dp,
+                                    vertical =
+                                        13.dp,
+                                ),
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight =
+                                FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss
+            ) {
+                Text("Cancel")
+            }
+        },
+    )
+}
+
+private const val THREE_SECOND_HOLD_MS =
+    3_000L
+
 @Composable
 private fun HomeContinueWatchingSection(
     entries:
         List<LibraryPlaybackEntry>,
     onPlaybackClick:
+        (LibraryPlaybackEntry) -> Unit,
+    onHold:
         (LibraryPlaybackEntry) -> Unit,
 ) {
     Column(
@@ -2211,6 +2528,9 @@ private fun HomeContinueWatchingSection(
                             entry
                         )
                     },
+                    onHold = {
+                        onHold(entry)
+                    },
                 )
             }
         }
@@ -2221,6 +2541,7 @@ private fun HomeContinueWatchingSection(
 private fun HomeContinueWatchingCard(
     entry: LibraryPlaybackEntry,
     onClick: () -> Unit,
+    onHold: () -> Unit,
 ) {
     val remainingLabel =
         homeRemainingTimeLabel(
@@ -2234,8 +2555,9 @@ private fun HomeContinueWatchingCard(
                 .aspectRatio(
                     16f / 9f
                 )
-                .clickable(
-                    onClick = onClick
+                .clickOrHoldThreeSeconds(
+                    onClick = onClick,
+                    onHold = onHold,
                 ),
         shape =
             RoundedCornerShape(
@@ -2839,6 +3161,8 @@ private fun HomePersonalizedSection(
     items: List<MediaItem>,
     onMediaClick:
         (MediaItem) -> Unit,
+    onMediaHold:
+        (MediaItem) -> Unit,
 ) {
     Column(
         verticalArrangement =
@@ -2877,6 +3201,9 @@ private fun HomePersonalizedSection(
                             item
                         )
                     },
+                    onHold = {
+                        onMediaHold(item)
+                    },
                 )
             }
         }
@@ -2887,6 +3214,8 @@ private fun HomePersonalizedSection(
 private fun CatalogSection(
     row: CatalogRow,
     onMediaClick:
+        (MediaItem) -> Unit,
+    onMediaHold:
         (MediaItem) -> Unit,
     onSeeAll: () -> Unit,
 ) {
@@ -2931,6 +3260,9 @@ private fun CatalogSection(
                             item
                         )
                     },
+                    onHold = {
+                        onMediaHold(item)
+                    },
                 )
             }
         }
@@ -2940,10 +3272,22 @@ private fun CatalogSection(
 @Composable
 private fun CatalogSeeAllScreen(
     row: CatalogRow,
+    libraryStore: LibraryStore,
+    libraryVersion: Int,
+    onLibraryChanged: () -> Unit,
     onBack: () -> Unit,
     onMediaClick:
         (MediaItem) -> Unit,
 ) {
+    var catalogAction by remember(
+        row.id,
+        libraryVersion,
+    ) {
+        mutableStateOf<MediaItem?>(
+            null
+        )
+    }
+
     Column(
         modifier =
             Modifier
@@ -3044,9 +3388,57 @@ private fun CatalogSeeAllScreen(
                             item
                         )
                     },
+                    onHold = {
+                        catalogAction = item
+                    },
                 )
             }
         }
+    }
+
+    catalogAction?.let {
+        item ->
+        CatalogActionsDialog(
+            item = item,
+            isWatchlisted =
+                libraryStore
+                    .isWatchlisted(
+                        item
+                    ),
+            isMarkedWatched =
+                libraryStore
+                    .isMarkedWatched(
+                        item
+                    ),
+            onDismiss = {
+                catalogAction = null
+            },
+            onViewDetails = {
+                catalogAction = null
+                onMediaClick(item)
+            },
+            onToggleWatchlist = {
+                libraryStore
+                    .toggleWatchlist(
+                        item
+                    )
+                catalogAction = null
+                onLibraryChanged()
+            },
+            onToggleWatched = {
+                libraryStore
+                    .setMarkedWatched(
+                        media = item,
+                        watched =
+                            !libraryStore
+                                .isMarkedWatched(
+                                    item
+                                ),
+                    )
+                catalogAction = null
+                onLibraryChanged()
+            },
+        )
     }
 }
 
@@ -3054,13 +3446,15 @@ private fun CatalogSeeAllScreen(
 private fun CatalogGridPoster(
     item: MediaItem,
     onClick: () -> Unit,
+    onHold: () -> Unit,
 ) {
     Column(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .clickable(
-                    onClick = onClick
+                .clickOrHoldThreeSeconds(
+                    onClick = onClick,
+                    onHold = onHold,
                 ),
     ) {
         Surface(
@@ -3143,14 +3537,26 @@ private fun CatalogGridPoster(
 private fun MediaPoster(
     item: MediaItem,
     onClick: () -> Unit,
+    onHold: (() -> Unit)? = null,
 ) {
     Column(
         modifier =
             Modifier
                 .width(122.dp)
-                .clickable(
-                    onClick = onClick
-                ),
+                .let {
+                    modifier ->
+                    if (onHold != null) {
+                        modifier
+                            .clickOrHoldThreeSeconds(
+                                onClick = onClick,
+                                onHold = onHold,
+                            )
+                    } else {
+                        modifier.clickable(
+                            onClick = onClick
+                        )
+                    }
+                },
     ) {
         Surface(
             shape =
