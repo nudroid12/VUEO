@@ -6,10 +6,11 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,7 +22,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -31,10 +31,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -64,6 +61,7 @@ import com.vueo.app.ui.components.NetworkImage
 internal data class PlayerEpisodeProgress(
     val fraction: Float = 0f,
     val watched: Boolean = false,
+    val positionMs: Long = 0L,
 )
 
 private val EpisodeAccent = Color(0xFFB9FF3A)
@@ -75,6 +73,8 @@ internal fun PlayerEpisodesWorkspace(
     episodes: List<EpisodeItem>,
     currentEpisode: EpisodeItem?,
     progressByEpisodeId: Map<String, PlayerEpisodeProgress>,
+    switchingEpisodeId: String?,
+    switchingFailed: Boolean,
     onEpisodeSelected: (EpisodeItem) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -94,6 +94,16 @@ internal fun PlayerEpisodesWorkspace(
     }
     val visibleEpisodes = groupedEpisodes[selectedSeason].orEmpty()
     val episodeListState = rememberLazyListState()
+    val nextEpisodeId = remember(episodes, currentEpisode?.id) {
+        val ordered = episodes.sortedWith(
+            compareBy<EpisodeItem> { it.season }
+                .thenBy { it.episode }
+        )
+        val currentIndex = ordered.indexOfFirst {
+            it.id == currentEpisode?.id
+        }
+        ordered.getOrNull(currentIndex + 1)?.id
+    }
 
     LaunchedEffect(selectedSeason, currentEpisode?.id, visibleEpisodes) {
         if (visibleEpisodes.isEmpty()) {
@@ -111,100 +121,117 @@ internal fun PlayerEpisodesWorkspace(
         ),
     ) {
         KeepEpisodesDialogImmersive()
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = .32f))
                 .background(
                     Brush.horizontalGradient(
-                        0f to Color.Black.copy(alpha = .97f),
-                        .58f to Color.Black.copy(alpha = .86f),
-                        1f to Color.Black.copy(alpha = .16f),
+                        0f to Color.Black.copy(alpha = .12f),
+                        .38f to Color.Black.copy(alpha = .64f),
+                        1f to Color.Black.copy(alpha = .97f),
                     )
                 )
-                .padding(start = 34.dp, end = 24.dp, top = 20.dp, bottom = 16.dp),
+                .clickable(onClick = onDismiss)
+                .padding(start = 24.dp, end = 40.dp, top = 20.dp, bottom = 20.dp),
         ) {
-            IconButton(
-                onClick = onDismiss,
-                modifier = Modifier.align(Alignment.TopEnd).size(38.dp),
-            ) {
-                Icon(
-                    Icons.Default.Close,
-                    contentDescription = "Close episodes",
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
-
-            Column(
+            val workspaceWidth = minOf(maxWidth * .64f, 720.dp)
+            Surface(
                 modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(.78f)
-                    .widthIn(max = 760.dp),
+                    .width(workspaceWidth)
+                    .fillMaxHeight(.90f)
+                    .align(Alignment.CenterEnd)
+                    .clickable(
+                        interactionSource = remember {
+                            MutableInteractionSource()
+                        },
+                        indication = null,
+                        onClick = {},
+                    ),
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0xF2181A1C),
+                border = BorderStroke(
+                    1.dp,
+                    Color.White.copy(alpha = .09f),
+                ),
             ) {
-                Text(
-                    "Episodes",
-                    color = Color.White,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    seriesTitle,
-                    color = Color.White.copy(alpha = .52f),
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(11.dp))
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "Episodes",
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "$seriesTitle • ${seasonLabel(selectedSeason)} • ${visibleEpisodes.size} episodes",
+                        color = Color.White.copy(alpha = .52f),
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(11.dp))
 
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    contentPadding = PaddingValues(end = 10.dp),
-                ) {
-                    items(seasons, key = { it }) { season ->
-                        SeasonChip(
-                            season = season,
-                            selected = season == selectedSeason,
-                            onClick = { selectedSeason = season },
-                        )
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-
-                if (visibleEpisodes.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        contentPadding = PaddingValues(end = 10.dp),
                     ) {
-                        Text(
-                            "No episodes available for this season.",
-                            color = Color.White.copy(alpha = .52f),
-                            fontSize = 11.sp,
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        state = episodeListState,
-                        verticalArrangement = Arrangement.spacedBy(7.dp),
-                        contentPadding = PaddingValues(bottom = 8.dp),
-                    ) {
-                        itemsIndexed(
-                            items = visibleEpisodes,
-                            key = { index, candidate ->
-                                "${candidate.season}:${candidate.episode}:${candidate.id}:$index"
-                            },
-                        ) { _, candidate ->
-                            EpisodeWorkspaceRow(
-                                episode = candidate,
-                                current = candidate.id == currentEpisode?.id,
-                                progress = progressByEpisodeId[candidate.id]
-                                    ?: PlayerEpisodeProgress(),
-                                onClick = {
-                                    if (candidate.id != currentEpisode?.id) {
-                                        onEpisodeSelected(candidate)
-                                    }
-                                },
+                        items(seasons, key = { it }) { season ->
+                            SeasonChip(
+                                season = season,
+                                selected = season == selectedSeason,
+                                onClick = { selectedSeason = season },
                             )
+                        }
+                    }
+                    Spacer(Modifier.height(9.dp))
+
+                    if (visibleEpisodes.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "No episodes available for this season.",
+                                color = Color.White.copy(alpha = .52f),
+                                fontSize = 11.sp,
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            state = episodeListState,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            contentPadding = PaddingValues(bottom = 8.dp),
+                        ) {
+                            itemsIndexed(
+                                items = visibleEpisodes,
+                                key = { index, candidate ->
+                                    "${candidate.season}:${candidate.episode}:${candidate.id}:$index"
+                                },
+                            ) { _, candidate ->
+                                val switching =
+                                    candidate.id == switchingEpisodeId
+                                EpisodeWorkspaceRow(
+                                    episode = candidate,
+                                    current =
+                                        candidate.id == currentEpisode?.id,
+                                    next = candidate.id == nextEpisodeId,
+                                    loading =
+                                        switching && !switchingFailed,
+                                    failed =
+                                        switching && switchingFailed,
+                                    progress =
+                                        progressByEpisodeId[candidate.id]
+                                            ?: PlayerEpisodeProgress(),
+                                    onClick = {
+                                        if (
+                                            (!switching || switchingFailed) &&
+                                            candidate.id != currentEpisode?.id
+                                        ) {
+                                            onEpisodeSelected(candidate)
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -224,15 +251,15 @@ private fun SeasonChip(
             .clip(RoundedCornerShape(20.dp))
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
-        color = if (selected) Color.White else Color.White.copy(alpha = .08f),
+        color = if (selected) EpisodeAccent else Color.White.copy(alpha = .08f),
         border = BorderStroke(
             1.dp,
             if (selected) Color.Transparent else Color.White.copy(alpha = .10f),
         ),
     ) {
         Text(
-            if (season == 0) "Specials" else "Season $season",
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+            seasonLabel(season),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             color = if (selected) Color(0xFF202124) else Color.White.copy(alpha = .72f),
             fontSize = 10.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
@@ -244,33 +271,40 @@ private fun SeasonChip(
 private fun EpisodeWorkspaceRow(
     episode: EpisodeItem,
     current: Boolean,
+    next: Boolean,
+    loading: Boolean,
+    failed: Boolean,
     progress: PlayerEpisodeProgress,
     onClick: () -> Unit,
 ) {
+    val highlighted = current || loading || failed
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clip(EpisodeCardShape)
-            .clickable(enabled = !current, onClick = onClick),
+            .clickable(
+                enabled = !current && !loading,
+                onClick = onClick,
+            ),
         shape = EpisodeCardShape,
-        color = if (current) EpisodeAccent.copy(alpha = .10f)
+        color = if (highlighted) EpisodeAccent.copy(alpha = .10f)
         else Color.White.copy(alpha = .055f),
         border = BorderStroke(
-            if (current) 1.5.dp else 1.dp,
-            if (current) EpisodeAccent.copy(alpha = .72f)
+            if (highlighted) 1.5.dp else 1.dp,
+            if (highlighted) EpisodeAccent.copy(alpha = .72f)
             else Color.White.copy(alpha = .08f),
         ),
     ) {
         Row(
-            modifier = Modifier.padding(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(11.dp),
+            modifier = Modifier.padding(7.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .width(132.dp)
-                    .height(74.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .width(112.dp)
+                    .height(63.dp)
+                    .clip(RoundedCornerShape(9.dp))
                     .background(Color.White.copy(alpha = .06f)),
             ) {
                 NetworkImage(
@@ -297,13 +331,18 @@ private fun EpisodeWorkspaceRow(
                     }
                 }
                 Surface(
-                    modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(5.dp),
                     shape = RoundedCornerShape(6.dp),
                     color = Color.Black.copy(alpha = .72f),
                 ) {
                     Text(
                         "S${episode.season} E${episode.episode}",
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                        modifier = Modifier.padding(
+                            horizontal = 5.dp,
+                            vertical = 2.dp,
+                        ),
                         color = Color.White,
                         fontSize = 8.sp,
                         fontWeight = FontWeight.Bold,
@@ -326,8 +365,17 @@ private fun EpisodeWorkspaceRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                     when {
+                        failed -> EpisodeStatus(
+                            "No source",
+                            Color(0xFFFF8A80),
+                        )
+                        loading -> EpisodeStatus("Loading", EpisodeAccent)
                         current -> EpisodeStatus("Playing", EpisodeAccent)
-                        progress.watched -> EpisodeStatus("Watched", Color.White.copy(alpha = .70f))
+                        progress.watched -> EpisodeStatus(
+                            "Watched",
+                            Color.White.copy(alpha = .70f),
+                        )
+                        next -> EpisodeStatus("Next", EpisodeAccent)
                     }
                 }
                 episode.overview
@@ -338,25 +386,27 @@ private fun EpisodeWorkspaceRow(
                             color = Color.White.copy(alpha = .48f),
                             fontSize = 9.sp,
                             lineHeight = 12.sp,
-                            maxLines = 2,
+                            maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
                 if (progress.fraction > 0f && !progress.watched && !current) {
                     Text(
-                        "${(progress.fraction * 100).toInt().coerceIn(1, 99)}% watched",
+                        resumeEpisodeLabel(progress),
                         color = EpisodeAccent.copy(alpha = .78f),
                         fontSize = 8.sp,
                     )
                 }
             }
 
-            Icon(
-                if (progress.watched) Icons.Default.Check else Icons.Default.PlayArrow,
-                contentDescription = null,
-                tint = if (current) EpisodeAccent else Color.White.copy(alpha = .48f),
-                modifier = Modifier.size(19.dp),
-            )
+            if (progress.watched) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = "Watched",
+                    tint = Color.White.copy(alpha = .60f),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
     }
 }
@@ -377,6 +427,30 @@ private fun EpisodeStatus(
             fontSize = 8.sp,
             fontWeight = FontWeight.Bold,
         )
+    }
+}
+
+private fun seasonLabel(season: Int): String =
+    if (season == 0) "Specials" else "Season $season"
+
+private fun resumeEpisodeLabel(
+    progress: PlayerEpisodeProgress,
+): String =
+    if (progress.positionMs > 0L) {
+        "Resume ${formatEpisodeTime(progress.positionMs)}"
+    } else {
+        "${(progress.fraction * 100).toInt().coerceIn(1, 99)}% watched"
+    }
+
+private fun formatEpisodeTime(positionMs: Long): String {
+    val totalSeconds = (positionMs / 1_000L).coerceAtLeast(0L)
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) {
+        "%d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "%d:%02d".format(minutes, seconds)
     }
 }
 

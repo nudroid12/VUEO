@@ -7750,6 +7750,12 @@ private fun MediaDetailsScreen(
     var selectedPlaybackStartPositionMs by remember {
         mutableStateOf(0L)
     }
+    var pendingPlaybackEpisode by remember {
+        mutableStateOf<EpisodeItem?>(null)
+    }
+    var pendingPlaybackFailed by remember {
+        mutableStateOf(false)
+    }
 
     LaunchedEffect(
         initialItem.id,
@@ -8049,6 +8055,7 @@ private fun MediaDetailsScreen(
     fun startSourceDiscovery(
         targetEpisode: EpisodeItem?,
         startPositionMs: Long = 0L,
+        autoPlayFirst: Boolean = false,
     ) {
     selectedPlaybackStartPositionMs =
         startPositionMs
@@ -8076,6 +8083,52 @@ private fun MediaDetailsScreen(
     val cached =
         SourceDiscoveryCache
             .get(cacheKey)
+
+    var autoPlayCommitted = false
+    var subtitlesResolved = false
+    var sourceDiscoveryCompleted = false
+    var latestAutoPlayCandidates =
+        cached?.streams
+            .orEmpty()
+
+    fun commitAutoPlayIfReady(
+        candidates: List<StreamSource>,
+        allowLowQualityFallback: Boolean = false,
+    ) {
+        latestAutoPlayCandidates = candidates
+
+        if (
+            !autoPlayFirst ||
+            autoPlayCommitted ||
+            !subtitlesResolved
+        ) {
+            return
+        }
+
+        val directCandidates =
+            candidates.filter { it.isDirectPlayable }
+        val candidate =
+            directCandidates.firstOrNull {
+                PlayerSourcePolicy
+                    .assess(
+                        source = it,
+                        preferredQuality =
+                            preferredSourceQuality,
+                    )
+                    .quality
+                    .automaticRecoveryEligible
+            } ?: directCandidates
+                .firstOrNull()
+                ?.takeIf { allowLowQualityFallback }
+            ?: return
+
+        autoPlayCommitted = true
+        selectedSeason = targetEpisode?.season
+            ?: selectedSeason
+        selectedEpisode = targetEpisode
+        selectedPlaybackVideoId = targetVideoId
+        selectedPlaybackSource = candidate
+    }
 
     sourcePickerStreams =
         cached?.streams
@@ -8219,6 +8272,8 @@ private fun MediaDetailsScreen(
                 sourcePickerStreams =
                     display
 
+                commitAutoPlayIfReady(display)
+
                 sourcePickerRawCount =
                     maxOf(
                         cached?.rawCount
@@ -8248,6 +8303,12 @@ private fun MediaDetailsScreen(
             launch {
                 sourcePickerSubtitles =
                     subtitlesDeferred.await()
+                subtitlesResolved = true
+                commitAutoPlayIfReady(
+                    candidates = latestAutoPlayCandidates,
+                    allowLowQualityFallback =
+                        sourceDiscoveryCompleted,
+                )
             }
 
             val addonDeferred =
@@ -8425,6 +8486,12 @@ private fun MediaDetailsScreen(
             sourcePickerStreams =
                 finalStreams
 
+            sourceDiscoveryCompleted = true
+            commitAutoPlayIfReady(
+                candidates = finalStreams,
+                allowLowQualityFallback = true,
+            )
+
             sourcePickerRawCount =
                 maxOf(
                     cached?.rawCount
@@ -8537,6 +8604,25 @@ private fun MediaDetailsScreen(
                 sourcePickerSubtitles,
             initialPositionMs =
                 selectedPlaybackStartPositionMs,
+            episodeSwitchingTo =
+                pendingPlaybackEpisode,
+            episodeSwitchFailed =
+                pendingPlaybackFailed ||
+                    (
+                        pendingPlaybackEpisode != null &&
+                            !sourcePickerSearching &&
+                            sourcePickerStreams != null &&
+                            sourcePickerStreams
+                                .orEmpty()
+                                .none { it.isDirectPlayable }
+                    ),
+            onEpisodeSwitchCompleted = {
+                pendingPlaybackEpisode = null
+                pendingPlaybackFailed = false
+            },
+            onEpisodeSwitchFailed = {
+                pendingPlaybackFailed = true
+            },
             onLibraryChanged = {
                 refreshDetailPlaybackEntries()
                 onLibraryChanged()
@@ -8550,32 +8636,29 @@ private fun MediaDetailsScreen(
                     nextSource
             },
             onNextEpisode = { next ->
-                selectedSeason =
-                    next.season
-                selectedEpisode =
-                    next
-                selectedPlaybackSource =
-                    null
-                selectedPlaybackVideoId =
-                    null
-                selectedPlaybackStartPositionMs =
-                    0L
-                startSourceDiscovery(next)
+                pendingPlaybackEpisode = next
+                pendingPlaybackFailed = false
+                startSourceDiscovery(
+                    targetEpisode = next,
+                    autoPlayFirst = true,
+                )
             },
             onEpisodeSelected = { selected ->
-                selectedSeason =
-                    selected.season
-                selectedEpisode =
-                    selected
-                selectedPlaybackSource =
-                    null
-                selectedPlaybackVideoId =
-                    null
-                selectedPlaybackStartPositionMs =
-                    0L
-                startSourceDiscovery(selected)
+                pendingPlaybackEpisode = selected
+                pendingPlaybackFailed = false
+                startSourceDiscovery(
+                    targetEpisode = selected,
+                    autoPlayFirst = true,
+                )
             },
             onBack = {
+                sourceDiscoveryJob?.cancel()
+                sourceDiscoveryJob = null
+                sourcePickerSearching = false
+                sourcePickerStreams = null
+                loadingStreams = false
+                pendingPlaybackEpisode = null
+                pendingPlaybackFailed = false
                 selectedPlaybackSource = null
                 selectedPlaybackVideoId = null
                 selectedPlaybackStartPositionMs =
@@ -11676,6 +11759,10 @@ private fun PlayerScreen(
     sourceProviderOrder: List<String>,
     subtitles: List<SubtitleTrack>,
     initialPositionMs: Long,
+    episodeSwitchingTo: EpisodeItem?,
+    episodeSwitchFailed: Boolean,
+    onEpisodeSwitchCompleted: () -> Unit,
+    onEpisodeSwitchFailed: () -> Unit,
     onLibraryChanged: () -> Unit,
     onSwitchSource: (StreamSource, Long) -> Unit,
     onNextEpisode: (EpisodeItem) -> Unit,
@@ -11684,6 +11771,12 @@ private fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
+    val latestEpisodeSwitchingTo =
+        rememberUpdatedState(episodeSwitchingTo)
+    val latestOnEpisodeSwitchCompleted =
+        rememberUpdatedState(onEpisodeSwitchCompleted)
+    val latestOnEpisodeSwitchFailed =
+        rememberUpdatedState(onEpisodeSwitchFailed)
     val audioManager = remember {
         context.getSystemService(
             Context.AUDIO_SERVICE
@@ -12196,6 +12289,15 @@ private fun PlayerScreen(
             playbackPhase = PlayerPlaybackPhase.FAILED
             playbackError = message
             controlsVisible = true
+            if (
+                latestEpisodeSwitchingTo
+                    .value
+                    ?.id == episode?.id
+            ) {
+                latestOnEpisodeSwitchFailed
+                    .value
+                    .invoke()
+            }
         }
     }
 
@@ -12546,6 +12648,16 @@ private fun PlayerScreen(
                     playbackPhase = PlayerPlaybackPhase.READY
                     playbackError = null
                     recoveryInProgress = false
+                    if (
+                        latestEpisodeSwitchingTo
+                            .value
+                            ?.id == episode?.id
+                    ) {
+                        showEpisodeDialog = false
+                        latestOnEpisodeSwitchCompleted
+                            .value
+                            .invoke()
+                    }
                 }
             }
 
@@ -13082,6 +13194,7 @@ private fun PlayerScreen(
             candidate.id to PlayerEpisodeProgress(
                 fraction = fraction,
                 watched = stored?.isCompleted == true,
+                positionMs = candidatePositionMs,
             )
         }
 
@@ -13090,9 +13203,12 @@ private fun PlayerScreen(
             episodes = episodes,
             currentEpisode = episode,
             progressByEpisodeId = progressByEpisodeId,
+            switchingEpisodeId =
+                episodeSwitchingTo?.id,
+            switchingFailed =
+                episodeSwitchFailed,
             onEpisodeSelected = { candidate ->
                 savePosition()
-                showEpisodeDialog = false
                 nextEpisodeCountdown = null
                 showNextEpisodeCard = false
                 nextEpisodeCardDismissed = true
