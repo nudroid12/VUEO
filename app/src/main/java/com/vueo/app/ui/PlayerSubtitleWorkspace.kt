@@ -111,11 +111,21 @@ internal fun PlayerSubtitleWorkspace(
     val selectedTrack = tracks.firstOrNull { it.selected }
     val selectedLanguageCode = selectedTrack?.language
         ?.let(::canonicalSubtitleLanguage)
-    var activeLanguageCode by remember {
-        mutableStateOf<String?>(null)
+    val hasSelectedSubtitle =
+        !subtitlesDisabled && selectedLanguageCode != null
+    var activeLanguageCode by remember(
+        selectedLanguageCode,
+        subtitlesDisabled,
+    ) {
+        mutableStateOf(
+            selectedLanguageCode.takeIf { hasSelectedSubtitle }
+        )
     }
-    var styleOpen by remember {
-        mutableStateOf(false)
+    var styleOpen by remember(
+        selectedLanguageCode,
+        subtitlesDisabled,
+    ) {
+        mutableStateOf(hasSelectedSubtitle)
     }
     val visibleTracks = groups
         .firstOrNull { it.code == activeLanguageCode }
@@ -170,7 +180,7 @@ internal fun PlayerSubtitleWorkspace(
                 ) {
                     SubtitleSectionCard(
                         title = "Languages",
-                        width = 168.dp,
+                        width = 190.dp,
                     ) {
                         LazyColumn(
                             verticalArrangement =
@@ -208,7 +218,10 @@ internal fun PlayerSubtitleWorkspace(
                                                 ),
                                     onClick = {
                                         activeLanguageCode = group.code
-                                        styleOpen = false
+                                        styleOpen =
+                                            !subtitlesDisabled &&
+                                                group.code ==
+                                                selectedLanguageCode
                                     },
                                 )
                             }
@@ -217,13 +230,13 @@ internal fun PlayerSubtitleWorkspace(
 
                     Box(
                         modifier = Modifier
-                            .width(276.dp)
+                            .width(260.dp)
                             .fillMaxHeight(),
                     ) {
                         if (activeLanguageCode != null) {
                             SubtitleSectionCard(
                                 title = "Subtitles",
-                                width = 276.dp,
+                                width = 260.dp,
                             ) {
                                 when {
                                     visibleTracks.isNotEmpty() -> {
@@ -262,7 +275,7 @@ internal fun PlayerSubtitleWorkspace(
 
                     Box(
                         modifier = Modifier
-                            .width(246.dp)
+                            .width(220.dp)
                             .fillMaxHeight(),
                     ) {
                         if (styleOpen && !subtitlesDisabled) {
@@ -457,7 +470,7 @@ private fun SubtitleStyleCard(
 ) {
     Surface(
         modifier = Modifier
-            .width(246.dp)
+            .width(220.dp)
             .fillMaxHeight()
             .clickable(
                 interactionSource = remember {
@@ -473,13 +486,13 @@ private fun SubtitleStyleCard(
             Color.White.copy(alpha = .09f),
         ),
     ) {
-        Column(Modifier.padding(13.dp)) {
+        Column(Modifier.padding(11.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "Style",
                     modifier = Modifier.weight(1f),
                     color = Color.White,
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
                 StyleModeButton(
@@ -488,7 +501,7 @@ private fun SubtitleStyleCard(
                     onClick = onOpenStyle,
                 )
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             SubtitleStyleControls(
                 subtitleDelayMs = subtitleDelayMs,
                 style = style,
@@ -650,7 +663,7 @@ private fun SubtitleStyleControls(
     onStyleChange: (PlayerSubtitleStyleState) -> Unit,
 ) {
     LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(11.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
             StyleStepper(
@@ -872,21 +885,21 @@ private fun StyleStepper(
     onIncrease: () -> Unit,
 ) {
     Column {
-        Text(label, color = Color.White.copy(alpha = .82f), fontSize = 10.sp)
-        Spacer(Modifier.height(5.dp))
+        Text(label, color = Color.White.copy(alpha = .78f), fontSize = 9.sp)
+        Spacer(Modifier.height(3.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             StepButton("−", onDecrease)
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(38.dp)
-                    .background(Color.White.copy(alpha = .10f), RoundedCornerShape(11.dp)),
+                    .height(32.dp)
+                    .background(Color.White.copy(alpha = .10f), RoundedCornerShape(9.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(value, color = Color.White, fontSize = 11.sp)
+                Text(value, color = Color.White, fontSize = 10.sp)
             }
             StepButton("+", onIncrease)
         }
@@ -897,20 +910,20 @@ private fun StyleStepper(
 private fun StepButton(label: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(38.dp)
-            .background(Color.White.copy(alpha = .10f), RoundedCornerShape(11.dp))
+            .size(32.dp)
+            .background(Color.White.copy(alpha = .10f), RoundedCornerShape(9.dp))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = Color.White, fontSize = 16.sp)
+        Text(label, color = Color.White, fontSize = 14.sp)
     }
 }
 
 @Composable
 private fun StyleToggle(label: String, enabled: Boolean, onClick: () -> Unit) {
     Column {
-        Text(label, color = Color.White.copy(alpha = .82f), fontSize = 10.sp)
-        Spacer(Modifier.height(5.dp))
+        Text(label, color = Color.White.copy(alpha = .78f), fontSize = 9.sp)
+        Spacer(Modifier.height(3.dp))
         Surface(
             modifier = Modifier.clickable(onClick = onClick),
             color = if (enabled) SubtitleAccent.copy(alpha = .16f) else Color.White.copy(alpha = .10f),
@@ -918,9 +931,9 @@ private fun StyleToggle(label: String, enabled: Boolean, onClick: () -> Unit) {
         ) {
             Text(
                 if (enabled) "On" else "Off",
-                modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
                 color = if (enabled) SubtitleAccent else Color.White,
-                fontSize = 10.sp,
+                fontSize = 9.sp,
                 fontWeight = FontWeight.Medium,
             )
         }
@@ -935,15 +948,15 @@ private fun StyleColorPicker(
     onSelect: (Int) -> Unit,
 ) {
     Column {
-        Text(label, color = Color.White.copy(alpha = .82f), fontSize = 10.sp)
-        Spacer(Modifier.height(6.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(label, color = Color.White.copy(alpha = .78f), fontSize = 9.sp)
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             colours.forEach { colour ->
                 val isSelected =
                     (selected and 0x00FFFFFF) == (colour and 0x00FFFFFF)
                 Box(
                     modifier = Modifier
-                        .size(25.dp)
+                        .size(22.dp)
                         .border(
                             if (isSelected) 2.dp else 1.dp,
                             if (isSelected) SubtitleAccent else Color.White.copy(alpha = .55f),
