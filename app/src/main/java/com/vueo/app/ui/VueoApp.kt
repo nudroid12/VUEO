@@ -94,7 +94,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -107,7 +106,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.DisposableEffect
@@ -140,6 +138,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
@@ -2432,7 +2432,6 @@ private fun CatalogActionsDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MediaActionsSheet(
     title: String,
@@ -2440,126 +2439,204 @@ private fun MediaActionsSheet(
     actions: List<MediaMenuAction>,
     onDismiss: () -> Unit,
 ) {
-    val sheetState =
-        rememberModalBottomSheetState(
-            skipPartiallyExpanded = true
-        )
-
-    ModalBottomSheet(
+    Popup(
+        alignment =
+            Alignment.Center,
         onDismissRequest =
             onDismiss,
-        sheetState = sheetState,
-        containerColor =
-            VueoPalette.Surface,
-        contentColor = Color.White,
-        shape =
-            RoundedCornerShape(
-                topStart = 26.dp,
-                topEnd = 26.dp,
+        properties =
+            PopupProperties(
+                focusable = true,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = true,
             ),
     ) {
-        Column(
+        Surface(
             modifier =
                 Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(
-                        start = 20.dp,
-                        end = 20.dp,
-                        bottom = 18.dp,
+                    .widthIn(
+                        min = 264.dp,
+                        max = 320.dp,
                     ),
-            verticalArrangement =
-                Arrangement.spacedBy(
-                    4.dp
+            shape =
+                RoundedCornerShape(
+                    22.dp
                 ),
-        ) {
-            Text(
-                text = title,
-                color = Color.White,
-                fontWeight =
-                    FontWeight.Black,
-                fontSize = 20.sp,
-                maxLines = 1,
-                overflow =
-                    TextOverflow.Ellipsis,
-            )
-
-            subtitle
-                ?.takeIf {
-                    it.isNotBlank()
-                }
-                ?.let {
-                    Text(
-                        text = it,
+            color =
+                Color(
+                    0xF5141619
+                ),
+            border =
+                androidx.compose
+                    .foundation
+                    .BorderStroke(
+                        width = 1.dp,
                         color =
-                            VueoPalette.Muted,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow =
-                            TextOverflow.Ellipsis,
-                    )
-                }
-
-            Spacer(
-                Modifier.height(8.dp)
-            )
-
-            actions.forEach {
-                action ->
+                            Color.White
+                                .copy(
+                                    alpha = .10f
+                                ),
+                    ),
+            shadowElevation =
+                24.dp,
+        ) {
+            Column(
+                modifier =
+                    Modifier.padding(
+                        13.dp
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        3.dp
+                    ),
+            ) {
                 Row(
                     modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(
-                                RoundedCornerShape(
-                                    13.dp
-                                )
-                            )
-                            .clickable(
-                                onClick =
-                                    action.onClick
-                            )
-                            .padding(
-                                horizontal =
-                                    10.dp,
-                                vertical = 9.dp,
-                            ),
-                    horizontalArrangement =
-                        Arrangement.spacedBy(
-                            12.dp
-                        ),
+                        Modifier.fillMaxWidth(),
                     verticalAlignment =
                         Alignment.CenterVertically,
                 ) {
-                    Surface(
+                    Column(
                         modifier =
-                            Modifier.size(36.dp),
-                        shape = CircleShape,
-                        color =
-                            if (
-                                action.destructive
-                            ) {
-                                MaterialTheme
-                                    .colorScheme
-                                    .error
-                                    .copy(
-                                        alpha = .14f
-                                    )
-                            } else {
-                                VueoPalette
-                                    .SurfaceElevated
-                            },
+                            Modifier.weight(
+                                1f
+                            ),
+                        verticalArrangement =
+                            Arrangement.spacedBy(
+                                2.dp
+                            ),
                     ) {
-                        Icon(
-                            imageVector =
-                                action.icon,
-                            contentDescription =
-                                null,
-                            modifier =
-                                Modifier.padding(
-                                    8.dp
+                        Text(
+                            text = title,
+                            color =
+                                Color.White,
+                            fontSize =
+                                15.sp,
+                            fontWeight =
+                                FontWeight.Black,
+                            maxLines = 1,
+                            overflow =
+                                TextOverflow.Ellipsis,
+                        )
+
+                        subtitle
+                            ?.takeIf {
+                                it.isNotBlank()
+                            }
+                            ?.let {
+                                Text(
+                                    text = it,
+                                    color =
+                                        VueoPalette.Muted,
+                                    fontSize =
+                                        10.sp,
+                                    maxLines = 1,
+                                    overflow =
+                                        TextOverflow.Ellipsis,
+                                )
+                            }
+                    }
+
+                    Box(
+                        modifier =
+                            Modifier
+                                .width(
+                                    18.dp
+                                )
+                                .height(
+                                    3.dp
+                                )
+                                .clip(
+                                    CircleShape
+                                )
+                                .background(
+                                    VueoPalette.Accent
+                                        .copy(
+                                            alpha = .80f
+                                        )
                                 ),
-                            tint =
+                    )
+                }
+
+                Spacer(
+                    Modifier.height(
+                        4.dp
+                    )
+                )
+
+                actions.forEach {
+                    action ->
+
+                    val tint =
+                        if (
+                            action.destructive
+                        ) {
+                            MaterialTheme
+                                .colorScheme
+                                .error
+                        } else {
+                            VueoPalette.Accent
+                        }
+
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(
+                                    RoundedCornerShape(
+                                        14.dp
+                                    )
+                                )
+                                .clickable(
+                                    onClick =
+                                        action.onClick
+                                )
+                                .padding(
+                                    horizontal =
+                                        7.dp,
+                                    vertical =
+                                        7.dp,
+                                ),
+                        horizontalArrangement =
+                            Arrangement.spacedBy(
+                                10.dp
+                            ),
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                    ) {
+                        Surface(
+                            modifier =
+                                Modifier.size(
+                                    34.dp
+                                ),
+                            shape =
+                                CircleShape,
+                            color =
+                                tint.copy(
+                                    alpha = .12f
+                                ),
+                        ) {
+                            Icon(
+                                imageVector =
+                                    action.icon,
+                                contentDescription =
+                                    null,
+                                modifier =
+                                    Modifier.padding(
+                                        8.dp
+                                    ),
+                                tint = tint,
+                            )
+                        }
+
+                        Text(
+                            text =
+                                action.label,
+                            modifier =
+                                Modifier.weight(
+                                    1f
+                                ),
+                            color =
                                 if (
                                     action.destructive
                                 ) {
@@ -2567,33 +2644,35 @@ private fun MediaActionsSheet(
                                         .colorScheme
                                         .error
                                 } else {
-                                    VueoPalette
-                                        .Accent
+                                    Color.White
+                                        .copy(
+                                            alpha = .94f
+                                        )
                                 },
+                            fontSize =
+                                if (
+                                    action.destructive
+                                ) {
+                                    12.sp
+                                } else {
+                                    13.sp
+                                },
+                            lineHeight =
+                                16.sp,
+                            fontWeight =
+                                FontWeight.SemiBold,
+                            maxLines =
+                                if (
+                                    action.destructive
+                                ) {
+                                    2
+                                } else {
+                                    1
+                                },
+                            overflow =
+                                TextOverflow.Ellipsis,
                         )
                     }
-
-                    Text(
-                        text = action.label,
-                        modifier =
-                            Modifier.weight(1f),
-                        color =
-                            if (
-                                action.destructive
-                            ) {
-                                MaterialTheme
-                                    .colorScheme
-                                    .error
-                            } else {
-                                Color.White
-                            },
-                        fontSize = 14.sp,
-                        fontWeight =
-                            FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow =
-                            TextOverflow.Ellipsis,
-                    )
                 }
             }
         }
@@ -10124,22 +10203,6 @@ private fun MediaDetailsScreen(
                             )
                         }
 
-                        Text(
-                            text =
-                                moreLikeThisAttribution(
-                                    usesVueo =
-                                        relatedUsesVueo,
-                                    usesTmdb =
-                                        relatedUsesTmdb,
-                                ),
-                            color =
-                                VueoPalette.Muted
-                                    .copy(
-                                        alpha = .72f
-                                    ),
-                            fontSize = 8.sp,
-                            maxLines = 1,
-                        )
                     }
 
                     LazyRow(
@@ -10168,6 +10231,41 @@ private fun MediaDetailsScreen(
                                 },
                             )
                         }
+                    }
+
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    horizontal =
+                                        18.dp
+                                ),
+                        horizontalArrangement =
+                            Arrangement.End,
+                    ) {
+                        Text(
+                            text =
+                                moreLikeThisAttribution(
+                                    usesVueo =
+                                        relatedUsesVueo,
+                                    usesTmdb =
+                                        relatedUsesTmdb,
+                                ),
+                            modifier =
+                                Modifier
+                                    // vueo-more-like-this-attribution-bottom
+                                    .padding(
+                                        top = 1.dp
+                                    ),
+                            color =
+                                VueoPalette.Muted
+                                    .copy(
+                                        alpha = .68f
+                                    ),
+                            fontSize = 8.sp,
+                            maxLines = 1,
+                        )
                     }
                 }
             }
