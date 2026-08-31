@@ -33,7 +33,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -171,7 +170,7 @@ internal fun PlayerSubtitleWorkspace(
                 ) {
                     SubtitleSectionCard(
                         title = "Languages",
-                        width = 152.dp,
+                        width = 168.dp,
                     ) {
                         LazyColumn(
                             verticalArrangement =
@@ -218,13 +217,13 @@ internal fun PlayerSubtitleWorkspace(
 
                     Box(
                         modifier = Modifier
-                            .width(292.dp)
+                            .width(276.dp)
                             .fillMaxHeight(),
                     ) {
                         if (activeLanguageCode != null) {
                             SubtitleSectionCard(
                                 title = "Subtitles",
-                                width = 292.dp,
+                                width = 276.dp,
                             ) {
                                 when {
                                     visibleTracks.isNotEmpty() -> {
@@ -520,7 +519,7 @@ internal fun PlayerSubtitleStyleOverlay(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .clickable(onClick = {}),
+                .clickable(onClick = onDismiss),
         ) {
             val density = LocalDensity.current
             val outerPaddingPx = with(density) { 18.dp.roundToPx() }
@@ -620,10 +619,13 @@ internal fun PlayerSubtitleStyleOverlay(
                                     fontSize = 9.sp,
                                 )
                             }
-                            StyleModeButton(
-                                label = "Dock",
-                                icon = Icons.Default.PushPin,
-                                onClick = onDismiss,
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(
+                                        SubtitleAccent,
+                                        CircleShape,
+                                    ),
                             )
                         }
                         Spacer(Modifier.height(12.dp))
@@ -650,9 +652,6 @@ private fun SubtitleStyleControls(
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(11.dp),
     ) {
-        item {
-            SubtitleStylePreview(style)
-        }
         item {
             StyleStepper(
                 label = "Sync",
@@ -814,32 +813,6 @@ private fun SubtitleStyleControls(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun SubtitleStylePreview(
-    style: PlayerSubtitleStyleState,
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .background(
-                Color.Black.copy(alpha = .48f),
-                RoundedCornerShape(11.dp),
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = "Subtitle preview",
-            color = Color(style.textColor),
-            fontSize = style.fontSizeSp.coerceAtMost(22).sp,
-            fontWeight =
-                if (style.bold) FontWeight.Bold
-                else FontWeight.Normal,
-            maxLines = 1,
-        )
     }
 }
 

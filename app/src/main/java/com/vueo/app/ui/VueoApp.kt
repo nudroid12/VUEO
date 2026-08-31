@@ -12946,6 +12946,7 @@ private fun PlayerScreen(
                 )
             },
             onOpenStyle = {
+                showSubtitleDialog = false
                 showSubtitleStyleOverlay = true
                 controlsVisible = false
             },
