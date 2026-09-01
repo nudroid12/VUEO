@@ -9391,9 +9391,6 @@ private fun MediaDetailsScreen(
     var relatedUsesTmdb by remember {
         mutableStateOf(false)
     }
-    var relatedUsesVueo by remember {
-        mutableStateOf(false)
-    }
     var ratings by remember {
         mutableStateOf<
             List<MediaRating>
@@ -9543,7 +9540,6 @@ private fun MediaDetailsScreen(
         loadingMeta = true
         relatedItems = emptyList()
         relatedUsesTmdb = false
-        relatedUsesVueo = false
         ratings = emptyList()
 
         val tmdbKey =
@@ -9725,8 +9721,6 @@ private fun MediaDetailsScreen(
 
         relatedItems =
             localRelated
-        relatedUsesVueo =
-            localRelated.isNotEmpty()
 
         loadingMeta = false
 
@@ -10537,6 +10531,7 @@ private fun MediaDetailsScreen(
         modifier =
             Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .background(
                     VueoPalette.Background
                 ),
@@ -10604,7 +10599,6 @@ private fun MediaDetailsScreen(
                             .align(
                                 Alignment.TopStart
                             )
-                            .statusBarsPadding()
                             .padding(
                                 start = 16.dp,
                                 top = 8.dp,
@@ -11046,6 +11040,14 @@ private fun MediaDetailsScreen(
                 }
             }
 
+        if (item.cast.isNotEmpty()) {
+            item {
+                MediaCastSection(
+                    cast = item.cast
+                )
+            }
+        }
+
         if (
             item.type == "series" &&
             item.episodes.isNotEmpty()
@@ -11156,14 +11158,6 @@ private fun MediaDetailsScreen(
                         fontSize = 12.sp,
                     )
                 }
-            }
-        }
-
-        if (item.cast.isNotEmpty()) {
-            item {
-                MediaCastSection(
-                    cast = item.cast
-                )
             }
         }
 
@@ -11371,8 +11365,6 @@ private fun MediaDetailsScreen(
                         Text(
                             text =
                                 moreLikeThisAttribution(
-                                    usesVueo =
-                                        relatedUsesVueo,
                                     usesTmdb =
                                         relatedUsesTmdb,
                                 ),
@@ -12329,18 +12321,12 @@ private fun detailsPlaybackEntry(
     }
 
 private fun moreLikeThisAttribution(
-    usesVueo: Boolean,
     usesTmdb: Boolean,
 ): String =
-    when {
-        usesVueo && usesTmdb ->
-            "Powered by VUEO + TMDB"
-
-        usesTmdb ->
-            "Powered by TMDB"
-
-        else ->
-            "Powered by VUEO"
+    if (usesTmdb) {
+        "Powered by TMDB"
+    } else {
+        "Powered by VUEO"
     }
 
 @Composable
@@ -12495,42 +12481,15 @@ private fun EpisodeSelector(
         (EpisodeItem) -> Unit,
 ) {
     Column(
+        modifier =
+            Modifier.padding(
+                top = 8.dp
+            ),
         verticalArrangement =
             Arrangement.spacedBy(
                 8.dp
             ),
     ) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        horizontal = 18.dp
-                    ),
-            verticalAlignment =
-                Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Episodes",
-                color = Color.White,
-                fontSize = 19.sp,
-                fontWeight =
-                    FontWeight.Black,
-            )
-
-            Spacer(
-                Modifier.weight(1f)
-            )
-
-            Text(
-                text =
-                    "${episodes.size} episodes",
-                color =
-                    VueoPalette.Muted,
-                fontSize = 10.sp,
-            )
-        }
-
         LazyRow(
             contentPadding =
                 PaddingValues(
@@ -12562,7 +12521,23 @@ private fun EpisodeSelector(
                 Card(
                     modifier =
                         Modifier
-                            .width(226.dp)
+                            .width(250.dp)
+                            .height(154.dp)
+                            .then(
+                                if (selected) {
+                                    Modifier.border(
+                                        width = 1.5.dp,
+                                        color =
+                                            VueoPalette.Accent,
+                                        shape =
+                                            RoundedCornerShape(
+                                                16.dp
+                                            ),
+                                    )
+                                } else {
+                                    Modifier
+                                }
+                            )
                             .clickable {
                                 onEpisodeClick(
                                     episode
@@ -12585,13 +12560,10 @@ private fun EpisodeSelector(
                                 }
                         ),
                 ) {
-                    Column {
-                        Box(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .height(120.dp),
-                        ) {
+                    Box(
+                        modifier =
+                            Modifier.fillMaxSize(),
+                    ) {
                             NetworkImage(
                                 url =
                                     episode.thumbnail,
@@ -12613,9 +12585,12 @@ private fun EpisodeSelector(
                                         .background(
                                             Brush.verticalGradient(
                                                 listOf(
+                                                    Color.Black.copy(
+                                                        alpha = .04f
+                                                    ),
                                                     Color.Transparent,
                                                     Color.Black.copy(
-                                                        alpha = .62f
+                                                        alpha = .92f
                                                     ),
                                                 )
                                             )
@@ -12626,7 +12601,7 @@ private fun EpisodeSelector(
                                 modifier =
                                     Modifier
                                         .align(
-                                            Alignment.BottomStart
+                                            Alignment.TopStart
                                         )
                                         .padding(
                                             9.dp
@@ -12657,16 +12632,22 @@ private fun EpisodeSelector(
                                         FontWeight.Bold,
                                 )
                             }
-                        }
 
                         Column(
                             modifier =
-                                Modifier.padding(
-                                    10.dp
-                                ),
+                                Modifier
+                                    .align(
+                                        Alignment.BottomStart
+                                    )
+                                    .fillMaxWidth()
+                                    .padding(
+                                        start = 11.dp,
+                                        end = 11.dp,
+                                        bottom = 10.dp,
+                                    ),
                             verticalArrangement =
                                 Arrangement.spacedBy(
-                                    4.dp
+                                    3.dp
                                 ),
                         ) {
                             Text(
@@ -12680,89 +12661,68 @@ private fun EpisodeSelector(
                                     },
                                 fontWeight =
                                     FontWeight.Bold,
-                                fontSize = 12.sp,
+                                fontSize = 13.sp,
                                 maxLines = 1,
                                 overflow =
                                     TextOverflow.Ellipsis,
                             )
 
+                            episode.overview
+                                ?.takeIf {
+                                    it.isNotBlank()
+                                }
+                                ?.let { overview ->
+                                    Text(
+                                        text = overview,
+                                        color =
+                                            Color.White.copy(
+                                                alpha = .72f
+                                            ),
+                                        fontSize = 10.sp,
+                                        lineHeight = 13.sp,
+                                        maxLines = 2,
+                                        overflow =
+                                            TextOverflow.Ellipsis,
+                                    )
+                                }
+
                             if (
                                 playbackEntry != null &&
-                                playbackEntry
-                                    .positionMs >
+                                playbackEntry.positionMs >
                                     15_000L &&
                                 (
-                                    playbackEntry
-                                        .durationMs <=
+                                    playbackEntry.durationMs <=
                                         0L ||
-                                        playbackEntry
-                                            .positionMs <
+                                        playbackEntry.positionMs <
                                             (
-                                                playbackEntry
-                                                    .durationMs *
+                                                playbackEntry.durationMs *
                                                     .95f
                                             ).toLong()
                                 )
                             ) {
-                                Row(
-                                    verticalAlignment =
-                                        Alignment.CenterVertically,
-                                    horizontalArrangement =
-                                        Arrangement.spacedBy(
-                                            7.dp
-                                        ),
-                                ) {
-                                    LinearProgressIndicator(
-                                        progress = {
-                                            playbackEntry
-                                                .progressFraction
-                                                .coerceIn(
-                                                    0f,
-                                                    1f
-                                                )
-                                        },
-                                        modifier =
-                                            Modifier
-                                                .weight(1f)
-                                                .height(3.dp)
-                                                .clip(
-                                                    CircleShape
-                                                ),
-                                        color =
-                                            VueoPalette.Accent,
-                                        trackColor =
-                                            Color.White.copy(
-                                                alpha = .14f
+                                LinearProgressIndicator(
+                                    progress = {
+                                        playbackEntry
+                                            .progressFraction
+                                            .coerceIn(
+                                                0f,
+                                                1f
+                                            )
+                                    },
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .height(3.dp)
+                                            .clip(
+                                                CircleShape
                                             ),
-                                    )
-
-                                    Text(
-                                        text = "Resume",
-                                        color =
-                                            VueoPalette.Accent,
-                                        fontSize = 9.sp,
-                                        fontWeight =
-                                            FontWeight.Bold,
-                                    )
-                                }
-                            } else {
-                                episode.overview
-                                    ?.takeIf {
-                                        it.isNotBlank()
-                                    }
-                                    ?.let {
-                                        overview ->
-                                        Text(
-                                            text =
-                                                overview,
-                                            color =
-                                                VueoPalette.Muted,
-                                            fontSize = 10.sp,
-                                            maxLines = 1,
-                                            overflow =
-                                                TextOverflow.Ellipsis,
-                                        )
-                                    }
+                                    color =
+                                        VueoPalette.Accent,
+                                    trackColor =
+                                        Color.White.copy(
+                                            alpha = .18f
+                                        ),
+                                )
                             }
                         }
                     }
