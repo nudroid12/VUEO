@@ -10622,7 +10622,7 @@ private fun MediaDetailsScreen(
             ),
         verticalArrangement =
             Arrangement.spacedBy(
-                14.dp
+                20.dp
             ),
     ) {
         item {
@@ -12229,6 +12229,8 @@ private fun MediaCompanySection(
                                 ContentScale.Fit,
                             fallbackText =
                                 company.name,
+                            transparentBackground =
+                                true,
                         )
                     } else {
                         Box(
@@ -12424,7 +12426,7 @@ private fun SeasonSelector(
     Column(
         verticalArrangement =
             Arrangement.spacedBy(
-                8.dp
+                10.dp
             ),
     ) {
         Text(
@@ -12457,7 +12459,10 @@ private fun SeasonSelector(
                 Surface(
                     modifier =
                         Modifier
-                            .height(38.dp)
+                            .widthIn(
+                                min = 88.dp
+                            )
+                            .height(40.dp)
                             .clickable {
                                 onSelectSeason(
                                     season
@@ -12500,12 +12505,12 @@ private fun SeasonSelector(
                 ) {
                     Box(
                         modifier =
-                            Modifier.padding(
-                                horizontal =
-                                    14.dp,
-                                vertical =
-                                    8.dp,
-                            ),
+                            Modifier
+                                .fillMaxSize()
+                                .padding(
+                                    horizontal =
+                                        14.dp
+                                ),
                         contentAlignment =
                             Alignment.Center,
                     ) {
@@ -12551,10 +12556,6 @@ private fun EpisodeSelector(
         (EpisodeItem) -> Unit,
 ) {
     Column(
-        modifier =
-            Modifier.padding(
-                top = 8.dp
-            ),
         verticalArrangement =
             Arrangement.spacedBy(
                 8.dp
@@ -12592,7 +12593,7 @@ private fun EpisodeSelector(
                     modifier =
                         Modifier
                             .width(250.dp)
-                            .height(154.dp)
+                            .height(164.dp)
                             .then(
                                 if (selected) {
                                     Modifier.border(

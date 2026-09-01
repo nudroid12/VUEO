@@ -172,6 +172,7 @@ fun NetworkImage(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
     fallbackText: String = "",
+    transparentBackground: Boolean = false,
 ) {
     val context = LocalContext.current.applicationContext
     var image by remember(url) { mutableStateOf(VueoImageCache.memoryEntry(url)) }
@@ -198,7 +199,14 @@ fun NetworkImage(
     )
 
     Box(
-        modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
+        modifier =
+            if (transparentBackground) {
+                modifier
+            } else {
+                modifier.background(
+                    MaterialTheme.colorScheme.surfaceVariant
+                )
+            },
         contentAlignment = Alignment.Center,
     ) {
         image?.let { bitmap ->
