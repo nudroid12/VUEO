@@ -214,11 +214,10 @@ class UnifiedMediaEngine {
         CatalogDiscoveryCache
             .search(normalized)
             ?.let { cached ->
-                return@coroutineScope
-                    rankSearchResults(
-                        items = cached,
-                        query = normalized,
-                    ).take(maxResults)
+                return@coroutineScope rankSearchResults(
+                    items = cached,
+                    query = normalized,
+                ).take(maxResults)
             }
 
         val searchableCatalogs =
