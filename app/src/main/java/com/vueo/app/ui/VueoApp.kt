@@ -9530,6 +9530,12 @@ private fun MediaDetailsScreen(
     var selectedPlaybackStartPositionMs by remember {
         mutableStateOf(0L)
     }
+    var pendingPlaybackEpisode by remember {
+        mutableStateOf<EpisodeItem?>(null)
+    }
+    var pendingPlaybackFailed by remember {
+        mutableStateOf(false)
+    }
 
     LaunchedEffect(
         initialItem.id,
@@ -9841,6 +9847,7 @@ private fun MediaDetailsScreen(
     fun startSourceDiscovery(
         targetEpisode: EpisodeItem?,
         startPositionMs: Long = 0L,
+        autoPlayFirst: Boolean = false,
     ) {
     selectedPlaybackStartPositionMs =
         startPositionMs
@@ -9868,6 +9875,52 @@ private fun MediaDetailsScreen(
     val cached =
         SourceDiscoveryCache
             .get(cacheKey)
+
+    var autoPlayCommitted = false
+    var subtitlesResolved = false
+    var sourceDiscoveryCompleted = false
+    var latestAutoPlayCandidates =
+        cached?.streams
+            .orEmpty()
+
+    fun commitAutoPlayIfReady(
+        candidates: List<StreamSource>,
+        allowLowQualityFallback: Boolean = false,
+    ) {
+        latestAutoPlayCandidates = candidates
+
+        if (
+            !autoPlayFirst ||
+            autoPlayCommitted ||
+            !subtitlesResolved
+        ) {
+            return
+        }
+
+        val directCandidates =
+            candidates.filter { it.isDirectPlayable }
+        val candidate =
+            directCandidates.firstOrNull {
+                PlayerSourcePolicy
+                    .assess(
+                        source = it,
+                        preferredQuality =
+                            preferredSourceQuality,
+                    )
+                    .quality
+                    .automaticRecoveryEligible
+            } ?: directCandidates
+                .firstOrNull()
+                ?.takeIf { allowLowQualityFallback }
+            ?: return
+
+        autoPlayCommitted = true
+        selectedSeason = targetEpisode?.season
+            ?: selectedSeason
+        selectedEpisode = targetEpisode
+        selectedPlaybackVideoId = targetVideoId
+        selectedPlaybackSource = candidate
+    }
 
     sourcePickerStreams =
         cached?.streams
@@ -10011,6 +10064,8 @@ private fun MediaDetailsScreen(
                 sourcePickerStreams =
                     display
 
+                commitAutoPlayIfReady(display)
+
                 sourcePickerRawCount =
                     maxOf(
                         cached?.rawCount
@@ -10040,6 +10095,12 @@ private fun MediaDetailsScreen(
             launch {
                 sourcePickerSubtitles =
                     subtitlesDeferred.await()
+                subtitlesResolved = true
+                commitAutoPlayIfReady(
+                    candidates = latestAutoPlayCandidates,
+                    allowLowQualityFallback =
+                        sourceDiscoveryCompleted,
+                )
             }
 
             val addonDeferred =
@@ -10217,6 +10278,12 @@ private fun MediaDetailsScreen(
             sourcePickerStreams =
                 finalStreams
 
+            sourceDiscoveryCompleted = true
+            commitAutoPlayIfReady(
+                candidates = finalStreams,
+                allowLowQualityFallback = true,
+            )
+
             sourcePickerRawCount =
                 maxOf(
                     cached?.rawCount
@@ -10323,10 +10390,31 @@ private fun MediaDetailsScreen(
             availableSources =
                 sourcePickerStreams
                     .orEmpty(),
+            sourceProviderOrder =
+                sourcePickerProviderOrder,
             subtitles =
                 sourcePickerSubtitles,
             initialPositionMs =
                 selectedPlaybackStartPositionMs,
+            episodeSwitchingTo =
+                pendingPlaybackEpisode,
+            episodeSwitchFailed =
+                pendingPlaybackFailed ||
+                    (
+                        pendingPlaybackEpisode != null &&
+                            !sourcePickerSearching &&
+                            sourcePickerStreams != null &&
+                            sourcePickerStreams
+                                .orEmpty()
+                                .none { it.isDirectPlayable }
+                    ),
+            onEpisodeSwitchCompleted = {
+                pendingPlaybackEpisode = null
+                pendingPlaybackFailed = false
+            },
+            onEpisodeSwitchFailed = {
+                pendingPlaybackFailed = true
+            },
             onLibraryChanged = {
                 refreshDetailPlaybackEntries()
                 onLibraryChanged()
@@ -10340,32 +10428,29 @@ private fun MediaDetailsScreen(
                     nextSource
             },
             onNextEpisode = { next ->
-                selectedSeason =
-                    next.season
-                selectedEpisode =
-                    next
-                selectedPlaybackSource =
-                    null
-                selectedPlaybackVideoId =
-                    null
-                selectedPlaybackStartPositionMs =
-                    0L
-                startSourceDiscovery(next)
+                pendingPlaybackEpisode = next
+                pendingPlaybackFailed = false
+                startSourceDiscovery(
+                    targetEpisode = next,
+                    autoPlayFirst = true,
+                )
             },
             onEpisodeSelected = { selected ->
-                selectedSeason =
-                    selected.season
-                selectedEpisode =
-                    selected
-                selectedPlaybackSource =
-                    null
-                selectedPlaybackVideoId =
-                    null
-                selectedPlaybackStartPositionMs =
-                    0L
-                startSourceDiscovery(selected)
+                pendingPlaybackEpisode = selected
+                pendingPlaybackFailed = false
+                startSourceDiscovery(
+                    targetEpisode = selected,
+                    autoPlayFirst = true,
+                )
             },
             onBack = {
+                sourceDiscoveryJob?.cancel()
+                sourceDiscoveryJob = null
+                sourcePickerSearching = false
+                sourcePickerStreams = null
+                loadingStreams = false
+                pendingPlaybackEpisode = null
+                pendingPlaybackFailed = false
                 selectedPlaybackSource = null
                 selectedPlaybackVideoId = null
                 selectedPlaybackStartPositionMs =
@@ -13727,8 +13812,13 @@ private fun PlayerScreen(
     episodes: List<EpisodeItem>,
     source: StreamSource,
     availableSources: List<StreamSource>,
+    sourceProviderOrder: List<String>,
     subtitles: List<SubtitleTrack>,
     initialPositionMs: Long,
+    episodeSwitchingTo: EpisodeItem?,
+    episodeSwitchFailed: Boolean,
+    onEpisodeSwitchCompleted: () -> Unit,
+    onEpisodeSwitchFailed: () -> Unit,
     onLibraryChanged: () -> Unit,
     onSwitchSource: (StreamSource, Long) -> Unit,
     onNextEpisode: (EpisodeItem) -> Unit,
@@ -13737,6 +13827,12 @@ private fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
+    val latestEpisodeSwitchingTo =
+        rememberUpdatedState(episodeSwitchingTo)
+    val latestOnEpisodeSwitchCompleted =
+        rememberUpdatedState(onEpisodeSwitchCompleted)
+    val latestOnEpisodeSwitchFailed =
+        rememberUpdatedState(onEpisodeSwitchFailed)
     val audioManager = remember {
         context.getSystemService(
             Context.AUDIO_SERVICE
@@ -13898,6 +13994,9 @@ private fun PlayerScreen(
     var showSourceDialog by remember {
         mutableStateOf(false)
     }
+    var switchingSourceUrl by remember(mediaKey) {
+        mutableStateOf<String?>(null)
+    }
     var showEpisodeDialog by remember {
         mutableStateOf(false)
     }
@@ -13928,6 +14027,9 @@ private fun PlayerScreen(
     var nextEpisodeCountdown by remember {
         mutableStateOf<Int?>(null)
     }
+    var nextEpisodeCardSwitchTarget by remember {
+        mutableStateOf<EpisodeItem?>(null)
+    }
     var nextEpisodeSwitching by remember(mediaKey) {
         mutableStateOf(false)
     }
@@ -13937,6 +14039,9 @@ private fun PlayerScreen(
     var nextEpisodeCardDismissed by remember(mediaKey) {
         mutableStateOf(false)
     }
+    val nextEpisodeCardVisible =
+        showNextEpisodeCard ||
+            nextEpisodeCardSwitchTarget != null
     var autoPlayNextEpisode by remember {
         mutableStateOf(
             settingsStore.autoPlayNextEpisodeEnabled()
@@ -13996,8 +14101,10 @@ private fun PlayerScreen(
                 controlsVisible = true
             }
 
-            showSourceDialog ->
+            showSourceDialog -> {
                 showSourceDialog = false
+                switchingSourceUrl = null
+            }
 
             showEpisodeDialog ->
                 showEpisodeDialog = false
@@ -14199,6 +14306,7 @@ private fun PlayerScreen(
             return
         }
         nextEpisodeSwitching = true
+        nextEpisodeCardSwitchTarget = next
         nextEpisodeCountdown = null
         showNextEpisodeCard = false
         controlsVisible = false
@@ -14235,11 +14343,24 @@ private fun PlayerScreen(
                 .coerceAtLeast(currentPositionMs)
                 .coerceAtLeast(0L)
             savePosition()
+            if (showSourceDialog) {
+                switchingSourceUrl = alternate.url
+            }
+            hasRenderedFirstFrame = false
             onSwitchSource(alternate, position)
         } else {
             playbackPhase = PlayerPlaybackPhase.FAILED
             playbackError = message
             controlsVisible = true
+            if (
+                latestEpisodeSwitchingTo
+                    .value
+                    ?.id == episode?.id
+            ) {
+                latestOnEpisodeSwitchFailed
+                    .value
+                    .invoke()
+            }
         }
     }
 
@@ -14590,6 +14711,22 @@ private fun PlayerScreen(
                     playbackPhase = PlayerPlaybackPhase.READY
                     playbackError = null
                     recoveryInProgress = false
+                    if (
+                        latestEpisodeSwitchingTo
+                            .value
+                            ?.id == episode?.id
+                    ) {
+                        if (
+                            nextEpisodeCardSwitchTarget
+                                ?.id == episode?.id
+                        ) {
+                            nextEpisodeCardSwitchTarget = null
+                        }
+                        showEpisodeDialog = false
+                        latestOnEpisodeSwitchCompleted
+                            .value
+                            .invoke()
+                    }
                 }
             }
 
@@ -14613,6 +14750,25 @@ private fun PlayerScreen(
         isBuffering = false
         hasRenderedFirstFrame = false
         recoveryInProgress = false
+    }
+
+    LaunchedEffect(
+        showSourceDialog,
+        source.url,
+        hasRenderedFirstFrame,
+        switchingSourceUrl,
+    ) {
+        val pendingUrl = switchingSourceUrl
+        if (
+            showSourceDialog &&
+            pendingUrl != null &&
+            source.url == pendingUrl &&
+            hasRenderedFirstFrame
+        ) {
+            showSourceDialog = false
+            switchingSourceUrl = null
+            controlsVisible = true
+        }
     }
 
     LaunchedEffect(
@@ -14735,7 +14891,7 @@ private fun PlayerScreen(
         controlsLocked,
         gestureActive,
         playerPanelVisible,
-        showNextEpisodeCard,
+        nextEpisodeCardVisible,
     ) {
         if (
             controlsVisible &&
@@ -14743,7 +14899,7 @@ private fun PlayerScreen(
             !controlsLocked &&
             !gestureActive &&
             !playerPanelVisible &&
-            !showNextEpisodeCard
+            !nextEpisodeCardVisible
         ) {
             delay(3_000L)
             controlsVisible = false
@@ -15054,19 +15210,21 @@ private fun PlayerScreen(
             currentSource = source,
             currentPlaybackFailed = playbackError != null,
             failedSourceUrls = failedSourceUrls,
-            providerOrder =
-                playableSources
-                    .map(::sourceProviderTabKey)
-                    .distinct(),
-            switchingSourceUrl = null,
+            providerOrder = sourceProviderOrder,
+            switchingSourceUrl = switchingSourceUrl,
             onSelect = { candidate ->
                 val switchPosition = player.currentPosition
                     .coerceAtLeast(0L)
                 savePosition()
-                showSourceDialog = false
+                switchingSourceUrl = candidate.url
+                hasRenderedFirstFrame = false
+                playbackPhase = PlayerPlaybackPhase.LOADING
                 onSwitchSource(candidate, switchPosition)
             },
-            onDismiss = { showSourceDialog = false },
+            onDismiss = {
+                showSourceDialog = false
+                switchingSourceUrl = null
+            },
         )
     }
 
@@ -15107,6 +15265,7 @@ private fun PlayerScreen(
             candidate.id to PlayerEpisodeProgress(
                 fraction = fraction,
                 watched = stored?.isCompleted == true,
+                positionMs = candidatePositionMs,
             )
         }
 
@@ -15116,15 +15275,11 @@ private fun PlayerScreen(
             currentEpisode = episode,
             progressByEpisodeId = progressByEpisodeId,
             switchingEpisodeId =
-                if (nextEpisodeSwitching) {
-                    nextEpisode?.id
-                } else {
-                    null
-                },
-            switchingFailed = false,
+                episodeSwitchingTo?.id,
+            switchingFailed =
+                episodeSwitchFailed,
             onEpisodeSelected = { candidate ->
                 savePosition()
-                showEpisodeDialog = false
                 nextEpisodeCountdown = null
                 showNextEpisodeCard = false
                 nextEpisodeCardDismissed = true
@@ -15466,10 +15621,14 @@ private fun PlayerScreen(
                         player,
                         controlsLocked,
                         showNextEpisodeCard,
+                        nextEpisodeCardSwitchTarget,
                     ) {
                         detectTapGestures(
                             onTap = {
-                                if (showNextEpisodeCard) {
+                                if (
+                                    showNextEpisodeCard &&
+                                    nextEpisodeCardSwitchTarget == null
+                                ) {
                                     nextEpisodeCountdown = null
                                     showNextEpisodeCard = false
                                     nextEpisodeCardDismissed = true
@@ -15753,15 +15912,38 @@ private fun PlayerScreen(
                 )
             }
 
+            val nextEpisodeCardEpisode =
+                nextEpisodeCardSwitchTarget
+                    ?: nextEpisode
             if (
-                nextEpisode != null &&
-                showNextEpisodeCard
+                nextEpisodeCardEpisode != null &&
+                nextEpisodeCardVisible
             ) {
                 PlayerNextEpisodeCard(
-                    episode = nextEpisode,
+                    episode = nextEpisodeCardEpisode,
                     countdownSeconds =
                         nextEpisodeCountdown,
-                    onPlay = ::startNextEpisode,
+                    switching =
+                        nextEpisodeCardSwitchTarget != null &&
+                            !episodeSwitchFailed,
+                    failed =
+                        nextEpisodeCardSwitchTarget != null &&
+                            episodeSwitchFailed,
+                    onPlay = {
+                        if (
+                            episodeSwitchFailed &&
+                            nextEpisodeCardSwitchTarget != null
+                        ) {
+                            nextEpisodeSwitching = true
+                            nextEpisodeCountdown = null
+                            savePosition()
+                            onEpisodeSelected(
+                                nextEpisodeCardEpisode
+                            )
+                        } else {
+                            startNextEpisode()
+                        }
+                    },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(
@@ -15829,6 +16011,7 @@ private fun PlayerScreen(
                                     enabled =
                                         playableSources.size > 1,
                                     onClick = {
+                                        switchingSourceUrl = null
                                         showSourceDialog = true
                                     },
                                 ) {
@@ -15988,6 +16171,7 @@ private fun PlayerScreen(
                                 enabled =
                                     playableSources.isNotEmpty(),
                                 onClick = {
+                                    switchingSourceUrl = null
                                     showSourceDialog = true
                                 },
                             )
@@ -16060,14 +16244,18 @@ private fun PlayerScreen(
 private fun PlayerNextEpisodeCard(
     episode: EpisodeItem,
     countdownSeconds: Int?,
+    switching: Boolean,
+    failed: Boolean,
     onPlay: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val canPlay = !switching
     Surface(
         modifier = modifier
             .fillMaxWidth(.38f)
             .widthIn(min = 300.dp, max = 440.dp)
             .clickable(
+                enabled = canPlay,
                 onClick = onPlay,
             ),
         shape = RoundedCornerShape(16.dp),
@@ -16099,8 +16287,16 @@ private fun PlayerNextEpisodeCard(
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Text(
-                        text = "Next Episode",
-                        color = Color.White.copy(alpha = .62f),
+                        text = when {
+                            failed -> "No playable source"
+                            switching -> "Finding source..."
+                            else -> "Next Episode"
+                        },
+                        color = when {
+                            failed -> Color(0xFFFF8A80)
+                            switching -> VueoPlayerAccent
+                            else -> Color.White.copy(alpha = .62f)
+                        },
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
@@ -16119,10 +16315,15 @@ private fun PlayerNextEpisodeCard(
                 }
 
                 OutlinedButton(
+                    enabled = canPlay,
                     onClick = onPlay,
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp,
-                        VueoPlayerAccent.copy(alpha = .72f),
+                        if (canPlay) {
+                            VueoPlayerAccent.copy(alpha = .72f)
+                        } else {
+                            Color.White.copy(alpha = .14f)
+                        },
                     ),
                     contentPadding = PaddingValues(
                         horizontal = 11.dp,
@@ -16133,14 +16334,26 @@ private fun PlayerNextEpisodeCard(
                         Icons.Default.PlayArrow,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
-                        tint = VueoPlayerAccent,
+                        tint = if (canPlay) {
+                            VueoPlayerAccent
+                        } else {
+                            Color.White.copy(alpha = .30f)
+                        },
                     )
                     Spacer(Modifier.width(3.dp))
                     Text(
-                        text = countdownSeconds
-                            ?.let { "Play in ${it}s" }
-                            ?: "Play",
-                        color = Color.White,
+                        text = when {
+                            failed -> "Retry"
+                            switching -> "Loading"
+                            countdownSeconds != null ->
+                                "Play in ${countdownSeconds}s"
+                            else -> "Play"
+                        },
+                        color = if (canPlay) {
+                            Color.White
+                        } else {
+                            Color.White.copy(alpha = .30f)
+                        },
                         fontSize = 9.sp,
                         maxLines = 1,
                     )
