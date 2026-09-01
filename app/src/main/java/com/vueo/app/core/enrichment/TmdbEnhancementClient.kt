@@ -55,6 +55,18 @@ object TmdbEnhancementClient {
                 size > MAX_CACHE_ENTRIES
         }
 
+    private val personFilmographyCache =
+        object : LinkedHashMap<String, CacheEntry<List<MediaItem>>>(
+            32,
+            0.75f,
+            true,
+        ) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<String, CacheEntry<List<MediaItem>>>?,
+            ): Boolean =
+                size > MAX_CACHE_ENTRIES
+        }
+
     private val seasonEpisodesCache =
         object : LinkedHashMap<String, CacheEntry<List<TmdbEpisodeMetadata>>>(
             96,
@@ -95,6 +107,307 @@ object TmdbEnhancementClient {
 
             json.optJSONObject("images") != null
         }.getOrDefault(false)
+    }
+
+    /**
+     * Resolve an exact actor/person name and return their movie + TV cast credits.
+     *
+     * A null return means the query should continue to be treated as a title search.
+     * An empty list means an exact acting person was found but TMDB returned no usable
+     * movie/series cast credits.
+     */
+    suspend fun actorFilmography(
+        query: String,
+        apiKey: String,
+        limit: Int = 80,
+    ): List<MediaItem>? {
+        val cleanQuery =
+            query.trim()
+
+        if (
+            cleanQuery.length < 2 ||
+            apiKey.isBlank() ||
+            limit <= 0
+        ) {
+            return null
+        }
+
+        val normalizedQuery =
+            normalizePersonName(
+                cleanQuery
+            )
+
+        if (normalizedQuery.isBlank()) {
+            return null
+        }
+
+        val cacheKey =
+            "person:$normalizedQuery:$limit"
+
+        cached(
+            personFilmographyCache,
+            cacheKey,
+        )?.let {
+            return it
+        }
+
+        val searchUrl =
+            "$API_BASE/search/person" +
+                "?query=${Uri.encode(cleanQuery)}" +
+                "&include_adult=false" +
+                "&language=en-US" +
+                "&page=1" +
+                "&api_key=${Uri.encode(apiKey.trim())}"
+
+        val searchResults =
+            runCatching {
+                JSONObject(
+                    SimpleHttp.get(
+                        searchUrl
+                    )
+                ).optJSONArray(
+                    "results"
+                )
+            }.getOrNull()
+                ?: return null
+
+        val exactActor =
+            (0 until searchResults.length())
+                .mapNotNull { index ->
+                    searchResults
+                        .optJSONObject(index)
+                }
+                .filter { candidate ->
+                    normalizePersonName(
+                        candidate
+                            .optNullableString(
+                                "name"
+                            )
+                            .orEmpty()
+                    ) == normalizedQuery
+                }
+                .filter { candidate ->
+                    val department =
+                        candidate
+                            .optNullableString(
+                                "known_for_department"
+                            )
+
+                    department == null ||
+                        department.equals(
+                            "Acting",
+                            ignoreCase = true,
+                        )
+                }
+                .maxByOrNull { candidate ->
+                    candidate.optDouble(
+                        "popularity",
+                        0.0,
+                    )
+                }
+                ?: return null
+
+        val personId =
+            exactActor.optLong(
+                "id",
+                -1L,
+            )
+
+        if (personId <= 0L) {
+            return null
+        }
+
+        val creditsUrl =
+            "$API_BASE/person/$personId/combined_credits" +
+                "?language=en-US" +
+                "&api_key=${Uri.encode(apiKey.trim())}"
+
+        val credits =
+            runCatching {
+                JSONObject(
+                    SimpleHttp.get(
+                        creditsUrl
+                    )
+                )
+            }.getOrNull()
+                ?: return null
+
+        val cast =
+            credits.optJSONArray(
+                "cast"
+            )
+                ?: return emptyList()
+
+        val ranked =
+            buildList {
+                for (
+                    index in
+                    0 until cast.length()
+                ) {
+                    val credit =
+                        cast.optJSONObject(
+                            index
+                        )
+                            ?: continue
+
+                    if (
+                        credit.optBoolean(
+                            "adult",
+                            false,
+                        )
+                    ) {
+                        continue
+                    }
+
+                    val mediaType =
+                        credit
+                            .optNullableString(
+                                "media_type"
+                            )
+
+                    val type =
+                        when (mediaType) {
+                            "movie" ->
+                                "movie"
+                            "tv" ->
+                                "series"
+                            else ->
+                                continue
+                        }
+
+                    val id =
+                        credit.optLong(
+                            "id",
+                            -1L,
+                        )
+
+                    if (id <= 0L) {
+                        continue
+                    }
+
+                    val name =
+                        credit
+                            .optNullableString(
+                                if (type == "series") {
+                                    "name"
+                                } else {
+                                    "title"
+                                }
+                            )
+                            ?: continue
+
+                    val poster =
+                        credit
+                            .optNullableString(
+                                "poster_path"
+                            )
+                            ?.let {
+                                "$IMAGE_BASE/w500$it"
+                            }
+
+                    val background =
+                        credit
+                            .optNullableString(
+                                "backdrop_path"
+                            )
+                            ?.let {
+                                "$IMAGE_BASE/w1280$it"
+                            }
+
+                    val date =
+                        credit
+                            .optNullableString(
+                                if (type == "series") {
+                                    "first_air_date"
+                                } else {
+                                    "release_date"
+                                }
+                            )
+
+                    val rating =
+                        credit.optDouble(
+                            "vote_average",
+                            0.0,
+                        )
+                            .takeIf {
+                                it > 0.0
+                            }
+
+                    val popularity =
+                        credit.optDouble(
+                            "popularity",
+                            0.0,
+                        )
+
+                    add(
+                        popularity to
+                            MediaItem(
+                                id = "tmdb:$id",
+                                type = type,
+                                name = name,
+                                poster = poster,
+                                background =
+                                    background
+                                        ?: poster,
+                                description =
+                                    credit
+                                        .optNullableString(
+                                            "overview"
+                                        ),
+                                releaseInfo =
+                                    date
+                                        ?.take(4)
+                                        ?.takeIf { year ->
+                                            year.length == 4 &&
+                                                year.all { ch ->
+                                                    ch.isDigit()
+                                                }
+                                        },
+                                catalogSources =
+                                    listOf(
+                                        "TMDB"
+                                    ),
+                                tmdbRating = rating,
+                            )
+                    )
+                }
+            }
+                .sortedWith(
+                    compareByDescending<
+                        Pair<Double, MediaItem>
+                    > {
+                        it.first
+                    }.thenByDescending {
+                        it.second.tmdbRating
+                            ?: 0.0
+                    }.thenByDescending {
+                        it.second.releaseInfo
+                            ?.toIntOrNull()
+                            ?: 0
+                    }
+                )
+                .map {
+                    it.second
+                }
+                .distinctBy {
+                    "${it.type}:${it.id}"
+                }
+                .take(limit)
+
+        synchronized(
+            personFilmographyCache
+        ) {
+            personFilmographyCache[
+                cacheKey
+            ] =
+                CacheEntry(
+                    value = ranked,
+                    updatedAt =
+                        System.currentTimeMillis(),
+                )
+        }
+
+        return ranked
     }
 
     /**
@@ -739,6 +1052,25 @@ object TmdbEnhancementClient {
             else -> a
         }
     }
+
+    private fun normalizePersonName(
+        value: String,
+    ): String =
+        value
+            .lowercase()
+            .replace(
+                Regex(
+                    """[^\p{L}\p{N}]+"""
+                ),
+                " ",
+            )
+            .trim()
+            .replace(
+                Regex(
+                    """\s+"""
+                ),
+                " ",
+            )
 
     private fun <T> cached(
         cache: MutableMap<String, CacheEntry<T>>,

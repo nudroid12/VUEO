@@ -301,6 +301,13 @@ private enum class SearchSortMode(
     NEWEST("Newest"),
 }
 
+private enum class SearchMode(
+    val label: String,
+) {
+    TITLE("Title"),
+    ACTOR("Actor"),
+}
+
 @Composable
 fun VueoApp() {
     val context = LocalContext.current
@@ -3947,6 +3954,23 @@ private fun SearchScreen(
     val context =
         LocalContext.current
 
+    val searchPluginStore =
+        remember(context) {
+            PluginStore(
+                context.applicationContext
+            )
+        }
+
+    var searchMode by remember {
+        mutableStateOf(
+            SearchMode.TITLE
+        )
+    }
+
+    var actorSourceAvailable by remember {
+        mutableStateOf(true)
+    }
+
     var searchResults by remember {
         mutableStateOf<List<MediaItem>>(
             emptyList()
@@ -4045,6 +4069,7 @@ private fun SearchScreen(
         query,
         contentVersion,
         booting,
+        searchMode,
     ) {
         val normalized =
             query.trim()
@@ -4052,14 +4077,19 @@ private fun SearchScreen(
         searchRequestId += 1L
         val requestId =
             searchRequestId
+        val requestedMode =
+            searchMode
 
         if (
             booting ||
             normalized.length < 2
         ) {
             searching = false
+            actorSourceAvailable = true
             searchResults =
                 if (
+                    requestedMode ==
+                        SearchMode.TITLE &&
                     normalized.length >= 2
                 ) {
                     searchRankAndDedupe(
@@ -4076,71 +4106,197 @@ private fun SearchScreen(
             return@LaunchedEffect
         }
 
-        val local =
-            searchRankAndDedupe(
-                items =
-                    CatalogDiscoveryCache
-                        .searchLocal(
-                            normalized
-                        ),
-                query = normalized,
-            )
+        if (
+            requestedMode ==
+            SearchMode.TITLE
+        ) {
+            actorSourceAvailable = true
 
-        searchResults = local
+            val local =
+                searchRankAndDedupe(
+                    items =
+                        CatalogDiscoveryCache
+                            .searchLocal(
+                                normalized
+                            ),
+                    query = normalized,
+                )
+
+            searchResults = local
+            searching = true
+            delay(250)
+
+            if (
+                requestId != searchRequestId ||
+                query.trim() != normalized ||
+                searchMode != requestedMode
+            ) {
+                return@LaunchedEffect
+            }
+
+            val remote =
+                try {
+                    engine.search(
+                        query = normalized,
+                        onPartial = { partial ->
+                            if (
+                                requestId ==
+                                    searchRequestId &&
+                                query.trim() ==
+                                    normalized &&
+                                searchMode ==
+                                    requestedMode
+                            ) {
+                                searchResults =
+                                    searchRankAndDedupe(
+                                        items =
+                                            partial +
+                                                local,
+                                        query =
+                                            normalized,
+                                    )
+                            }
+                        },
+                    )
+                } catch (
+                    cancelled:
+                        CancellationException
+                ) {
+                    throw cancelled
+                } catch (
+                    _: Throwable
+                ) {
+                    emptyList()
+                }
+
+            if (
+                requestId == searchRequestId &&
+                query.trim() == normalized &&
+                searchMode == requestedMode
+            ) {
+                searchResults =
+                    searchRankAndDedupe(
+                        items =
+                            remote + local,
+                        query = normalized,
+                    )
+
+                searching = false
+            }
+
+            return@LaunchedEffect
+        }
+
+        val tmdbApiKey =
+            searchPluginStore
+                .tmdbApiKey()
+        val addonActorSearch =
+            engine.hasActorSearchAddons()
+
+        actorSourceAvailable =
+            addonActorSearch ||
+                tmdbApiKey.isNotBlank()
+
+        searchResults = emptyList()
+
+        if (!actorSourceAvailable) {
+            searching = false
+            return@LaunchedEffect
+        }
+
         searching = true
         delay(250)
 
         if (
             requestId != searchRequestId ||
-            query.trim() != normalized
+            query.trim() != normalized ||
+            searchMode != requestedMode
         ) {
             return@LaunchedEffect
         }
 
-        val remote =
-            try {
-                engine.search(
-                    query = normalized,
-                    onPartial = { partial ->
-                        if (
-                            requestId ==
-                                searchRequestId &&
-                            query.trim() ==
-                                normalized
-                        ) {
-                            searchResults =
-                                searchRankAndDedupe(
-                                    items =
-                                        partial +
-                                            local,
-                                    query =
-                                        normalized,
-                                )
-                        }
-                    },
-                )
-            } catch (
-                cancelled:
-                    CancellationException
-            ) {
-                throw cancelled
-            } catch (
-                _: Throwable
-            ) {
-                emptyList()
+        coroutineScope {
+            var providerItems =
+                emptyList<MediaItem>()
+            var tmdbItems =
+                emptyList<MediaItem>()
+
+            fun publishActorResults() {
+                if (
+                    requestId == searchRequestId &&
+                    query.trim() == normalized &&
+                    searchMode == requestedMode
+                ) {
+                    searchResults =
+                        engine.mergeActorResults(
+                            items =
+                                providerItems +
+                                    tmdbItems,
+                        )
+                }
             }
+
+            launch {
+                providerItems =
+                    if (!addonActorSearch) {
+                        emptyList()
+                    } else {
+                        try {
+                            engine.searchActor(
+                                query = normalized,
+                                onPartial = { partial ->
+                                    providerItems = partial
+                                    publishActorResults()
+                                },
+                            )
+                        } catch (
+                            cancelled:
+                                CancellationException
+                        ) {
+                            throw cancelled
+                        } catch (
+                            _: Throwable
+                        ) {
+                            emptyList()
+                        }
+                    }
+
+                publishActorResults()
+            }
+
+            launch {
+                tmdbItems =
+                    if (tmdbApiKey.isBlank()) {
+                        emptyList()
+                    } else {
+                        try {
+                            TmdbEnhancementClient
+                                .actorFilmography(
+                                    query = normalized,
+                                    apiKey = tmdbApiKey,
+                                )
+                                .orEmpty()
+                        } catch (
+                            cancelled:
+                                CancellationException
+                        ) {
+                            throw cancelled
+                        } catch (
+                            _: Throwable
+                        ) {
+                            emptyList()
+                        }
+                    }
+
+                publishActorResults()
+            }
+        }
 
         if (
             requestId == searchRequestId &&
-            query.trim() == normalized
+            query.trim() == normalized &&
+            searchMode == requestedMode
         ) {
-            searchResults =
-                searchRankAndDedupe(
-                    items =
-                        remote + local,
-                    query = normalized,
-                )
-
             searching = false
         }
     }
@@ -4267,6 +4423,7 @@ private fun SearchScreen(
             genre,
             sortMode,
             searchingMode,
+            searchMode,
             animeCatalogKeys,
         ) {
             val filtered =
@@ -4286,7 +4443,15 @@ private fun SearchScreen(
                             )
                     }
 
-            if (searchingMode) {
+            if (
+                searchingMode &&
+                searchMode == SearchMode.ACTOR
+            ) {
+                searchSortActorItems(
+                    items = filtered,
+                    mode = sortMode,
+                )
+            } else if (searchingMode) {
                 searchSortItems(
                     items = filtered,
                     mode = sortMode,
@@ -4443,7 +4608,14 @@ private fun SearchScreen(
                     placeholder = {
                         Text(
                             text =
-                                "Search movies, shows...",
+                                if (
+                                    searchMode ==
+                                    SearchMode.ACTOR
+                                ) {
+                                    "Search actor name..."
+                                } else {
+                                    "Search movies, shows..."
+                                },
                             color =
                                 VueoPalette.Muted,
                         )
@@ -4512,18 +4684,42 @@ private fun SearchScreen(
                         14.dp
                     ),
             ) {
-                Text(
-                    text =
-                        if (searchingMode) {
-                            "Search Results"
-                        } else {
-                            "Discover"
+                Row(
+                    modifier =
+                        Modifier.fillMaxWidth(),
+                    verticalAlignment =
+                        Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text =
+                            if (searchingMode) {
+                                "Search Results"
+                            } else {
+                                "Discover"
+                            },
+                        color = Color.White,
+                        fontSize = 28.sp,
+                        fontWeight =
+                            FontWeight.SemiBold,
+                    )
+
+                    Spacer(
+                        Modifier.weight(1f)
+                    )
+
+                    SearchModeToggle(
+                        mode = searchMode,
+                        onModeChange = { next ->
+                            if (next != searchMode) {
+                                searchMode = next
+                                searchResults =
+                                    emptyList()
+                                searching = false
+                                onGenreChange(null)
+                            }
                         },
-                    color = Color.White,
-                    fontSize = 28.sp,
-                    fontWeight =
-                        FontWeight.SemiBold,
-                )
+                    )
+                }
 
                 LazyRow(
                     horizontalArrangement =
@@ -4580,13 +4776,18 @@ private fun SearchScreen(
                 ) {
                     Text(
                         text =
-                            if (
+                            when {
+                                searchMode ==
+                                    SearchMode.ACTOR &&
+                                    !actorSourceAvailable ->
+                                    "No enabled metadata source supports actor search."
+
                                 filteredItems
-                                    .isEmpty()
-                            ) {
-                                "No results for \"$normalizedQuery\"."
-                            } else {
-                                "${filteredItems.size} results"
+                                    .isEmpty() ->
+                                    "No results for \"$normalizedQuery\"."
+
+                                else ->
+                                    "${filteredItems.size} results"
                             },
                         color =
                             VueoPalette.Muted,
@@ -4621,9 +4822,31 @@ private fun SearchScreen(
                 key = "search_empty_results"
             ) {
                 SearchEmptyState(
-                    title = "No matches",
+                    title =
+                        if (
+                            searchMode ==
+                            SearchMode.ACTOR &&
+                            !actorSourceAvailable
+                        ) {
+                            "Actor search unavailable"
+                        } else {
+                            "No matches"
+                        },
                     body =
-                        "Try another title or change the filters.",
+                        if (
+                            searchMode ==
+                            SearchMode.ACTOR &&
+                            !actorSourceAvailable
+                        ) {
+                            "Enable a metadata source that supports actor or cast lookup, or add a TMDB API key."
+                        } else if (
+                            searchMode ==
+                            SearchMode.ACTOR
+                        ) {
+                            "Try another actor name or change the filters."
+                        } else {
+                            "Try another title or change the filters."
+                        },
                 )
             }
         } else if (
@@ -4818,6 +5041,21 @@ private fun searchMatchesGenre(
         )
     }
 }
+
+private fun searchSortActorItems(
+    items: List<MediaItem>,
+    mode: SearchSortMode,
+): List<MediaItem> =
+    when (mode) {
+        SearchSortMode.POPULAR,
+        SearchSortMode.TRENDING ->
+            items
+
+        SearchSortMode.NEWEST ->
+            items.sortedByDescending {
+                searchReleaseYear(it)
+            }
+    }
 
 private fun searchSortItems(
     items: List<MediaItem>,
@@ -5395,6 +5633,129 @@ private fun searchReleaseYear(
                 ?.toIntOrNull()
         }
         ?: 0
+
+@Composable
+private fun SearchModeToggle(
+    mode: SearchMode,
+    onModeChange: (SearchMode) -> Unit,
+) {
+    Row(
+        verticalAlignment =
+            Alignment.CenterVertically,
+        horizontalArrangement =
+            Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = "Title",
+            color =
+                if (
+                    mode == SearchMode.TITLE
+                ) {
+                    Color.White
+                } else {
+                    VueoPalette.Muted
+                },
+            fontSize = 11.sp,
+            fontWeight =
+                if (
+                    mode == SearchMode.TITLE
+                ) {
+                    FontWeight.Bold
+                } else {
+                    FontWeight.Medium
+                },
+            modifier =
+                Modifier.clickable {
+                    onModeChange(
+                        SearchMode.TITLE
+                    )
+                },
+        )
+
+        Box(
+            modifier =
+                Modifier
+                    .width(44.dp)
+                    .height(24.dp)
+                    .clip(
+                        RoundedCornerShape(
+                            50.dp
+                        )
+                    )
+                    .background(
+                        Color.White.copy(
+                            alpha = .92f
+                        )
+                    )
+                    .clickable {
+                        onModeChange(
+                            if (
+                                mode ==
+                                SearchMode.TITLE
+                            ) {
+                                SearchMode.ACTOR
+                            } else {
+                                SearchMode.TITLE
+                            }
+                        )
+                    },
+        ) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(3.dp),
+                horizontalArrangement =
+                    if (
+                        mode == SearchMode.ACTOR
+                    ) {
+                        Arrangement.End
+                    } else {
+                        Arrangement.Start
+                    },
+                verticalAlignment =
+                    Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(
+                                VueoPalette.Background
+                            )
+                )
+            }
+        }
+
+        Text(
+            text = "Actor",
+            color =
+                if (
+                    mode == SearchMode.ACTOR
+                ) {
+                    Color.White
+                } else {
+                    VueoPalette.Muted
+                },
+            fontSize = 11.sp,
+            fontWeight =
+                if (
+                    mode == SearchMode.ACTOR
+                ) {
+                    FontWeight.Bold
+                } else {
+                    FontWeight.Medium
+                },
+            modifier =
+                Modifier.clickable {
+                    onModeChange(
+                        SearchMode.ACTOR
+                    )
+                },
+        )
+    }
+}
 
 @Composable
 private fun SearchFilterButton(
@@ -11329,7 +11690,7 @@ private fun GeminiInsightCard(
                 Surface(
                     shape =
                         RoundedCornerShape(
-                            50
+                            50.dp
                         ),
                     color =
                         VueoPalette.Accent

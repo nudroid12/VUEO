@@ -21,6 +21,19 @@ class UnifiedMediaEngine {
     private val disabledExtensionIds =
         CopyOnWriteArraySet<String>()
 
+    private val ACTOR_SEARCH_HINTS =
+        setOf(
+            "actor",
+            "actors",
+            "cast",
+            "person",
+            "people",
+            "performer",
+            "performers",
+            "star",
+            "stars",
+        )
+
     fun install(extension: MediaExtension) {
         extensions.removeAll { it.descriptor.id == extension.descriptor.id }
         extensions += extension
@@ -344,6 +357,444 @@ class UnifiedMediaEngine {
 
         combined
     }
+
+    /**
+     * Search enabled metadata catalogs that explicitly advertise actor/person
+     * filtering. Catalogs without an actor-capable extra are skipped entirely,
+     * so actor mode never brute-force scans the regular title database.
+     */
+    suspend fun searchActor(
+        query: String,
+        maxCatalogs: Int = 12,
+        maxResults: Int = 80,
+        onPartial: ((List<MediaItem>) -> Unit)? = null,
+    ): List<MediaItem> = coroutineScope {
+        val normalized = query.trim()
+
+        if (normalized.length < 2) {
+            return@coroutineScope emptyList<MediaItem>()
+        }
+
+        val bindings =
+            activeStremioAddons()
+                .flatMap { extension ->
+                    extension.descriptor.catalogs
+                        .mapNotNull { catalog ->
+                            actorCatalogExtras(
+                                catalog = catalog,
+                                query = normalized,
+                            )?.let { extras ->
+                                ActorCatalogBinding(
+                                    extension = extension,
+                                    catalog = catalog,
+                                    extras = extras,
+                                )
+                            }
+                        }
+                }
+                .take(maxCatalogs)
+
+        if (bindings.isEmpty()) {
+            return@coroutineScope emptyList<MediaItem>()
+        }
+
+        val sourceFingerprint =
+            bindings
+                .map { binding ->
+                    "${binding.extension.descriptor.id}:${binding.catalog.id}"
+                }
+                .sorted()
+                .joinToString("|")
+                .hashCode()
+
+        val cacheKey =
+            "actor $sourceFingerprint $normalized"
+
+        CatalogDiscoveryCache
+            .search(cacheKey)
+            ?.let { cached ->
+                return@coroutineScope mergeActorResults(
+                    items = cached,
+                    maxResults = maxResults,
+                )
+            }
+
+        val collected =
+            mutableListOf<MediaItem>()
+        val mergeMutex = Mutex()
+
+        val remote =
+            bindings
+                .map { binding ->
+                    async {
+                        val result =
+                            try {
+                                withTimeoutOrNull(
+                                    ADDON_REQUEST_TIMEOUT_MS
+                                ) {
+                                    binding.extension
+                                        .catalog(
+                                            type =
+                                                binding.catalog.type,
+                                            catalogId =
+                                                binding.catalog.id,
+                                            extras =
+                                                binding.extras,
+                                        )
+                                        .items
+                                        .filter(
+                                            ::isActorSearchMediaItem
+                                        )
+                                        .map { item ->
+                                            item
+                                                .normalizeActorSearchType()
+                                                .withCatalogSource(
+                                                    binding.extension
+                                                        .descriptor
+                                                        .name
+                                                )
+                                        }
+                                } ?: emptyList()
+                            } catch (
+                                cancelled: CancellationException
+                            ) {
+                                throw cancelled
+                            } catch (
+                                _: Throwable
+                            ) {
+                                emptyList()
+                            }
+
+                        if (result.isNotEmpty()) {
+                            mergeMutex.withLock {
+                                collected += result
+                                onPartial?.invoke(
+                                    mergeActorResults(
+                                        items = collected,
+                                        maxResults = maxResults,
+                                    )
+                                )
+                            }
+                        }
+
+                        result
+                    }
+                }
+                .awaitAll()
+                .flatten()
+
+        val combined =
+            mergeActorResults(
+                items = remote,
+                maxResults = maxResults,
+            )
+
+        CatalogDiscoveryCache.putSearch(
+            cacheKey,
+            combined,
+        )
+
+        combined
+    }
+
+    fun hasActorSearchAddons(): Boolean =
+        activeStremioAddons()
+            .any { extension ->
+                extension.descriptor.catalogs
+                    .any(
+                        ::actorCatalogSupportsLookup
+                    )
+            }
+
+    fun mergeActorResults(
+        items: List<MediaItem>,
+        maxResults: Int = 80,
+    ): List<MediaItem> =
+        mergeSearchDuplicates(
+            items =
+                items.filter(
+                    ::isActorSearchMediaItem
+                ),
+            query = "",
+        )
+            .take(maxResults)
+
+    private fun actorCatalogSupportsLookup(
+        catalog: CatalogDescriptor,
+    ): Boolean {
+        val hasActorExtra =
+            catalog.extras.any { extra ->
+                isActorExtraName(
+                    extra.name
+                )
+            }
+        val hasSearchExtra =
+            catalog.extras.any { extra ->
+                extra.name.equals(
+                    "search",
+                    ignoreCase = true,
+                )
+            }
+
+        if (
+            !hasActorExtra &&
+            !(
+                actorCatalogHint(catalog) &&
+                    hasSearchExtra
+            )
+        ) {
+            return false
+        }
+
+        return catalog.extras
+            .filter { it.isRequired }
+            .all { extra ->
+                isActorExtraName(
+                    extra.name
+                ) ||
+                    extra.name.equals(
+                        "search",
+                        ignoreCase = true,
+                    )
+            }
+    }
+
+    private fun actorCatalogExtras(
+        catalog: CatalogDescriptor,
+        query: String,
+    ): Map<String, String>? {
+        if (!actorCatalogSupportsLookup(catalog)) {
+            return null
+        }
+
+        val actorExtras =
+            catalog.extras.filter { extra ->
+                isActorExtraName(
+                    extra.name
+                )
+            }
+        val actorValues =
+            actorExtras.mapNotNull { extra ->
+                actorExtraValue(
+                    extra = extra,
+                    query = query,
+                )?.let { value ->
+                    extra to value
+                }
+            }
+        val searchExtra =
+            catalog.extras.firstOrNull { extra ->
+                extra.name.equals(
+                    "search",
+                    ignoreCase = true,
+                )
+            }
+        val actorCatalog =
+            actorCatalogHint(
+                catalog
+            )
+
+        if (
+            actorValues.isEmpty() &&
+            !(actorCatalog && searchExtra != null)
+        ) {
+            return null
+        }
+
+        val requiredSupported =
+            catalog.extras
+                .filter { it.isRequired }
+                .all { extra ->
+                    when {
+                        isActorExtraName(
+                            extra.name
+                        ) ->
+                            actorValues.any { pair ->
+                                pair.first.name ==
+                                    extra.name
+                            }
+
+                        extra.name.equals(
+                            "search",
+                            ignoreCase = true,
+                        ) -> true
+
+                        else -> false
+                    }
+                }
+
+        if (!requiredSupported) {
+            return null
+        }
+
+        return buildMap {
+            actorValues
+                .firstOrNull()
+                ?.let { pair ->
+                    put(
+                        pair.first.name,
+                        pair.second,
+                    )
+                }
+
+            actorValues
+                .filter { pair ->
+                    pair.first.isRequired
+                }
+                .forEach { pair ->
+                    put(
+                        pair.first.name,
+                        pair.second,
+                    )
+                }
+
+            if (
+                searchExtra != null &&
+                (
+                    actorCatalog ||
+                        searchExtra.isRequired
+                )
+            ) {
+                put(
+                    searchExtra.name,
+                    query,
+                )
+            }
+        }.takeIf { it.isNotEmpty() }
+    }
+
+    private fun actorExtraValue(
+        extra: CatalogExtraDescriptor,
+        query: String,
+    ): String? {
+        if (extra.options.isEmpty()) {
+            return query
+        }
+
+        val normalizedQuery =
+            normalizeSearchText(
+                query
+            )
+
+        return extra.options
+            .firstOrNull { option ->
+                normalizeSearchText(
+                    option
+                ) == normalizedQuery
+            }
+    }
+
+    private fun actorCatalogHint(
+        catalog: CatalogDescriptor,
+    ): Boolean {
+        val value =
+            listOfNotNull(
+                catalog.type,
+                catalog.id,
+                catalog.name,
+            )
+                .joinToString(" ")
+                .lowercase()
+                .replace(
+                    Regex("""[^a-z0-9]+"""),
+                    " ",
+                )
+
+        return ACTOR_SEARCH_HINTS.any { hint ->
+            Regex("(?:^|\\s)${Regex.escape(hint)}(?:$|\\s)")
+                .containsMatchIn(value)
+        }
+    }
+
+    private fun isActorExtraName(
+        name: String,
+    ): Boolean {
+        val words =
+            name
+                .trim()
+                .replace(
+                    Regex("([a-z0-9])([A-Z])"),
+                    "$1 $2",
+                )
+                .lowercase()
+                .replace(
+                    Regex("""[^a-z0-9]+"""),
+                    " ",
+                )
+                .trim()
+                .split(Regex("""\s+"""))
+                .filter { it.isNotBlank() }
+
+        if (words.size == 1) {
+            return words.first() in
+                ACTOR_SEARCH_HINTS
+        }
+
+        val first =
+            words.firstOrNull()
+                ?: return false
+
+        if (
+            first !in ACTOR_SEARCH_HINTS ||
+            "id" in words
+        ) {
+            return false
+        }
+
+        return words
+            .drop(1)
+            .all { suffix ->
+                suffix in
+                    setOf(
+                        "name",
+                        "member",
+                        "members",
+                        "query",
+                        "filter",
+                    )
+            }
+    }
+
+    private fun isActorSearchMediaItem(
+        item: MediaItem,
+    ): Boolean =
+        when (
+            item.type
+                .trim()
+                .lowercase()
+        ) {
+            "movie",
+            "film",
+            "series",
+            "tv",
+            "show",
+            "anime" -> true
+            else -> false
+        }
+
+    private fun MediaItem.normalizeActorSearchType(): MediaItem {
+        val normalizedType =
+            when (
+                type.trim().lowercase()
+            ) {
+                "film" -> "movie"
+                "tv",
+                "show" -> "series"
+                else -> type
+            }
+
+        return if (normalizedType == type) {
+            this
+        } else {
+            copy(type = normalizedType)
+        }
+    }
+
+    private data class ActorCatalogBinding(
+        val extension: MediaExtension,
+        val catalog: CatalogDescriptor,
+        val extras: Map<String, String>,
+    )
 
     private fun rankSearchResults(
         items: List<MediaItem>,
