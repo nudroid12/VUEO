@@ -431,8 +431,8 @@ internal fun VueoSettingsHub(
                                 .padding(
                                     start = 16.dp,
                                     end = 16.dp,
-                                    top = 15.dp,
-                                    bottom = 8.dp,
+                                    top = 12.dp,
+                                    bottom = 6.dp,
                                 ),
                         verticalAlignment =
                             Alignment.CenterVertically,
@@ -441,7 +441,7 @@ internal fun VueoSettingsHub(
                             modifier =
                                 Modifier
                                     .size(
-                                        68.dp
+                                        60.dp
                                     )
                                     .clip(
                                         RoundedCornerShape(
@@ -501,7 +501,7 @@ internal fun VueoSettingsHub(
                                 ),
                             verticalArrangement =
                                 Arrangement.spacedBy(
-                                    5.dp
+                                    3.dp
                                 ),
                         ) {
                             Text(
@@ -540,7 +540,7 @@ internal fun VueoSettingsHub(
                                 .fillMaxWidth()
                                 .padding(
                                     horizontal = 16.dp,
-                                    vertical = 10.dp,
+                                    vertical = 7.dp,
                                 ),
                         horizontalArrangement =
                             Arrangement.spacedBy(
@@ -608,7 +608,7 @@ internal fun VueoSettingsHub(
                                     start = 18.dp,
                                     end = 18.dp,
                                     top = 1.dp,
-                                    bottom = 12.dp,
+                                    bottom = 8.dp,
                                 ),
                         color =
                             VueoPalette.Muted,
@@ -625,7 +625,7 @@ internal fun VueoSettingsHub(
                                 .padding(
                                     start = 16.dp,
                                     end = 16.dp,
-                                    bottom = 16.dp,
+                                    bottom = 12.dp,
                                 )
                                 .clickable(
                                     onClick = onProfiles
@@ -642,10 +642,14 @@ internal fun VueoSettingsHub(
                     ) {
                         Row(
                             modifier =
-                                Modifier.padding(
-                                    horizontal = 13.dp,
-                                    vertical = 10.dp,
-                                ),
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        horizontal = 13.dp,
+                                        vertical = 8.dp,
+                                    ),
+                            horizontalArrangement =
+                                Arrangement.Center,
                             verticalAlignment =
                                 Alignment.CenterVertically,
                         ) {
@@ -653,35 +657,24 @@ internal fun VueoSettingsHub(
                                 text = "⇄",
                                 color =
                                     VueoPalette.Accent,
-                                fontSize = 17.sp,
+                                fontSize = 15.sp,
                                 fontWeight =
                                     FontWeight.Black,
                             )
 
                             Spacer(
                                 Modifier.width(
-                                    10.dp
+                                    8.dp
                                 )
                             )
 
                             Text(
                                 text = "Switch Profiles",
-                                modifier =
-                                    Modifier.weight(
-                                        1f
-                                    ),
                                 color =
                                     Color.White,
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 fontWeight =
                                     FontWeight.Bold,
-                            )
-
-                            Text(
-                                text = "›",
-                                color =
-                                    VueoPalette.Muted,
-                                fontSize = 22.sp,
                             )
                         }
                     }

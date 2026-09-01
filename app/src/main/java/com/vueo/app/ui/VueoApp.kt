@@ -181,7 +181,6 @@ import com.vueo.app.core.dna.UserDnaEngine
 import com.vueo.app.core.dna.UserDnaPreferences
 import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.BuildConfig
-import com.vueo.app.R
 import com.vueo.app.core.storage.PlaybackStore
 import com.vueo.app.core.storage.LibraryStore
 import com.vueo.app.core.storage.ProfileStore
@@ -1281,7 +1280,10 @@ private fun RowScope.ProfileBottomTab(
         },
         label = {
             Text(
-                text = "Profile",
+                text =
+                    profile.name
+                        .trim()
+                        .ifBlank { "Profile" },
                 fontSize = 11.sp,
                 fontWeight =
                     if (
@@ -1291,6 +1293,8 @@ private fun RowScope.ProfileBottomTab(
                     } else {
                         FontWeight.Medium
                     },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         },
         colors =
@@ -9530,12 +9534,6 @@ private fun MediaDetailsScreen(
     var selectedPlaybackStartPositionMs by remember {
         mutableStateOf(0L)
     }
-    var pendingPlaybackEpisode by remember {
-        mutableStateOf<EpisodeItem?>(null)
-    }
-    var pendingPlaybackFailed by remember {
-        mutableStateOf(false)
-    }
 
     LaunchedEffect(
         initialItem.id,
@@ -9847,7 +9845,6 @@ private fun MediaDetailsScreen(
     fun startSourceDiscovery(
         targetEpisode: EpisodeItem?,
         startPositionMs: Long = 0L,
-        autoPlayFirst: Boolean = false,
     ) {
     selectedPlaybackStartPositionMs =
         startPositionMs
@@ -9875,52 +9872,6 @@ private fun MediaDetailsScreen(
     val cached =
         SourceDiscoveryCache
             .get(cacheKey)
-
-    var autoPlayCommitted = false
-    var subtitlesResolved = false
-    var sourceDiscoveryCompleted = false
-    var latestAutoPlayCandidates =
-        cached?.streams
-            .orEmpty()
-
-    fun commitAutoPlayIfReady(
-        candidates: List<StreamSource>,
-        allowLowQualityFallback: Boolean = false,
-    ) {
-        latestAutoPlayCandidates = candidates
-
-        if (
-            !autoPlayFirst ||
-            autoPlayCommitted ||
-            !subtitlesResolved
-        ) {
-            return
-        }
-
-        val directCandidates =
-            candidates.filter { it.isDirectPlayable }
-        val candidate =
-            directCandidates.firstOrNull {
-                PlayerSourcePolicy
-                    .assess(
-                        source = it,
-                        preferredQuality =
-                            preferredSourceQuality,
-                    )
-                    .quality
-                    .automaticRecoveryEligible
-            } ?: directCandidates
-                .firstOrNull()
-                ?.takeIf { allowLowQualityFallback }
-            ?: return
-
-        autoPlayCommitted = true
-        selectedSeason = targetEpisode?.season
-            ?: selectedSeason
-        selectedEpisode = targetEpisode
-        selectedPlaybackVideoId = targetVideoId
-        selectedPlaybackSource = candidate
-    }
 
     sourcePickerStreams =
         cached?.streams
@@ -10064,8 +10015,6 @@ private fun MediaDetailsScreen(
                 sourcePickerStreams =
                     display
 
-                commitAutoPlayIfReady(display)
-
                 sourcePickerRawCount =
                     maxOf(
                         cached?.rawCount
@@ -10095,12 +10044,6 @@ private fun MediaDetailsScreen(
             launch {
                 sourcePickerSubtitles =
                     subtitlesDeferred.await()
-                subtitlesResolved = true
-                commitAutoPlayIfReady(
-                    candidates = latestAutoPlayCandidates,
-                    allowLowQualityFallback =
-                        sourceDiscoveryCompleted,
-                )
             }
 
             val addonDeferred =
@@ -10278,12 +10221,6 @@ private fun MediaDetailsScreen(
             sourcePickerStreams =
                 finalStreams
 
-            sourceDiscoveryCompleted = true
-            commitAutoPlayIfReady(
-                candidates = finalStreams,
-                allowLowQualityFallback = true,
-            )
-
             sourcePickerRawCount =
                 maxOf(
                     cached?.rawCount
@@ -10390,31 +10327,10 @@ private fun MediaDetailsScreen(
             availableSources =
                 sourcePickerStreams
                     .orEmpty(),
-            sourceProviderOrder =
-                sourcePickerProviderOrder,
             subtitles =
                 sourcePickerSubtitles,
             initialPositionMs =
                 selectedPlaybackStartPositionMs,
-            episodeSwitchingTo =
-                pendingPlaybackEpisode,
-            episodeSwitchFailed =
-                pendingPlaybackFailed ||
-                    (
-                        pendingPlaybackEpisode != null &&
-                            !sourcePickerSearching &&
-                            sourcePickerStreams != null &&
-                            sourcePickerStreams
-                                .orEmpty()
-                                .none { it.isDirectPlayable }
-                    ),
-            onEpisodeSwitchCompleted = {
-                pendingPlaybackEpisode = null
-                pendingPlaybackFailed = false
-            },
-            onEpisodeSwitchFailed = {
-                pendingPlaybackFailed = true
-            },
             onLibraryChanged = {
                 refreshDetailPlaybackEntries()
                 onLibraryChanged()
@@ -10428,29 +10344,32 @@ private fun MediaDetailsScreen(
                     nextSource
             },
             onNextEpisode = { next ->
-                pendingPlaybackEpisode = next
-                pendingPlaybackFailed = false
-                startSourceDiscovery(
-                    targetEpisode = next,
-                    autoPlayFirst = true,
-                )
+                selectedSeason =
+                    next.season
+                selectedEpisode =
+                    next
+                selectedPlaybackSource =
+                    null
+                selectedPlaybackVideoId =
+                    null
+                selectedPlaybackStartPositionMs =
+                    0L
+                startSourceDiscovery(next)
             },
             onEpisodeSelected = { selected ->
-                pendingPlaybackEpisode = selected
-                pendingPlaybackFailed = false
-                startSourceDiscovery(
-                    targetEpisode = selected,
-                    autoPlayFirst = true,
-                )
+                selectedSeason =
+                    selected.season
+                selectedEpisode =
+                    selected
+                selectedPlaybackSource =
+                    null
+                selectedPlaybackVideoId =
+                    null
+                selectedPlaybackStartPositionMs =
+                    0L
+                startSourceDiscovery(selected)
             },
             onBack = {
-                sourceDiscoveryJob?.cancel()
-                sourceDiscoveryJob = null
-                sourcePickerSearching = false
-                sourcePickerStreams = null
-                loadingStreams = false
-                pendingPlaybackEpisode = null
-                pendingPlaybackFailed = false
                 selectedPlaybackSource = null
                 selectedPlaybackVideoId = null
                 selectedPlaybackStartPositionMs =
@@ -10842,6 +10761,22 @@ private fun MediaDetailsScreen(
                 DetailsLoadingSkeleton()
             }
         }
+        if (
+        dnaMatchPercent !=
+            null
+    ) {
+        item(
+            key =
+                "details_dna_match"
+        ) {
+            DetailsDnaMatchCard(
+                percent =
+                    dnaMatchPercent
+            )
+        }
+    }
+
+    
         item {
             Column(
                 modifier =
@@ -11032,8 +10967,7 @@ private fun MediaDetailsScreen(
                 it.source == "imdb"
             }
         val showRatingsStrip =
-            secondaryRatings.isNotEmpty() ||
-                dnaMatchPercent != null
+            secondaryRatings.isNotEmpty()
 
         if (
             detailFacts.isNotEmpty() ||
@@ -11057,9 +10991,7 @@ private fun MediaDetailsScreen(
                     ratings =
                         listOfNotNull(
                             imdbRating
-                        ) + secondaryRatings,
-                    vueoMatchPercent =
-                        dnaMatchPercent,
+                        ) + secondaryRatings
                 )
             }
         }
@@ -11650,6 +11582,94 @@ private fun formatDetailsRuntime(
 }
 
 @Composable
+private fun DetailsDnaMatchCard(
+    percent: Int,
+) {
+    Surface(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal =
+                        18.dp
+                ),
+        shape =
+            RoundedCornerShape(
+                16.dp
+            ),
+        color =
+            VueoPalette.Accent
+                .copy(
+                    alpha = .08f
+                ),
+        border =
+            androidx.compose
+                .foundation
+                .BorderStroke(
+                    width = 1.dp,
+                    color =
+                        VueoPalette.Accent
+                            .copy(
+                                alpha = .22f
+                            ),
+                ),
+    ) {
+        Row(
+            modifier =
+                Modifier.padding(
+                    horizontal =
+                        14.dp,
+                    vertical =
+                        12.dp,
+                ),
+            verticalAlignment =
+                Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier =
+                    Modifier.weight(
+                        1f
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        3.dp
+                    ),
+            ) {
+                Text(
+                    text =
+                        "YOUR DNA",
+                    color =
+                        VueoPalette.Accent,
+                    fontSize = 9.sp,
+                    fontWeight =
+                        FontWeight.Black,
+                    letterSpacing =
+                        1.2.sp,
+                )
+
+                Text(
+                    text =
+                        "Based on your local viewing profile",
+                    color =
+                        VueoPalette.Muted,
+                    fontSize = 10.sp,
+                )
+            }
+
+            Text(
+                text =
+                    "$percent% Match",
+                color =
+                    VueoPalette.Accent,
+                fontSize = 17.sp,
+                fontWeight =
+                    FontWeight.Black,
+            )
+        }
+    }
+}
+
+@Composable
 private fun GeminiInsightCard(
     insight: String?,
     loading: Boolean,
@@ -11885,21 +11905,34 @@ private fun ImdbRatingMark(
                 5.dp
             ),
     ) {
-        Image(
-            painter =
-                painterResource(
-                    R.drawable
-                        .rating_imdb
+        Surface(
+            shape =
+                RoundedCornerShape(
+                    3.dp
                 ),
-            contentDescription =
-                "IMDb",
-            modifier =
-                Modifier.size(
-                    width = 30.dp,
-                    height = 17.dp,
-                ),
-            contentScale =
-                ContentScale.Fit,
+            color =
+                Color(0xFFF5C518),
+        ) {
+            Text(
+                text = "IMDb",
+                modifier =
+                    Modifier.padding(
+                        horizontal = 5.dp,
+                        vertical = 2.dp,
+                    ),
+                color = Color.Black,
+                fontSize = 9.sp,
+                fontWeight =
+                    FontWeight.Black,
+            )
+        }
+
+        Text(
+            text = "★",
+            color = Color.White,
+            fontSize = 11.sp,
+            fontWeight =
+                FontWeight.Black,
         )
 
         Text(
@@ -11916,32 +11949,7 @@ private fun ImdbRatingMark(
 @Composable
 private fun MediaRatingsStrip(
     ratings: List<MediaRating>,
-    vueoMatchPercent: Int?,
 ) {
-    val ratingPriority =
-        remember {
-            mapOf(
-                "imdb" to 0,
-                "tomatoes" to 1,
-                "metacritic" to 2,
-                "tmdb" to 3,
-                "trakt" to 4,
-            )
-        }
-
-    val orderedRatings =
-        remember(ratings) {
-            ratings
-                .distinctBy {
-                    it.source
-                }
-                .sortedBy {
-                    ratingPriority[
-                        it.source
-                    ] ?: Int.MAX_VALUE
-                }
-        }
-
     LazyRow(
         contentPadding =
             PaddingValues(
@@ -11949,166 +11957,88 @@ private fun MediaRatingsStrip(
             ),
         horizontalArrangement =
             Arrangement.spacedBy(
-                14.dp
+                8.dp
             ),
         verticalAlignment =
             Alignment.CenterVertically,
     ) {
         items(
-            orderedRatings,
+            ratings,
             key = {
                 it.source
             },
         ) { rating ->
-            MediaRatingMark(
-                rating = rating
-            )
-        }
+            if (rating.source == "imdb") {
+                Surface(
+                    shape =
+                        RoundedCornerShape(
+                            13.dp
+                        ),
+                    color =
+                        VueoPalette
+                            .SurfaceStrong,
+                ) {
+                    Row(
+                        modifier =
+                            Modifier.padding(
+                                horizontal = 10.dp,
+                                vertical = 8.dp,
+                            ),
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                    ) {
+                        ImdbRatingMark(
+                            rating = rating
+                        )
+                    }
+                }
+            } else {
+                Surface(
+                    shape =
+                        RoundedCornerShape(
+                            13.dp
+                        ),
+                    color =
+                        VueoPalette
+                            .SurfaceStrong,
+                ) {
+                    Row(
+                        modifier =
+                            Modifier.padding(
+                                horizontal =
+                                    11.dp,
+                                vertical =
+                                    8.dp,
+                            ),
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                        horizontalArrangement =
+                            Arrangement.spacedBy(
+                                6.dp
+                            ),
+                    ) {
+                        Text(
+                            text =
+                                rating.compactLabel,
+                            color =
+                                VueoPalette.Muted,
+                            fontSize = 10.sp,
+                            fontWeight =
+                                FontWeight.Bold,
+                        )
 
-        vueoMatchPercent?.let { percent ->
-            item(
-                key = "dna_match"
-            ) {
-                DnaMatchMark(
-                    percent = percent
-                )
+                        Text(
+                            text =
+                                rating.displayValue(),
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight =
+                                FontWeight.Black,
+                        )
+                    }
+                }
             }
         }
-    }
-}
-
-@Composable
-private fun MediaRatingMark(
-    rating: MediaRating,
-) {
-    val logo =
-        when (rating.source) {
-            "imdb" ->
-                R.drawable.rating_imdb
-
-            "tomatoes" ->
-                R.drawable.rating_rotten_tomatoes
-
-            "metacritic" ->
-                R.drawable.rating_metacritic
-
-            "tmdb" ->
-                R.drawable.rating_tmdb
-
-            "trakt" ->
-                R.drawable.rating_trakt
-
-            else -> null
-        }
-
-    val valueColor =
-        when (rating.source) {
-            "imdb" -> Color(0xFFF5C518)
-            "tomatoes" -> Color(0xFFFA320A)
-            "metacritic" -> Color(0xFFFFCC33)
-            "tmdb" -> Color(0xFF01B4E4)
-            "trakt" -> Color(0xFFED1C24)
-            else -> Color.White
-        }
-
-    Row(
-        verticalAlignment =
-            Alignment.CenterVertically,
-        horizontalArrangement =
-            Arrangement.spacedBy(
-                5.dp
-            ),
-    ) {
-        if (logo != null) {
-            Image(
-                painter =
-                    painterResource(
-                        logo
-                    ),
-                contentDescription =
-                    rating.label,
-                modifier =
-                    Modifier.size(
-                        width =
-                            if (
-                                rating.source ==
-                                    "imdb"
-                            ) {
-                                30.dp
-                            } else {
-                                17.dp
-                            },
-                        height = 17.dp,
-                    ),
-                contentScale =
-                    ContentScale.Fit,
-            )
-        } else {
-            Text(
-                text = rating.compactLabel,
-                color = VueoPalette.Muted,
-                fontSize = 10.sp,
-                fontWeight =
-                    FontWeight.Bold,
-            )
-        }
-
-        Text(
-            text = rating.displayValue(),
-            color = valueColor,
-            fontSize = 13.sp,
-            fontWeight =
-                FontWeight.Black,
-            maxLines = 1,
-        )
-    }
-}
-
-@Composable
-private fun DnaMatchMark(
-    percent: Int,
-) {
-    Row(
-        verticalAlignment =
-            Alignment.CenterVertically,
-        horizontalArrangement =
-            Arrangement.spacedBy(
-                6.dp
-            ),
-    ) {
-        Image(
-            painter =
-                painterResource(
-                    R.drawable
-                        .ic_dna_match
-                ),
-            contentDescription =
-                "DNA Match",
-            modifier =
-                Modifier.size(
-                    18.dp
-                ),
-            contentScale =
-                ContentScale.Fit,
-        )
-
-        Text(
-            text = "DNA",
-            color = VueoPalette.Muted,
-            fontSize = 10.sp,
-            fontWeight =
-                FontWeight.Bold,
-            maxLines = 1,
-        )
-
-        Text(
-            text = "$percent%",
-            color = VueoPalette.Accent,
-            fontSize = 13.sp,
-            fontWeight =
-                FontWeight.Black,
-            maxLines = 1,
-        )
     }
 }
 
@@ -13812,13 +13742,8 @@ private fun PlayerScreen(
     episodes: List<EpisodeItem>,
     source: StreamSource,
     availableSources: List<StreamSource>,
-    sourceProviderOrder: List<String>,
     subtitles: List<SubtitleTrack>,
     initialPositionMs: Long,
-    episodeSwitchingTo: EpisodeItem?,
-    episodeSwitchFailed: Boolean,
-    onEpisodeSwitchCompleted: () -> Unit,
-    onEpisodeSwitchFailed: () -> Unit,
     onLibraryChanged: () -> Unit,
     onSwitchSource: (StreamSource, Long) -> Unit,
     onNextEpisode: (EpisodeItem) -> Unit,
@@ -13827,12 +13752,6 @@ private fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
-    val latestEpisodeSwitchingTo =
-        rememberUpdatedState(episodeSwitchingTo)
-    val latestOnEpisodeSwitchCompleted =
-        rememberUpdatedState(onEpisodeSwitchCompleted)
-    val latestOnEpisodeSwitchFailed =
-        rememberUpdatedState(onEpisodeSwitchFailed)
     val audioManager = remember {
         context.getSystemService(
             Context.AUDIO_SERVICE
@@ -13994,9 +13913,6 @@ private fun PlayerScreen(
     var showSourceDialog by remember {
         mutableStateOf(false)
     }
-    var switchingSourceUrl by remember(mediaKey) {
-        mutableStateOf<String?>(null)
-    }
     var showEpisodeDialog by remember {
         mutableStateOf(false)
     }
@@ -14027,9 +13943,6 @@ private fun PlayerScreen(
     var nextEpisodeCountdown by remember {
         mutableStateOf<Int?>(null)
     }
-    var nextEpisodeCardSwitchTarget by remember {
-        mutableStateOf<EpisodeItem?>(null)
-    }
     var nextEpisodeSwitching by remember(mediaKey) {
         mutableStateOf(false)
     }
@@ -14039,9 +13952,6 @@ private fun PlayerScreen(
     var nextEpisodeCardDismissed by remember(mediaKey) {
         mutableStateOf(false)
     }
-    val nextEpisodeCardVisible =
-        showNextEpisodeCard ||
-            nextEpisodeCardSwitchTarget != null
     var autoPlayNextEpisode by remember {
         mutableStateOf(
             settingsStore.autoPlayNextEpisodeEnabled()
@@ -14101,10 +14011,8 @@ private fun PlayerScreen(
                 controlsVisible = true
             }
 
-            showSourceDialog -> {
+            showSourceDialog ->
                 showSourceDialog = false
-                switchingSourceUrl = null
-            }
 
             showEpisodeDialog ->
                 showEpisodeDialog = false
@@ -14306,7 +14214,6 @@ private fun PlayerScreen(
             return
         }
         nextEpisodeSwitching = true
-        nextEpisodeCardSwitchTarget = next
         nextEpisodeCountdown = null
         showNextEpisodeCard = false
         controlsVisible = false
@@ -14343,24 +14250,11 @@ private fun PlayerScreen(
                 .coerceAtLeast(currentPositionMs)
                 .coerceAtLeast(0L)
             savePosition()
-            if (showSourceDialog) {
-                switchingSourceUrl = alternate.url
-            }
-            hasRenderedFirstFrame = false
             onSwitchSource(alternate, position)
         } else {
             playbackPhase = PlayerPlaybackPhase.FAILED
             playbackError = message
             controlsVisible = true
-            if (
-                latestEpisodeSwitchingTo
-                    .value
-                    ?.id == episode?.id
-            ) {
-                latestOnEpisodeSwitchFailed
-                    .value
-                    .invoke()
-            }
         }
     }
 
@@ -14711,22 +14605,6 @@ private fun PlayerScreen(
                     playbackPhase = PlayerPlaybackPhase.READY
                     playbackError = null
                     recoveryInProgress = false
-                    if (
-                        latestEpisodeSwitchingTo
-                            .value
-                            ?.id == episode?.id
-                    ) {
-                        if (
-                            nextEpisodeCardSwitchTarget
-                                ?.id == episode?.id
-                        ) {
-                            nextEpisodeCardSwitchTarget = null
-                        }
-                        showEpisodeDialog = false
-                        latestOnEpisodeSwitchCompleted
-                            .value
-                            .invoke()
-                    }
                 }
             }
 
@@ -14750,25 +14628,6 @@ private fun PlayerScreen(
         isBuffering = false
         hasRenderedFirstFrame = false
         recoveryInProgress = false
-    }
-
-    LaunchedEffect(
-        showSourceDialog,
-        source.url,
-        hasRenderedFirstFrame,
-        switchingSourceUrl,
-    ) {
-        val pendingUrl = switchingSourceUrl
-        if (
-            showSourceDialog &&
-            pendingUrl != null &&
-            source.url == pendingUrl &&
-            hasRenderedFirstFrame
-        ) {
-            showSourceDialog = false
-            switchingSourceUrl = null
-            controlsVisible = true
-        }
     }
 
     LaunchedEffect(
@@ -14891,7 +14750,7 @@ private fun PlayerScreen(
         controlsLocked,
         gestureActive,
         playerPanelVisible,
-        nextEpisodeCardVisible,
+        showNextEpisodeCard,
     ) {
         if (
             controlsVisible &&
@@ -14899,7 +14758,7 @@ private fun PlayerScreen(
             !controlsLocked &&
             !gestureActive &&
             !playerPanelVisible &&
-            !nextEpisodeCardVisible
+            !showNextEpisodeCard
         ) {
             delay(3_000L)
             controlsVisible = false
@@ -15210,21 +15069,19 @@ private fun PlayerScreen(
             currentSource = source,
             currentPlaybackFailed = playbackError != null,
             failedSourceUrls = failedSourceUrls,
-            providerOrder = sourceProviderOrder,
-            switchingSourceUrl = switchingSourceUrl,
+            providerOrder =
+                playableSources
+                    .map(::sourceProviderTabKey)
+                    .distinct(),
+            switchingSourceUrl = null,
             onSelect = { candidate ->
                 val switchPosition = player.currentPosition
                     .coerceAtLeast(0L)
                 savePosition()
-                switchingSourceUrl = candidate.url
-                hasRenderedFirstFrame = false
-                playbackPhase = PlayerPlaybackPhase.LOADING
+                showSourceDialog = false
                 onSwitchSource(candidate, switchPosition)
             },
-            onDismiss = {
-                showSourceDialog = false
-                switchingSourceUrl = null
-            },
+            onDismiss = { showSourceDialog = false },
         )
     }
 
@@ -15265,7 +15122,6 @@ private fun PlayerScreen(
             candidate.id to PlayerEpisodeProgress(
                 fraction = fraction,
                 watched = stored?.isCompleted == true,
-                positionMs = candidatePositionMs,
             )
         }
 
@@ -15275,11 +15131,15 @@ private fun PlayerScreen(
             currentEpisode = episode,
             progressByEpisodeId = progressByEpisodeId,
             switchingEpisodeId =
-                episodeSwitchingTo?.id,
-            switchingFailed =
-                episodeSwitchFailed,
+                if (nextEpisodeSwitching) {
+                    nextEpisode?.id
+                } else {
+                    null
+                },
+            switchingFailed = false,
             onEpisodeSelected = { candidate ->
                 savePosition()
+                showEpisodeDialog = false
                 nextEpisodeCountdown = null
                 showNextEpisodeCard = false
                 nextEpisodeCardDismissed = true
@@ -15620,22 +15480,11 @@ private fun PlayerScreen(
                     .pointerInput(
                         player,
                         controlsLocked,
-                        showNextEpisodeCard,
-                        nextEpisodeCardSwitchTarget,
                     ) {
                         detectTapGestures(
                             onTap = {
-                                if (
-                                    showNextEpisodeCard &&
-                                    nextEpisodeCardSwitchTarget == null
-                                ) {
-                                    nextEpisodeCountdown = null
-                                    showNextEpisodeCard = false
-                                    nextEpisodeCardDismissed = true
-                                } else {
-                                    controlsVisible =
-                                        !controlsVisible
-                                }
+                                controlsVisible =
+                                    !controlsVisible
                             },
                             onDoubleTap = { offset ->
                                 when {
@@ -15840,16 +15689,6 @@ private fun PlayerScreen(
                 Spacer(Modifier.width(8.dp))
 
                 PlayerTopAction(
-                    icon = Icons.Default.MoreHoriz,
-                    contentDescription = "More controls",
-                    onClick = {
-                        showMoreDialog = true
-                    },
-                )
-
-                Spacer(Modifier.width(8.dp))
-
-                PlayerTopAction(
                     icon = Icons.Default.ArrowBack,
                     contentDescription = "Back",
                     onClick = {
@@ -15912,47 +15751,6 @@ private fun PlayerScreen(
                 )
             }
 
-            val nextEpisodeCardEpisode =
-                nextEpisodeCardSwitchTarget
-                    ?: nextEpisode
-            if (
-                nextEpisodeCardEpisode != null &&
-                nextEpisodeCardVisible
-            ) {
-                PlayerNextEpisodeCard(
-                    episode = nextEpisodeCardEpisode,
-                    countdownSeconds =
-                        nextEpisodeCountdown,
-                    switching =
-                        nextEpisodeCardSwitchTarget != null &&
-                            !episodeSwitchFailed,
-                    failed =
-                        nextEpisodeCardSwitchTarget != null &&
-                            episodeSwitchFailed,
-                    onPlay = {
-                        if (
-                            episodeSwitchFailed &&
-                            nextEpisodeCardSwitchTarget != null
-                        ) {
-                            nextEpisodeSwitching = true
-                            nextEpisodeCountdown = null
-                            savePosition()
-                            onEpisodeSelected(
-                                nextEpisodeCardEpisode
-                            )
-                        } else {
-                            startNextEpisode()
-                        }
-                    },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(
-                            end = 24.dp,
-                            bottom = 126.dp,
-                        ),
-                )
-            }
-
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -16011,11 +15809,63 @@ private fun PlayerScreen(
                                     enabled =
                                         playableSources.size > 1,
                                     onClick = {
-                                        switchingSourceUrl = null
                                         showSourceDialog = true
                                     },
                                 ) {
                                     Text("Choose Source")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (showNextEpisodeCard) {
+                    nextEpisode?.let { next ->
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = VueoPalette.SurfaceElevated,
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment =
+                                    Alignment.CenterVertically,
+                            ) {
+                                Column(
+                                    modifier =
+                                        Modifier.weight(1f),
+                                ) {
+                                    Text(
+                                        "Next Episode",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Text(
+                                        "S${next.season} E${next.episode} • ${next.title}",
+                                        color = VueoPalette.Muted,
+                                        fontSize = 11.sp,
+                                    )
+                                }
+                                TextButton(
+                                    onClick = {
+                                        nextEpisodeCountdown = null
+                                        showNextEpisodeCard = false
+                                        nextEpisodeCardDismissed = true
+                                    },
+                                ) {
+                                    Text("Dismiss")
+                                }
+                                Button(
+                                    onClick = {
+                                        startNextEpisode()
+                                    },
+                                ) {
+                                    Text(
+                                        nextEpisodeCountdown
+                                            ?.let { "Play Now ($it)" }
+                                            ?: "Play Now"
+                                    )
                                 }
                             }
                         }
@@ -16171,7 +16021,6 @@ private fun PlayerScreen(
                                 enabled =
                                     playableSources.isNotEmpty(),
                                 onClick = {
-                                    switchingSourceUrl = null
                                     showSourceDialog = true
                                 },
                             )
@@ -16184,6 +16033,13 @@ private fun PlayerScreen(
                                     },
                                 )
                             }
+                            PlayerPanelAction(
+                                icon = Icons.Default.MoreHoriz,
+                                label = "More",
+                                onClick = {
+                                    showMoreDialog = true
+                                },
+                            )
                         }
                     }
                 }
@@ -16235,147 +16091,6 @@ private fun PlayerScreen(
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PlayerNextEpisodeCard(
-    episode: EpisodeItem,
-    countdownSeconds: Int?,
-    switching: Boolean,
-    failed: Boolean,
-    onPlay: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val canPlay = !switching
-    Surface(
-        modifier = modifier
-            .fillMaxWidth(.38f)
-            .widthIn(min = 300.dp, max = 440.dp)
-            .clickable(
-                enabled = canPlay,
-                onClick = onPlay,
-            ),
-        shape = RoundedCornerShape(16.dp),
-        color = Color(0xED181A1C),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            Color.White.copy(alpha = .14f),
-        ),
-    ) {
-        Column {
-            Row(
-                modifier = Modifier.padding(9.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                NetworkImage(
-                    url = episode.thumbnail,
-                    contentDescription = episode.title,
-                    modifier = Modifier
-                        .width(92.dp)
-                        .height(52.dp)
-                        .clip(RoundedCornerShape(10.dp)),
-                    contentScale = ContentScale.Crop,
-                    fallbackText = "S${episode.season} E${episode.episode}",
-                )
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    Text(
-                        text = when {
-                            failed -> "No playable source"
-                            switching -> "Finding source..."
-                            else -> "Next Episode"
-                        },
-                        color = when {
-                            failed -> Color(0xFFFF8A80)
-                            switching -> VueoPlayerAccent
-                            else -> Color.White.copy(alpha = .62f)
-                        },
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = "S${episode.season} E${episode.episode} • " +
-                            episode.title.ifBlank {
-                                "Episode ${episode.episode}"
-                            },
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-
-                OutlinedButton(
-                    enabled = canPlay,
-                    onClick = onPlay,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        if (canPlay) {
-                            VueoPlayerAccent.copy(alpha = .72f)
-                        } else {
-                            Color.White.copy(alpha = .14f)
-                        },
-                    ),
-                    contentPadding = PaddingValues(
-                        horizontal = 11.dp,
-                        vertical = 5.dp,
-                    ),
-                ) {
-                    Icon(
-                        Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = if (canPlay) {
-                            VueoPlayerAccent
-                        } else {
-                            Color.White.copy(alpha = .30f)
-                        },
-                    )
-                    Spacer(Modifier.width(3.dp))
-                    Text(
-                        text = when {
-                            failed -> "Retry"
-                            switching -> "Loading"
-                            countdownSeconds != null ->
-                                "Play in ${countdownSeconds}s"
-                            else -> "Play"
-                        },
-                        color = if (canPlay) {
-                            Color.White
-                        } else {
-                            Color.White.copy(alpha = .30f)
-                        },
-                        fontSize = 9.sp,
-                        maxLines = 1,
-                    )
-                }
-            }
-
-            countdownSeconds?.let { seconds ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(2.dp)
-                        .background(Color.White.copy(alpha = .12f)),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(
-                                (seconds / 8f).coerceIn(0f, 1f)
-                            )
-                            .fillMaxHeight()
-                            .background(VueoPlayerAccent),
-                    )
-                }
             }
         }
     }
