@@ -1281,7 +1281,10 @@ private fun RowScope.ProfileBottomTab(
         },
         label = {
             Text(
-                text = "Profile",
+                text =
+                    profile.name
+                        .trim()
+                        .ifBlank { "Profile" },
                 fontSize = 11.sp,
                 fontWeight =
                     if (
@@ -1291,6 +1294,8 @@ private fun RowScope.ProfileBottomTab(
                     } else {
                         FontWeight.Medium
                     },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         },
         colors =
@@ -9384,7 +9389,7 @@ private fun MediaDetailsScreen(
             List<MediaItem>
         >(emptyList())
     }
-    var relatedUsesTmdb by remember {
+    var tmdbMoreLikeThisEnabled by remember {
         mutableStateOf(false)
     }
     var ratings by remember {
@@ -9541,12 +9546,21 @@ private fun MediaDetailsScreen(
     ) {
         loadingMeta = true
         relatedItems = emptyList()
-        relatedUsesTmdb = false
+        tmdbMoreLikeThisEnabled = false
         ratings = emptyList()
 
         val tmdbKey =
             pluginStore
                 .tmdbApiKey()
+
+        tmdbMoreLikeThisEnabled =
+            tmdbKey.isNotBlank() &&
+            (
+                settingsStore
+                    .tmdbRecommendationsEnabled() ||
+                    settingsStore
+                        .tmdbSimilarTitlesEnabled()
+            )
 
         val preparedItem =
             if (
@@ -9760,7 +9774,6 @@ private fun MediaDetailsScreen(
                 )
 
             if (tmdbRelated.isNotEmpty()) {
-                relatedUsesTmdb = true
                 relatedItems =
                     (
                         tmdbRelated +
@@ -11258,6 +11271,105 @@ private fun MediaDetailsScreen(
             }
         }
 
+        if (relatedItems.isNotEmpty()) {
+            item {
+                Column(
+                    verticalArrangement =
+                        Arrangement.spacedBy(
+                            10.dp
+                        ),
+                ) {
+                    Column(
+                        modifier =
+                            Modifier.padding(
+                                horizontal =
+                                    18.dp
+                            ),
+                        verticalArrangement =
+                            Arrangement.spacedBy(
+                                2.dp
+                            ),
+                    ) {
+                        Text(
+                            text =
+                                "More Like This",
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight =
+                                FontWeight.Black,
+                        )
+
+                        Text(
+                            text =
+                                "Recommended for you",
+                            color =
+                                VueoPalette.Muted,
+                            fontSize = 10.sp,
+                        )
+                    }
+
+                    LazyRow(
+                        contentPadding =
+                            PaddingValues(
+                                horizontal =
+                                    18.dp
+                            ),
+                        horizontalArrangement =
+                            Arrangement.spacedBy(
+                                12.dp
+                            ),
+                    ) {
+                        items(
+                            relatedItems,
+                            key = {
+                                "${it.type}:${it.id}"
+                            },
+                        ) { related ->
+                            MediaPoster(
+                                item = related,
+                                onClick = {
+                                    onMediaClick(
+                                        related
+                                    )
+                                },
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    horizontal =
+                                        18.dp
+                                ),
+                        horizontalArrangement =
+                            Arrangement.End,
+                    ) {
+                        Text(
+                            text =
+                                moreLikeThisAttribution(
+                                    usesTmdb =
+                                        tmdbMoreLikeThisEnabled,
+                                ),
+                            modifier =
+                                Modifier.offset(
+                                    y = (-7).dp
+                                ),
+                            color =
+                                VueoPalette.Muted
+                                    .copy(
+                                        alpha = .68f
+                                    ),
+                            fontSize = 8.sp,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+
         if (
             geminiAvailable &&
             !loadingMeta
@@ -11351,105 +11463,6 @@ private fun MediaDetailsScreen(
                         }
                     },
                 )
-            }
-        }
-
-        if (relatedItems.isNotEmpty()) {
-            item {
-                Column(
-                    verticalArrangement =
-                        Arrangement.spacedBy(
-                            10.dp
-                        ),
-                ) {
-                    Column(
-                        modifier =
-                            Modifier.padding(
-                                horizontal =
-                                    18.dp
-                            ),
-                        verticalArrangement =
-                            Arrangement.spacedBy(
-                                2.dp
-                            ),
-                    ) {
-                        Text(
-                            text =
-                                "More Like This",
-                            color = Color.White,
-                            fontSize = 20.sp,
-                            fontWeight =
-                                FontWeight.Black,
-                        )
-
-                        Text(
-                            text =
-                                "Recommended for you",
-                            color =
-                                VueoPalette.Muted,
-                            fontSize = 10.sp,
-                        )
-                    }
-
-                    LazyRow(
-                        contentPadding =
-                            PaddingValues(
-                                horizontal =
-                                    18.dp
-                            ),
-                        horizontalArrangement =
-                            Arrangement.spacedBy(
-                                12.dp
-                            ),
-                    ) {
-                        items(
-                            relatedItems,
-                            key = {
-                                "${it.type}:${it.id}"
-                            },
-                        ) { related ->
-                            MediaPoster(
-                                item = related,
-                                onClick = {
-                                    onMediaClick(
-                                        related
-                                    )
-                                },
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(
-                                    horizontal =
-                                        18.dp
-                                ),
-                        horizontalArrangement =
-                            Arrangement.End,
-                    ) {
-                        Text(
-                            text =
-                                moreLikeThisAttribution(
-                                    usesTmdb =
-                                        relatedUsesTmdb,
-                                ),
-                            modifier =
-                                Modifier.offset(
-                                    y = (-7).dp
-                                ),
-                            color =
-                                VueoPalette.Muted
-                                    .copy(
-                                        alpha = .68f
-                                    ),
-                            fontSize = 8.sp,
-                            maxLines = 1,
-                        )
-                    }
-                }
             }
         }
     }
