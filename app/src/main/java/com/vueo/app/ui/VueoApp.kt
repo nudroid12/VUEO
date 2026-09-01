@@ -4660,6 +4660,11 @@ private fun SearchScreen(
                         item ->
                         SearchPosterTile(
                             item = item,
+                            catalogLabel =
+                                searchCatalogLabel(
+                                    engine = engine,
+                                    item = item,
+                                ),
                             modifier =
                                 Modifier.weight(
                                     1f
@@ -4902,19 +4907,120 @@ private fun searchRankAndDedupe(
             }
     }
 
-    return items
-        .groupBy {
-            searchIdentityKey(it)
+    val groups =
+        mutableListOf<
+            MutableList<MediaItem>
+        >()
+
+    items
+        .filter {
+            searchIsRelevantEnough(
+                item = it,
+                query = normalizedQuery,
+            )
         }
-        .values
-        .mapNotNull { duplicates ->
-            duplicates.maxByOrNull { item ->
-                searchRelevanceScore(
-                    item = item,
-                    query = normalizedQuery,
-                ) * 100 +
-                    searchMetadataScore(item)
+        .forEach {
+            candidate ->
+
+            val candidateTitle =
+                searchCanonicalTitle(
+                    candidate
+                )
+            val candidateType =
+                searchCanonicalType(
+                    candidate.type
+                )
+            val candidateYear =
+                searchReleaseYear(
+                    candidate
+                )
+
+            val target =
+                groups.firstOrNull {
+                    group ->
+                    val sample =
+                        group.first()
+
+                    val sampleYear =
+                        searchReleaseYear(
+                            sample
+                        )
+
+                    candidateTitle ==
+                        searchCanonicalTitle(
+                            sample
+                        ) &&
+                        candidateType ==
+                            searchCanonicalType(
+                                sample.type
+                            ) &&
+                        (
+                            candidateYear == 0 ||
+                                sampleYear == 0 ||
+                                kotlin.math.abs(
+                                    candidateYear -
+                                        sampleYear
+                                ) <= 1
+                        )
+                }
+
+            if (target == null) {
+                groups +=
+                    mutableListOf(
+                        candidate
+                    )
+            } else {
+                target += candidate
             }
+        }
+
+    return groups
+        .mapNotNull {
+            duplicates ->
+
+            val best =
+                duplicates.maxByOrNull {
+                    item ->
+                    (
+                        searchRelevanceScore(
+                            item = item,
+                            query =
+                                normalizedQuery,
+                        ) * 100
+                    ) +
+                        searchMetadataScore(
+                            item
+                        )
+                }
+                    ?: return@mapNotNull null
+
+            best.copy(
+                genres =
+                    duplicates
+                        .flatMap {
+                            it.genres
+                        }
+                        .distinctBy {
+                            it.lowercase()
+                        },
+                catalogSources =
+                    (
+                        best.catalogSources +
+                            duplicates
+                                .flatMap {
+                                    it.catalogSources
+                                }
+                    )
+                        .map {
+                            it.trim()
+                        }
+                        .filter {
+                            it.isNotBlank()
+                        }
+                        .distinctBy {
+                            it.lowercase()
+                        },
+            )
         }
         .sortedWith(
             compareByDescending<MediaItem> {
@@ -4932,41 +5038,16 @@ private fun searchRankAndDedupe(
         )
 }
 
-private fun searchIdentityKey(
-    item: MediaItem,
-): String {
-    val title =
-        searchNormalizeText(
-            item.name
-        )
-    val year =
-        searchReleaseYear(item)
-
-    return if (title.isNotBlank()) {
-        buildString {
-            append(
-                item.type.lowercase()
-            )
-            append('|')
-            append(title)
-            append('|')
-            append(
-                year.takeIf {
-                    it > 0
-                } ?: 0
-            )
-        }
-    } else {
-        "${item.type}:${item.id}"
-    }
-}
-
-private fun searchRelevanceScore(
+private fun searchIsRelevantEnough(
     item: MediaItem,
     query: String,
-): Int {
+): Boolean {
     val normalizedQuery =
         searchNormalizeText(query)
+    val titleQuery =
+        searchTitleQuery(
+            normalizedQuery
+        )
     val title =
         searchNormalizeText(
             item.name
@@ -4974,13 +5055,156 @@ private fun searchRelevanceScore(
 
     if (
         normalizedQuery.isBlank() ||
+        titleQuery.isBlank() ||
+        title.isBlank()
+    ) {
+        return false
+    }
+
+    val score =
+        searchRelevanceScore(
+            item = item,
+            query = normalizedQuery,
+        )
+
+    if (score >= 44_000) {
+        return true
+    }
+
+    val queryTokens =
+        titleQuery
+            .split(' ')
+            .filter {
+                it.length >= 2
+            }
+    val titleTokens =
+        title
+            .split(' ')
+            .filter {
+                it.isNotBlank()
+            }
+
+    if (queryTokens.isEmpty()) {
+        return score > 0
+    }
+
+    val matched =
+        queryTokens.count {
+            token ->
+            titleTokens.any {
+                titleToken ->
+                titleToken == token ||
+                    titleToken
+                        .startsWith(
+                            token
+                        ) ||
+                    token.startsWith(
+                        titleToken
+                    )
+            }
+        }
+
+    return if (
+        queryTokens.size == 1
+    ) {
+        matched == 1
+    } else {
+        matched ==
+            queryTokens.size
+    }
+}
+
+private fun searchCanonicalTitle(
+    item: MediaItem,
+): String {
+    var title =
+        searchNormalizeText(
+            item.name
+        )
+
+    title =
+        title.replace(
+            Regex(
+                """\s+(19|20)\d{2}$"""
+            ),
+            "",
+        )
+
+    if (
+        searchCanonicalType(
+            item.type
+        ) == "series"
+    ) {
+        title =
+            title
+                .replace(
+                    Regex(
+                        """\s+season\s+\d+.*$"""
+                    ),
+                    "",
+                )
+                .replace(
+                    Regex(
+                        """\s+(tv\s+)?series\s*$"""
+                    ),
+                    "",
+                )
+    }
+
+    return title.trim()
+}
+
+private fun searchCanonicalType(
+    value: String,
+): String =
+    when (
+        value
+            .trim()
+            .lowercase()
+    ) {
+        "tv",
+        "show",
+        "shows",
+        "series" ->
+            "series"
+
+        "film",
+        "films",
+        "movies",
+        "movie" ->
+            "movie"
+
+        else ->
+            value
+                .trim()
+                .lowercase()
+    }
+
+private fun searchRelevanceScore(
+    item: MediaItem,
+    query: String,
+): Int {
+    val normalizedQuery =
+        searchNormalizeText(query)
+    val titleQuery =
+        searchTitleQuery(
+            normalizedQuery
+        )
+    val title =
+        searchNormalizeText(
+            item.name
+        )
+
+    if (
+        normalizedQuery.isBlank() ||
+        titleQuery.isBlank() ||
         title.isBlank()
     ) {
         return 0
     }
 
     val queryTokens =
-        normalizedQuery
+        titleQuery
             .split(' ')
             .filter {
                 it.isNotBlank()
@@ -4992,55 +5216,75 @@ private fun searchRelevanceScore(
                 it.isNotBlank()
             }
 
-    var score =
-        when {
-            title == normalizedQuery ->
-                100_000
-
-            title.startsWith(
-                "$normalizedQuery "
-            ) ->
-                82_000
-
-            title.contains(
-                " $normalizedQuery "
-            ) ||
-                title.endsWith(
-                    " $normalizedQuery"
-                ) ->
-                72_000
-
-            title.contains(
-                normalizedQuery
-            ) ->
-                64_000
-
-            queryTokens.all { token ->
-                token in titleTokens
-            } ->
-                52_000
-
-            queryTokens.all { token ->
-                titleTokens.any {
-                    it.startsWith(token)
-                }
-            } ->
-                44_000
-
-            else -> 0
+    val exactTokenMatches =
+        queryTokens.count {
+            it in titleTokens
+        }
+    val prefixTokenMatches =
+        queryTokens.count {
+            token ->
+            titleTokens.any {
+                titleToken ->
+                titleToken.startsWith(
+                    token
+                )
+            }
         }
 
-    if (score == 0) {
-        val matchedTokens =
-            queryTokens.count { token ->
-                titleTokens.any {
-                    it.startsWith(token) ||
-                        token.startsWith(it)
-                }
-            }
+    var score =
+        when {
+            title == titleQuery ->
+                120_000
 
-        score +=
-            matchedTokens * 4_000
+            title.startsWith(
+                "$titleQuery "
+            ) ->
+                96_000
+
+            title.contains(
+                " $titleQuery "
+            ) ||
+                title.endsWith(
+                    " $titleQuery"
+                ) ->
+                86_000
+
+            title.contains(
+                titleQuery
+            ) ->
+                76_000
+
+            queryTokens.isNotEmpty() &&
+                exactTokenMatches ==
+                    queryTokens.size ->
+                62_000
+
+            queryTokens.isNotEmpty() &&
+                prefixTokenMatches ==
+                    queryTokens.size ->
+                52_000
+
+            else ->
+                (
+                    exactTokenMatches *
+                        6_000
+                ) +
+                    (
+                        prefixTokenMatches *
+                            3_000
+                    )
+        }
+
+    if (
+        queryTokens.size > 1 &&
+        exactTokenMatches <
+            queryTokens.size
+    ) {
+        score -=
+            (
+                queryTokens.size -
+                    exactTokenMatches
+            ) * 4_000
     }
 
     val queryYear =
@@ -5057,9 +5301,9 @@ private fun searchRelevanceScore(
                 searchReleaseYear(item) ==
                 queryYear
             ) {
-                9_000
+                12_000
             } else {
-                -2_000
+                -4_000
             }
     }
 
@@ -5086,6 +5330,9 @@ private fun searchMetadataScore(
     if (item.genres.isNotEmpty()) {
         score += 15
     }
+    if (item.catalogSources.isNotEmpty()) {
+        score += 12
+    }
 
     score +=
         ((
@@ -5097,6 +5344,24 @@ private fun searchMetadataScore(
 
     return score
 }
+
+private fun searchTitleQuery(
+    normalizedQuery: String,
+): String =
+    normalizedQuery
+        .replace(
+            Regex(
+                """\b(19|20)\d{2}\b"""
+            ),
+            " ",
+        )
+        .trim()
+        .replace(
+            Regex(
+                """\s+"""
+            ),
+            " ",
+        )
 
 private fun searchNormalizeText(
     value: String,
@@ -5356,6 +5621,7 @@ private fun SearchEmptyState(
 private fun SearchPosterTile(
     item: MediaItem,
     modifier: Modifier = Modifier,
+    catalogLabel: String? = null,
     onClick: () -> Unit,
 ) {
     Column(
@@ -5410,14 +5676,28 @@ private fun SearchPosterTile(
 
         Text(
             text =
-                listOfNotNull(
-                    item.releaseInfo,
-                    searchTypeLabel(
-                        item
-                    ),
-                ).joinToString(
-                    " • "
-                ),
+                if (
+                    catalogLabel
+                        .isNullOrBlank()
+                ) {
+                    listOfNotNull(
+                        item.releaseInfo,
+                        searchTypeLabel(
+                            item
+                        ),
+                    ).joinToString(
+                        " • "
+                    )
+                } else {
+                    listOf(
+                        searchTypeLabel(
+                            item
+                        ),
+                        catalogLabel,
+                    ).joinToString(
+                        " • "
+                    )
+                },
             color =
                 VueoPalette.Muted,
             fontSize = 9.sp,
@@ -5425,6 +5705,109 @@ private fun SearchPosterTile(
             overflow =
                 TextOverflow.Ellipsis,
         )
+    }
+}
+
+private fun searchCatalogLabel(
+    engine: UnifiedMediaEngine,
+    item: MediaItem,
+): String? {
+    val direct =
+        item.catalogSources
+            .firstOrNull {
+                it.isNotBlank()
+            }
+
+    val resolved =
+        direct
+            ?: engine
+                .extension(
+                    item.sourceExtensionId
+                )
+                ?.descriptor
+                ?.name
+            ?: item.sourceExtensionId
+                ?.substringAfterLast(
+                    '.'
+                )
+                ?.substringAfterLast(
+                    ':'
+                )
+
+    return resolved
+        ?.let(
+            ::searchPrettyCatalogName
+        )
+}
+
+private fun searchPrettyCatalogName(
+    value: String,
+): String? {
+    val cleaned =
+        value
+            .trim()
+            .replace(
+                Regex(
+                    """(?i)\s+(stremio\s+)?addon$"""
+                ),
+                "",
+            )
+            .replace(
+                Regex(
+                    """\s+"""
+                ),
+                " ",
+            )
+            .takeIf {
+                it.isNotBlank()
+            }
+            ?: return null
+
+    val lower =
+        cleaned.lowercase()
+
+    return when {
+        "cinemeta" in lower ->
+            "Cinemeta"
+
+        "mediafusion" in lower ||
+            "media fusion" in lower ->
+            "MediaFusion"
+
+        Regex(
+            """\btmdb\b"""
+        ).containsMatchIn(
+            lower
+        ) ||
+            "the movie database" in
+                lower ->
+            "TMDB"
+
+        Regex(
+            """\bimdb\b"""
+        ).containsMatchIn(
+            lower
+        ) ->
+            "IMDb"
+
+        Regex(
+            """\btrakt\b"""
+        ).containsMatchIn(
+            lower
+        ) ->
+            "Trakt"
+
+        else ->
+            cleaned.replaceFirstChar {
+                ch ->
+                if (
+                    ch.isLowerCase()
+                ) {
+                    ch.titlecase()
+                } else {
+                    ch.toString()
+                }
+            }
     }
 }
 

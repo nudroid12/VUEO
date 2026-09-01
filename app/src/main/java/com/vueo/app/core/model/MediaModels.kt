@@ -33,6 +33,7 @@ data class MediaItem(
     val genres: List<String> = emptyList(),
     val episodes: List<EpisodeItem> = emptyList(),
     val sourceExtensionId: String? = null,
+    val catalogSources: List<String> = emptyList(),
     val imdbRating: Double? = null,
     val tmdbRating: Double? = null,
     val runtimeMinutes: Int? = null,

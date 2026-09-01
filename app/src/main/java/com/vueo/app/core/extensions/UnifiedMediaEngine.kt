@@ -148,7 +148,12 @@ class UnifiedMediaEngine {
                                         .descriptor
                                         .name,
                                 items =
-                                    page.items,
+                                    page.items.map {
+                                        item ->
+                                        item.withCatalogSource(
+                                            extension.descriptor.name
+                                        )
+                                    },
                             )
                         }.getOrNull()
                     }
@@ -282,6 +287,12 @@ class UnifiedMediaEngine {
                                                     normalized
                                             ),
                                     ).items
+                                        .map {
+                                            item ->
+                                            item.withCatalogSource(
+                                                extension.descriptor.name
+                                            )
+                                        }
                                 }
                                     ?: emptyList()
                             } catch (
@@ -341,20 +352,23 @@ class UnifiedMediaEngine {
         val normalizedQuery =
             normalizeSearchText(query)
 
-        return items
-            .groupBy {
-                searchIdentityKey(it)
-            }
-            .values
-            .mapNotNull { duplicates ->
-                duplicates.maxByOrNull { item ->
-                    searchRelevanceScore(
-                        item = item,
+        if (normalizedQuery.isBlank()) {
+            return mergeSearchDuplicates(
+                items = items,
+                query = normalizedQuery,
+            )
+        }
+
+        return mergeSearchDuplicates(
+            items =
+                items.filter {
+                    searchIsRelevantEnough(
+                        item = it,
                         query = normalizedQuery,
-                    ) * 100 +
-                        searchMetadataScore(item)
-                }
-            }
+                    )
+                },
+            query = normalizedQuery,
+        )
             .sortedWith(
                 compareByDescending<MediaItem> {
                     searchRelevanceScore(
@@ -371,20 +385,271 @@ class UnifiedMediaEngine {
             )
     }
 
-    private fun searchIdentityKey(
-        item: MediaItem,
-    ): String {
-        val title =
-            normalizeSearchText(item.name)
-        val year =
-            searchReleaseYear(item)
+    private fun mergeSearchDuplicates(
+        items: List<MediaItem>,
+        query: String,
+    ): List<MediaItem> {
+        val groups =
+            mutableListOf<
+                MutableList<MediaItem>
+            >()
 
-        return if (title.isNotBlank()) {
-            "${item.type.lowercase()}|$title|${year.takeIf { it > 0 } ?: 0}"
-        } else {
-            "${item.type}:${item.id}"
+        items.forEach {
+            candidate ->
+
+            val candidateTitle =
+                searchCanonicalTitle(
+                    candidate
+                )
+            val candidateType =
+                searchCanonicalType(
+                    candidate.type
+                )
+            val candidateYear =
+                searchReleaseYear(
+                    candidate
+                )
+
+            val target =
+                groups.firstOrNull {
+                    group ->
+                    val sample =
+                        group.first()
+
+                    val sampleTitle =
+                        searchCanonicalTitle(
+                            sample
+                        )
+                    val sampleType =
+                        searchCanonicalType(
+                            sample.type
+                        )
+                    val sampleYear =
+                        searchReleaseYear(
+                            sample
+                        )
+
+                    candidateTitle.isNotBlank() &&
+                        candidateTitle ==
+                            sampleTitle &&
+                        candidateType ==
+                            sampleType &&
+                        (
+                            candidateYear == 0 ||
+                                sampleYear == 0 ||
+                                kotlin.math.abs(
+                                    candidateYear -
+                                        sampleYear
+                                ) <= 1
+                        )
+                }
+
+            if (target == null) {
+                groups +=
+                    mutableListOf(
+                        candidate
+                    )
+            } else {
+                target += candidate
+            }
+        }
+
+        return groups.mapNotNull {
+            duplicates ->
+
+            val best =
+                duplicates.maxByOrNull {
+                    item ->
+                    (
+                        searchRelevanceScore(
+                            item = item,
+                            query = query,
+                        ) *
+                            100
+                    ) +
+                        searchMetadataScore(
+                            item
+                        )
+                }
+                    ?: return@mapNotNull null
+
+            val catalogs =
+                (
+                    best.catalogSources +
+                        duplicates
+                            .flatMap {
+                                item ->
+                                item.catalogSources
+                            }
+                )
+                    .map {
+                        it.trim()
+                    }
+                    .filter {
+                        it.isNotBlank()
+                    }
+                    .distinctBy {
+                        it.lowercase()
+                    }
+
+            val mergedGenres =
+                duplicates
+                    .flatMap {
+                        it.genres
+                    }
+                    .distinctBy {
+                        it.lowercase()
+                    }
+
+            best.copy(
+                catalogSources =
+                    catalogs,
+                genres =
+                    mergedGenres,
+            )
         }
     }
+
+    private fun searchIsRelevantEnough(
+        item: MediaItem,
+        query: String,
+    ): Boolean {
+        val normalizedQuery =
+            normalizeSearchText(query)
+        val titleQuery =
+            searchTitleQuery(
+                normalizedQuery
+            )
+        val title =
+            normalizeSearchText(
+                item.name
+            )
+
+        if (
+            normalizedQuery.isBlank() ||
+            titleQuery.isBlank() ||
+            title.isBlank()
+        ) {
+            return false
+        }
+
+        val score =
+            searchRelevanceScore(
+                item = item,
+                query = normalizedQuery,
+            )
+
+        if (score >= 44_000) {
+            return true
+        }
+
+        val queryTokens =
+            titleQuery
+                .split(' ')
+                .filter {
+                    it.length >= 2
+                }
+        val titleTokens =
+            title
+                .split(' ')
+                .filter {
+                    it.isNotBlank()
+                }
+
+        if (queryTokens.isEmpty()) {
+            return score > 0
+        }
+
+        val matched =
+            queryTokens.count {
+                token ->
+                titleTokens.any {
+                    titleToken ->
+                    titleToken == token ||
+                        titleToken.startsWith(
+                            token
+                        ) ||
+                        token.startsWith(
+                            titleToken
+                        )
+                }
+            }
+
+        return if (
+            queryTokens.size == 1
+        ) {
+            matched == 1
+        } else {
+            matched ==
+                queryTokens.size
+        }
+    }
+
+    private fun searchCanonicalTitle(
+        item: MediaItem,
+    ): String {
+        var title =
+            normalizeSearchText(
+                item.name
+            )
+
+        title =
+            title.replace(
+                Regex(
+                    """\s+(19|20)\d{2}$"""
+                ),
+                "",
+            )
+
+        if (
+            searchCanonicalType(
+                item.type
+            ) == "series"
+        ) {
+            title =
+                title
+                    .replace(
+                        Regex(
+                            """\s+season\s+\d+.*$"""
+                        ),
+                        "",
+                    )
+                    .replace(
+                        Regex(
+                            """\s+(tv\s+)?series\s*$"""
+                        ),
+                        "",
+                    )
+        }
+
+        return title.trim()
+    }
+
+    private fun searchCanonicalType(
+        value: String,
+    ): String =
+        when (
+            value
+                .trim()
+                .lowercase()
+        ) {
+            "tv",
+            "show",
+            "shows",
+            "series" ->
+                "series"
+
+            "film",
+            "films",
+            "movies",
+            "movie" ->
+                "movie"
+
+            else ->
+                value
+                    .trim()
+                    .lowercase()
+        }
 
     private fun searchRelevanceScore(
         item: MediaItem,
@@ -392,61 +657,104 @@ class UnifiedMediaEngine {
     ): Int {
         val normalizedQuery =
             normalizeSearchText(query)
+        val titleQuery =
+            searchTitleQuery(
+                normalizedQuery
+            )
         val title =
             normalizeSearchText(item.name)
 
         if (
             normalizedQuery.isBlank() ||
+            titleQuery.isBlank() ||
             title.isBlank()
         ) {
             return 0
         }
 
         val queryTokens =
-            normalizedQuery
+            titleQuery
                 .split(' ')
-                .filter { it.isNotBlank() }
+                .filter {
+                    it.isNotBlank()
+                }
         val titleTokens =
             title
                 .split(' ')
-                .filter { it.isNotBlank() }
+                .filter {
+                    it.isNotBlank()
+                }
+
+        val exactTokenMatches =
+            queryTokens.count {
+                it in titleTokens
+            }
+
+        val prefixTokenMatches =
+            queryTokens.count {
+                token ->
+                titleTokens.any {
+                    titleToken ->
+                    titleToken.startsWith(
+                        token
+                    )
+                }
+            }
 
         var score =
             when {
-                title == normalizedQuery ->
-                    100_000
+                title == titleQuery ->
+                    120_000
 
-                title.startsWith("$normalizedQuery ") ->
-                    82_000
+                title.startsWith(
+                    "$titleQuery "
+                ) ->
+                    96_000
 
-                title.contains(" $normalizedQuery ") ||
-                    title.endsWith(" $normalizedQuery") ->
-                    72_000
+                title.contains(
+                    " $titleQuery "
+                ) ||
+                    title.endsWith(
+                        " $titleQuery"
+                    ) ->
+                    86_000
 
-                title.contains(normalizedQuery) ->
-                    64_000
+                title.contains(
+                    titleQuery
+                ) ->
+                    76_000
 
-                queryTokens.all { it in titleTokens } ->
+                queryTokens.isNotEmpty() &&
+                    exactTokenMatches ==
+                        queryTokens.size ->
+                    62_000
+
+                queryTokens.isNotEmpty() &&
+                    prefixTokenMatches ==
+                        queryTokens.size ->
                     52_000
 
-                queryTokens.all { token ->
-                    titleTokens.any {
-                        it.startsWith(token)
-                    }
-                } ->
-                    44_000
-
-                else -> 0
+                else ->
+                    (
+                        exactTokenMatches *
+                            6_000
+                    ) +
+                        (
+                            prefixTokenMatches *
+                                3_000
+                        )
             }
 
-        if (score == 0) {
-            score +=
-                queryTokens.count { token ->
-                    titleTokens.any {
-                        it.startsWith(token) ||
-                            token.startsWith(it)
-                    }
-                } * 4_000
+        if (
+            queryTokens.size > 1 &&
+            exactTokenMatches <
+                queryTokens.size
+        ) {
+            score -=
+                (
+                    queryTokens.size -
+                        exactTokenMatches
+                ) * 4_000
         }
 
         val queryYear =
@@ -459,10 +767,13 @@ class UnifiedMediaEngine {
 
         if (queryYear != null) {
             score +=
-                if (searchReleaseYear(item) == queryYear) {
-                    9_000
+                if (
+                    searchReleaseYear(item) ==
+                    queryYear
+                ) {
+                    12_000
                 } else {
-                    -2_000
+                    -4_000
                 }
         }
 
@@ -474,18 +785,33 @@ class UnifiedMediaEngine {
     ): Int {
         var score = 0
 
-        if (!item.poster.isNullOrBlank()) score += 80
-        if (!item.background.isNullOrBlank()) score += 35
-        if (!item.description.isNullOrBlank()) score += 30
-        if (!item.releaseInfo.isNullOrBlank()) score += 20
-        if (item.genres.isNotEmpty()) score += 15
+        if (!item.poster.isNullOrBlank()) {
+            score += 80
+        }
+        if (!item.background.isNullOrBlank()) {
+            score += 35
+        }
+        if (!item.description.isNullOrBlank()) {
+            score += 30
+        }
+        if (!item.releaseInfo.isNullOrBlank()) {
+            score += 20
+        }
+        if (item.genres.isNotEmpty()) {
+            score += 15
+        }
+
+        if (item.catalogSources.isNotEmpty()) {
+            score += 12
+        }
 
         score +=
-            (((
+            ((
                 item.imdbRating
                     ?: item.tmdbRating
                     ?: 0.0
-            ) * 10.0).toInt())
+            ) * 10.0)
+                .toInt()
 
         return score
     }
@@ -503,6 +829,24 @@ class UnifiedMediaEngine {
                     ?.toIntOrNull()
             }
             ?: 0
+
+    private fun searchTitleQuery(
+        normalizedQuery: String,
+    ): String =
+        normalizedQuery
+            .replace(
+                Regex(
+                    """\b(19|20)\d{2}\b"""
+                ),
+                " ",
+            )
+            .trim()
+            .replace(
+                Regex(
+                    """\s+"""
+                ),
+                " ",
+            )
 
     private fun normalizeSearchText(
         value: String,
@@ -522,6 +866,29 @@ class UnifiedMediaEngine {
                 ),
                 " ",
             )
+
+    private fun MediaItem.withCatalogSource(
+        source: String?,
+    ): MediaItem {
+        val cleaned =
+            source
+                ?.trim()
+                ?.takeIf {
+                    it.isNotBlank()
+                }
+                ?: return this
+
+        return copy(
+            catalogSources =
+                (
+                    catalogSources +
+                        cleaned
+                )
+                    .distinctBy {
+                        it.lowercase()
+                    }
+        )
+    }
 
     suspend fun loadMeta(
         item: MediaItem,

@@ -328,8 +328,24 @@ object CatalogDiscoveryCache {
             return emptyList()
         }
 
-        val tokens =
+        val titleNeedle =
             needle
+                .replace(
+                    Regex(
+                        """\b(19|20)\d{2}\b"""
+                    ),
+                    " ",
+                )
+                .trim()
+                .replace(
+                    Regex(
+                        """\s+"""
+                    ),
+                    " ",
+                )
+
+        val tokens =
+            titleNeedle
                 .split(' ')
                 .filter {
                     it.isNotBlank()
@@ -340,23 +356,79 @@ object CatalogDiscoveryCache {
             .filter { item ->
                 val haystack =
                     searchableText(item)
+                val title =
+                    normalizeQuery(
+                        item.name
+                    )
 
-                haystack.contains(needle) ||
-                    tokens.all { token ->
-                        haystack.contains(token)
-                    }
+                if (tokens.size <= 1) {
+                    haystack.contains(
+                        titleNeedle
+                    )
+                } else {
+                    title.contains(
+                        titleNeedle
+                    ) ||
+                        tokens.all {
+                            token ->
+                            title
+                                .split(' ')
+                                .any {
+                                    titleToken ->
+                                    titleToken == token ||
+                                        titleToken
+                                            .startsWith(
+                                                token
+                                            )
+                                }
+                        }
+                }
             }
-            .distinctBy {
-                "${it.type}:${it.id}"
+            .groupBy {
+                localSearchIdentityKey(
+                    it
+                )
+            }
+            .values
+            .mapNotNull {
+                duplicates ->
+                duplicates.maxByOrNull {
+                    item ->
+                    localSearchScore(
+                        item = item,
+                        query = titleNeedle,
+                    )
+                }?.let {
+                    best ->
+                    best.copy(
+                        catalogSources =
+                            (
+                                best.catalogSources +
+                                    duplicates
+                                        .flatMap {
+                                            item ->
+                                            item.catalogSources
+                                        }
+                            )
+                                .map {
+                                    it.trim()
+                                }
+                                .filter {
+                                    it.isNotBlank()
+                                }
+                                .distinctBy {
+                                    it.lowercase()
+                                }
+                    )
+                }
             }
             .sortedByDescending { item ->
                 localSearchScore(
                     item = item,
-                    query = needle,
+                    query = titleNeedle,
                 )
             }
             .take(limit)
-            .toList()
     }
 
     @Synchronized
@@ -470,6 +542,76 @@ object CatalogDiscoveryCache {
         }
     }
 
+    private fun localSearchIdentityKey(
+        item: MediaItem,
+    ): String {
+        val type =
+            when (
+                item.type
+                    .trim()
+                    .lowercase()
+            ) {
+                "tv",
+                "show",
+                "shows",
+                "series" ->
+                    "series"
+
+                "film",
+                "films",
+                "movies",
+                "movie" ->
+                    "movie"
+
+                else ->
+                    item.type
+                        .trim()
+                        .lowercase()
+            }
+
+        var title =
+            normalizeQuery(
+                item.name
+            )
+
+        title =
+            title.replace(
+                Regex(
+                    """\s+(19|20)\d{2}$"""
+                ),
+                "",
+            )
+
+        if (type == "series") {
+            title =
+                title
+                    .replace(
+                        Regex(
+                            """\s+season\s+\d+.*$"""
+                        ),
+                        "",
+                    )
+                    .replace(
+                        Regex(
+                            """\s+(tv\s+)?series\s*$"""
+                        ),
+                        "",
+                    )
+        }
+        val year =
+            item.releaseInfo
+                ?.let {
+                    Regex(
+                        """\b(19|20)\d{2}\b"""
+                    )
+                        .find(it)
+                        ?.value
+                }
+                .orEmpty()
+
+        return "$type|$title|$year"
+    }
+
     private fun normalizeQuery(
         query: String,
     ): String =
@@ -571,6 +713,12 @@ private fun List<MediaItem>
                     .put(
                         "sourceExtensionId",
                         item.sourceExtensionId,
+                    )
+                    .put(
+                        "catalogSources",
+                        JSONArray(
+                            item.catalogSources
+                        ),
                     )
             )
         }
@@ -700,6 +848,10 @@ private fun JSONArray?
                         json.optNullableString(
                             "sourceExtensionId"
                         ),
+                    catalogSources =
+                        json.optJSONArray(
+                            "catalogSources"
+                        ).toStringList(),
                 )
             )
         }
