@@ -219,6 +219,7 @@ import com.vueo.app.core.model.MediaPerson
 import com.vueo.app.core.model.StreamSource
 import com.vueo.app.core.storage.AddonStore
 import com.vueo.app.ui.components.NetworkImage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
@@ -3966,6 +3967,10 @@ private fun SearchScreen(
         mutableStateOf(false)
     }
 
+    var searchRequestId by remember {
+        mutableStateOf(0L)
+    }
+
     var discovering by remember {
         mutableStateOf(
             discoverRows.isEmpty()
@@ -4044,6 +4049,10 @@ private fun SearchScreen(
         val normalized =
             query.trim()
 
+        searchRequestId += 1L
+        val requestId =
+            searchRequestId
+
         if (
             booting ||
             normalized.length < 2
@@ -4053,47 +4062,87 @@ private fun SearchScreen(
                 if (
                     normalized.length >= 2
                 ) {
-                    CatalogDiscoveryCache
-                        .searchLocal(
-                            normalized
-                        )
+                    searchRankAndDedupe(
+                        items =
+                            CatalogDiscoveryCache
+                                .searchLocal(
+                                    normalized
+                                ),
+                        query = normalized,
+                    )
                 } else {
                     emptyList()
                 }
             return@LaunchedEffect
         }
 
-        searchResults =
-            CatalogDiscoveryCache
-                .searchLocal(
-                    normalized
-                )
-                .distinctBy {
-                    "${it.type}:${it.id}"
-                }
+        val local =
+            searchRankAndDedupe(
+                items =
+                    CatalogDiscoveryCache
+                        .searchLocal(
+                            normalized
+                        ),
+                query = normalized,
+            )
 
+        searchResults = local
         searching = true
-        delay(380)
+        delay(250)
+
+        if (
+            requestId != searchRequestId ||
+            query.trim() != normalized
+        ) {
+            return@LaunchedEffect
+        }
 
         val remote =
-            runCatching {
+            try {
                 engine.search(
-                    normalized
+                    query = normalized,
+                    onPartial = { partial ->
+                        if (
+                            requestId ==
+                                searchRequestId &&
+                            query.trim() ==
+                                normalized
+                        ) {
+                            searchResults =
+                                searchRankAndDedupe(
+                                    items =
+                                        partial +
+                                            local,
+                                    query =
+                                        normalized,
+                                )
+                        }
+                    },
                 )
-            }.getOrElse {
+            } catch (
+                cancelled:
+                    CancellationException
+            ) {
+                throw cancelled
+            } catch (
+                _: Throwable
+            ) {
                 emptyList()
             }
 
-        searchResults =
-            (
-                remote +
-                    searchResults
-            )
-                .distinctBy {
-                    "${it.type}:${it.id}"
-                }
+        if (
+            requestId == searchRequestId &&
+            query.trim() == normalized
+        ) {
+            searchResults =
+                searchRankAndDedupe(
+                    items =
+                        remote + local,
+                    query = normalized,
+                )
 
-        searching = false
+            searching = false
+        }
     }
 
     val normalizedQuery =
@@ -4241,6 +4290,7 @@ private fun SearchScreen(
                 searchSortItems(
                     items = filtered,
                     mode = sortMode,
+                    query = normalizedQuery,
                 )
             } else {
                 if (
@@ -4767,23 +4817,305 @@ private fun searchMatchesGenre(
 private fun searchSortItems(
     items: List<MediaItem>,
     mode: SearchSortMode,
-): List<MediaItem> =
-    when (mode) {
+    query: String? = null,
+): List<MediaItem> {
+    val normalizedQuery =
+        query
+            ?.let(::searchNormalizeText)
+            .orEmpty()
+
+    if (normalizedQuery.isBlank()) {
+        return when (mode) {
+            SearchSortMode.POPULAR ->
+                items.sortedByDescending {
+                    it.imdbRating
+                        ?: it.tmdbRating
+                        ?: 0.0
+                }
+
+            SearchSortMode.TRENDING ->
+                items
+
+            SearchSortMode.NEWEST ->
+                items.sortedByDescending {
+                    searchReleaseYear(it)
+                }
+        }
+    }
+
+    val relevance =
+        compareByDescending<MediaItem> {
+            searchRelevanceScore(
+                item = it,
+                query = normalizedQuery,
+            )
+        }
+
+    return when (mode) {
         SearchSortMode.POPULAR ->
-            items.sortedByDescending {
+            items.sortedWith(
+                relevance
+                    .thenByDescending {
+                        it.imdbRating
+                            ?: it.tmdbRating
+                            ?: 0.0
+                    }
+                    .thenByDescending {
+                        searchReleaseYear(it)
+                    }
+            )
+
+        SearchSortMode.TRENDING ->
+            items.sortedWith(
+                relevance
+                    .thenByDescending {
+                        searchMetadataScore(it)
+                    }
+            )
+
+        SearchSortMode.NEWEST ->
+            items.sortedWith(
+                relevance
+                    .thenByDescending {
+                        searchReleaseYear(it)
+                    }
+                    .thenByDescending {
+                        it.imdbRating
+                            ?: it.tmdbRating
+                            ?: 0.0
+                    }
+            )
+    }
+}
+
+private fun searchRankAndDedupe(
+    items: List<MediaItem>,
+    query: String,
+): List<MediaItem> {
+    val normalizedQuery =
+        searchNormalizeText(query)
+
+    if (normalizedQuery.isBlank()) {
+        return items
+            .distinctBy {
+                "${it.type}:${it.id}"
+            }
+    }
+
+    return items
+        .groupBy {
+            searchIdentityKey(it)
+        }
+        .values
+        .mapNotNull { duplicates ->
+            duplicates.maxByOrNull { item ->
+                searchRelevanceScore(
+                    item = item,
+                    query = normalizedQuery,
+                ) * 100 +
+                    searchMetadataScore(item)
+            }
+        }
+        .sortedWith(
+            compareByDescending<MediaItem> {
+                searchRelevanceScore(
+                    item = it,
+                    query = normalizedQuery,
+                )
+            }.thenByDescending {
+                searchMetadataScore(it)
+            }.thenByDescending {
                 it.imdbRating
                     ?: it.tmdbRating
                     ?: 0.0
             }
+        )
+}
 
-        SearchSortMode.TRENDING ->
-            items
+private fun searchIdentityKey(
+    item: MediaItem,
+): String {
+    val title =
+        searchNormalizeText(
+            item.name
+        )
+    val year =
+        searchReleaseYear(item)
 
-        SearchSortMode.NEWEST ->
-            items.sortedByDescending {
-                searchReleaseYear(it)
+    return if (title.isNotBlank()) {
+        buildString {
+            append(
+                item.type.lowercase()
+            )
+            append('|')
+            append(title)
+            append('|')
+            append(
+                year.takeIf {
+                    it > 0
+                } ?: 0
+            )
+        }
+    } else {
+        "${item.type}:${item.id}"
+    }
+}
+
+private fun searchRelevanceScore(
+    item: MediaItem,
+    query: String,
+): Int {
+    val normalizedQuery =
+        searchNormalizeText(query)
+    val title =
+        searchNormalizeText(
+            item.name
+        )
+
+    if (
+        normalizedQuery.isBlank() ||
+        title.isBlank()
+    ) {
+        return 0
+    }
+
+    val queryTokens =
+        normalizedQuery
+            .split(' ')
+            .filter {
+                it.isNotBlank()
+            }
+    val titleTokens =
+        title
+            .split(' ')
+            .filter {
+                it.isNotBlank()
+            }
+
+    var score =
+        when {
+            title == normalizedQuery ->
+                100_000
+
+            title.startsWith(
+                "$normalizedQuery "
+            ) ->
+                82_000
+
+            title.contains(
+                " $normalizedQuery "
+            ) ||
+                title.endsWith(
+                    " $normalizedQuery"
+                ) ->
+                72_000
+
+            title.contains(
+                normalizedQuery
+            ) ->
+                64_000
+
+            queryTokens.all { token ->
+                token in titleTokens
+            } ->
+                52_000
+
+            queryTokens.all { token ->
+                titleTokens.any {
+                    it.startsWith(token)
+                }
+            } ->
+                44_000
+
+            else -> 0
+        }
+
+    if (score == 0) {
+        val matchedTokens =
+            queryTokens.count { token ->
+                titleTokens.any {
+                    it.startsWith(token) ||
+                        token.startsWith(it)
+                }
+            }
+
+        score +=
+            matchedTokens * 4_000
+    }
+
+    val queryYear =
+        Regex(
+            """\b(19|20)\d{2}\b"""
+        )
+            .find(normalizedQuery)
+            ?.value
+            ?.toIntOrNull()
+
+    if (queryYear != null) {
+        score +=
+            if (
+                searchReleaseYear(item) ==
+                queryYear
+            ) {
+                9_000
+            } else {
+                -2_000
             }
     }
+
+    return score
+}
+
+private fun searchMetadataScore(
+    item: MediaItem,
+): Int {
+    var score = 0
+
+    if (!item.poster.isNullOrBlank()) {
+        score += 80
+    }
+    if (!item.background.isNullOrBlank()) {
+        score += 35
+    }
+    if (!item.description.isNullOrBlank()) {
+        score += 30
+    }
+    if (!item.releaseInfo.isNullOrBlank()) {
+        score += 20
+    }
+    if (item.genres.isNotEmpty()) {
+        score += 15
+    }
+
+    score +=
+        ((
+            item.imdbRating
+                ?: item.tmdbRating
+                ?: 0.0
+        ) * 10.0)
+            .toInt()
+
+    return score
+}
+
+private fun searchNormalizeText(
+    value: String,
+): String =
+    value
+        .lowercase()
+        .replace(
+            Regex(
+                """[^a-z0-9]+"""
+            ),
+            " ",
+        )
+        .trim()
+        .replace(
+            Regex(
+                """\s+"""
+            ),
+            " ",
+        )
 
 private fun searchReleaseYear(
     item: MediaItem,
