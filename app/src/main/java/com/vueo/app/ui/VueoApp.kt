@@ -10461,11 +10461,31 @@ private fun MediaDetailsScreen(
                 "Watch"
         }
 
+    val detailSeasonCount =
+        if (item.type == "series") {
+            item.episodes
+                .asSequence()
+                .map { it.season }
+                .filter { it > 0 }
+                .distinct()
+                .count()
+                .takeIf { it > 0 }
+        } else {
+            null
+        }
+
     val detailFacts =
         listOfNotNull(
-            item.releaseInfo
-                ?.takeIf {
-                    it.isNotBlank()
+            cleanDetailsReleaseInfo(
+                item.releaseInfo
+            ),
+            detailSeasonCount
+                ?.let { count ->
+                    if (count == 1) {
+                        "1 Season"
+                    } else {
+                        "$count Seasons"
+                    }
                 },
             item.runtimeMinutes
                 ?.takeIf {
@@ -10478,6 +10498,12 @@ private fun MediaDetailsScreen(
                 ?.takeIf {
                     it.isNotBlank()
                 },
+        )
+
+    val detailMetadataSource =
+        searchCatalogLabel(
+            engine = engine,
+            item = item,
         )
 
     val dnaMatchPercent =
@@ -10517,11 +10543,11 @@ private fun MediaDetailsScreen(
                 ),
         contentPadding =
             PaddingValues(
-                bottom = 36.dp
+                bottom = 32.dp
             ),
         verticalArrangement =
             Arrangement.spacedBy(
-                18.dp
+                14.dp
             ),
     ) {
         item {
@@ -10933,10 +10959,15 @@ private fun MediaDetailsScreen(
             }
         }
 
-        if (detailFacts.isNotEmpty()) {
+        if (
+            detailFacts.isNotEmpty() ||
+            !detailMetadataSource.isNullOrBlank()
+        ) {
             item {
                 DetailsFactsRow(
-                    facts = detailFacts
+                    facts = detailFacts,
+                    metadataSource =
+                        detailMetadataSource,
                 )
             }
         }
@@ -11503,6 +11534,20 @@ private fun baseDetailsRatings(
             }
     }
 
+private fun cleanDetailsReleaseInfo(
+    releaseInfo: String?,
+): String? =
+    releaseInfo
+        ?.trim()
+        ?.trimEnd { char ->
+            char.isWhitespace() ||
+                char == '-' ||
+                char == '–' ||
+                char == '—'
+        }
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+
 private fun formatDetailsRuntime(
     minutes: Int,
 ): String {
@@ -11779,29 +11824,55 @@ private fun GeminiInsightCard(
 @Composable
 private fun DetailsFactsRow(
     facts: List<String>,
+    metadataSource: String?,
 ) {
-    Row(
+    Column(
         modifier =
             Modifier.padding(
                 horizontal = 18.dp
             ),
-        horizontalArrangement =
+        verticalArrangement =
             Arrangement.spacedBy(
-                16.dp
+                5.dp
             ),
-        verticalAlignment =
-            Alignment.CenterVertically,
     ) {
-        facts.forEach { fact ->
+        if (facts.isNotEmpty()) {
             Text(
-                text = fact,
+                text =
+                    facts.joinToString(
+                        " • "
+                    ),
                 color = Color.White,
                 fontSize = 13.sp,
                 fontWeight =
                     FontWeight.Bold,
                 maxLines = 1,
+                overflow =
+                    TextOverflow.Ellipsis,
             )
         }
+
+        metadataSource
+            ?.takeIf {
+                it.isNotBlank()
+            }
+            ?.let { source ->
+                Text(
+                    text =
+                        "Metadata • $source",
+                    color =
+                        VueoPalette.Muted
+                            .copy(
+                                alpha = .78f
+                            ),
+                    fontSize = 9.sp,
+                    fontWeight =
+                        FontWeight.Medium,
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis,
+                )
+            }
     }
 }
 
@@ -12073,7 +12144,7 @@ private fun MediaCastSection(
                 ),
             horizontalArrangement =
                 Arrangement.spacedBy(
-                    14.dp
+                    12.dp
                 ),
         ) {
             items(
@@ -12085,19 +12156,19 @@ private fun MediaCastSection(
                 Column(
                     modifier =
                         Modifier.width(
-                            82.dp
+                            78.dp
                         ),
                     horizontalAlignment =
                         Alignment.CenterHorizontally,
                     verticalArrangement =
                         Arrangement.spacedBy(
-                            5.dp
+                            4.dp
                         ),
                 ) {
                     Surface(
                         modifier =
                             Modifier.size(
-                                72.dp
+                                68.dp
                             ),
                         shape = CircleShape,
                         color =
@@ -12239,26 +12310,91 @@ private fun SeasonSelector(
                 ),
         ) {
             items(seasons) { season ->
-                FilterChip(
-                    selected =
-                        season ==
-                            selectedSeason,
-                    onClick = {
-                        onSelectSeason(
-                            season
-                        )
-                    },
-                    label = {
+                val selected =
+                    season ==
+                        selectedSeason
+
+                Surface(
+                    modifier =
+                        Modifier
+                            .height(38.dp)
+                            .clickable {
+                                onSelectSeason(
+                                    season
+                                )
+                            },
+                    shape =
+                        RoundedCornerShape(
+                            12.dp
+                        ),
+                    color =
+                        if (selected) {
+                            MaterialTheme
+                                .colorScheme
+                                .primary
+                                .copy(
+                                    alpha = .24f
+                                )
+                        } else {
+                            Color.Transparent
+                        },
+                    border =
+                        androidx.compose
+                            .foundation
+                            .BorderStroke(
+                                width = 1.dp,
+                                color =
+                                    if (selected) {
+                                        MaterialTheme
+                                            .colorScheme
+                                            .primary
+                                            .copy(
+                                                alpha = .52f
+                                            )
+                                    } else {
+                                        Color.White.copy(
+                                            alpha = .24f
+                                        )
+                                    },
+                            ),
+                ) {
+                    Box(
+                        modifier =
+                            Modifier.padding(
+                                horizontal =
+                                    14.dp,
+                                vertical =
+                                    8.dp,
+                            ),
+                        contentAlignment =
+                            Alignment.Center,
+                    ) {
                         Text(
                             text =
                                 if (season == 0) {
                                     "Specials"
                                 } else {
                                     "Season $season"
-                                }
+                                },
+                            color =
+                                if (selected) {
+                                    Color.White
+                                } else {
+                                    Color.White.copy(
+                                        alpha = .76f
+                                    )
+                                },
+                            fontSize = 11.sp,
+                            fontWeight =
+                                if (selected) {
+                                    FontWeight.Bold
+                                } else {
+                                    FontWeight.Medium
+                                },
+                            maxLines = 1,
                         )
-                    },
-                )
+                    }
+                }
             }
         }
     }
@@ -12342,7 +12478,7 @@ private fun EpisodeSelector(
                 Card(
                     modifier =
                         Modifier
-                            .width(236.dp)
+                            .width(226.dp)
                             .clickable {
                                 onEpisodeClick(
                                     episode
@@ -12370,7 +12506,7 @@ private fun EpisodeSelector(
                             modifier =
                                 Modifier
                                     .fillMaxWidth()
-                                    .height(126.dp),
+                                    .height(120.dp),
                         ) {
                             NetworkImage(
                                 url =
