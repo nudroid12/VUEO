@@ -10500,12 +10500,6 @@ private fun MediaDetailsScreen(
                 },
         )
 
-    val detailMetadataSource =
-        searchCatalogLabel(
-            engine = engine,
-            item = item,
-        )
-
     val dnaMatchPercent =
         if (
             !loadingMeta &&
@@ -10959,23 +10953,40 @@ private fun MediaDetailsScreen(
             }
         }
 
+        val imdbRating =
+            ratings.firstOrNull {
+                it.source == "imdb"
+            }
+        val secondaryRatings =
+            ratings.filterNot {
+                it.source == "imdb"
+            }
+        val showRatingsStrip =
+            secondaryRatings.isNotEmpty()
+
         if (
             detailFacts.isNotEmpty() ||
-            !detailMetadataSource.isNullOrBlank()
+            (imdbRating != null && !showRatingsStrip)
         ) {
             item {
                 DetailsFactsRow(
                     facts = detailFacts,
-                    metadataSource =
-                        detailMetadataSource,
+                    imdbRating =
+                        imdbRating
+                            ?.takeUnless {
+                                showRatingsStrip
+                            },
                 )
             }
         }
 
-        if (ratings.isNotEmpty()) {
+        if (showRatingsStrip) {
             item {
                 MediaRatingsStrip(
-                    ratings = ratings
+                    ratings =
+                        listOfNotNull(
+                            imdbRating
+                        ) + secondaryRatings
                 )
             }
         }
@@ -11029,135 +11040,6 @@ private fun MediaDetailsScreen(
                     }
                 }
             }
-
-        if (
-            geminiAvailable &&
-            !loadingMeta
-        ) {
-            item(
-                key =
-                    "details_gemini_insight"
-            ) {
-                GeminiInsightCard(
-                    insight =
-                        geminiInsight,
-                    loading =
-                        geminiInsightLoading,
-                    error =
-                        geminiInsightError,
-                    onGenerate = {
-                        if (
-                            !geminiInsightLoading
-                        ) {
-                            geminiInsightLoading =
-                                true
-                            geminiInsightError =
-                                null
-
-                            scope.launch {
-                                val dnaForInsight =
-                                    if (
-                                        detailsDnaPreferences
-                                            .userDnaEnabled(
-                                                detailsProfileId
-                                            )
-                                    ) {
-                                        detailsDnaEngine
-                                            .build()
-                                    } else {
-                                        null
-                                    }
-
-                                val visibleMatch =
-                                    if (
-                                        showDnaMatch &&
-                                        dnaForInsight
-                                            ?.hasUsefulData ==
-                                            true
-                                    ) {
-                                        detailsDnaEngine
-                                            .matchPercent(
-                                                media =
-                                                    item,
-                                                dna =
-                                                    dnaForInsight,
-                                            )
-                                    } else {
-                                        null
-                                    }
-
-                                runCatching {
-                                    GeminiClient
-                                        .titleInsight(
-                                            media =
-                                                item,
-                                            dna =
-                                                dnaForInsight,
-                                            dnaMatchPercent =
-                                                visibleMatch,
-                                            apiKey =
-                                                geminiApiKey,
-                                        )
-                                }
-                                    .onSuccess {
-                                        result ->
-                                        geminiInsight =
-                                            result
-                                    }
-                                    .onFailure {
-                                        error ->
-                                        geminiInsightError =
-                                            error.message
-                                                ?.take(
-                                                    180
-                                                )
-                                                ?.takeIf {
-                                                    it.isNotBlank()
-                                                }
-                                                ?: "Gemini could not generate an insight. Try again."
-                                    }
-
-                                geminiInsightLoading =
-                                    false
-                            }
-                        }
-                    },
-                )
-            }
-        }
-
-        val featuredCompanies =
-            if (item.type == "series") {
-                item.networks
-            } else {
-                item.productionCompanies
-            }
-
-        if (featuredCompanies.isNotEmpty()) {
-            item {
-                MediaCompanySection(
-                    title =
-                        if (
-                            item.type ==
-                                "series"
-                        ) {
-                            "Networks"
-                        } else {
-                            "Production"
-                        },
-                    companies =
-                        featuredCompanies,
-                )
-            }
-        }
-
-        if (item.cast.isNotEmpty()) {
-            item {
-                MediaCastSection(
-                    cast = item.cast
-                )
-            }
-        }
 
         if (
             item.type == "series" &&
@@ -11269,6 +11151,139 @@ private fun MediaDetailsScreen(
                         fontSize = 12.sp,
                     )
                 }
+            }
+        }
+
+        if (item.cast.isNotEmpty()) {
+            item {
+                MediaCastSection(
+                    cast = item.cast
+                )
+            }
+        }
+
+        val featuredCompanies =
+            if (item.type == "series") {
+                item.networks
+            } else {
+                item.productionCompanies
+            }
+
+        if (featuredCompanies.isNotEmpty()) {
+            item {
+                MediaCompanySection(
+                    title =
+                        if (
+                            item.type ==
+                                "series"
+                        ) {
+                            if (featuredCompanies.size == 1) {
+                                "Network"
+                            } else {
+                                "Networks"
+                            }
+                        } else {
+                            "Production"
+                        },
+                    companies =
+                        featuredCompanies,
+                )
+            }
+        }
+
+        if (
+            geminiAvailable &&
+            !loadingMeta
+        ) {
+            item(
+                key =
+                    "details_gemini_insight"
+            ) {
+                GeminiInsightCard(
+                    insight =
+                        geminiInsight,
+                    loading =
+                        geminiInsightLoading,
+                    error =
+                        geminiInsightError,
+                    onGenerate = {
+                        if (
+                            !geminiInsightLoading
+                        ) {
+                            geminiInsightLoading =
+                                true
+                            geminiInsightError =
+                                null
+
+                            scope.launch {
+                                val dnaForInsight =
+                                    if (
+                                        detailsDnaPreferences
+                                            .userDnaEnabled(
+                                                detailsProfileId
+                                            )
+                                    ) {
+                                        detailsDnaEngine
+                                            .build()
+                                    } else {
+                                        null
+                                    }
+
+                                val visibleMatch =
+                                    if (
+                                        showDnaMatch &&
+                                        dnaForInsight
+                                            ?.hasUsefulData ==
+                                            true
+                                    ) {
+                                        detailsDnaEngine
+                                            .matchPercent(
+                                                media =
+                                                    item,
+                                                dna =
+                                                    dnaForInsight,
+                                            )
+                                    } else {
+                                        null
+                                    }
+
+                                runCatching {
+                                    GeminiClient
+                                        .titleInsight(
+                                            media =
+                                                item,
+                                            dna =
+                                                dnaForInsight,
+                                            dnaMatchPercent =
+                                                visibleMatch,
+                                            apiKey =
+                                                geminiApiKey,
+                                        )
+                                }
+                                    .onSuccess {
+                                        result ->
+                                        geminiInsight =
+                                            result
+                                    }
+                                    .onFailure {
+                                        error ->
+                                        geminiInsightError =
+                                            error.message
+                                                ?.take(
+                                                    180
+                                                )
+                                                ?.takeIf {
+                                                    it.isNotBlank()
+                                                }
+                                                ?: "Gemini could not generate an insight. Try again."
+                                    }
+
+                                geminiInsightLoading =
+                                    false
+                            }
+                        }
+                    },
+                )
             }
         }
 
@@ -11824,16 +11839,20 @@ private fun GeminiInsightCard(
 @Composable
 private fun DetailsFactsRow(
     facts: List<String>,
-    metadataSource: String?,
+    imdbRating: MediaRating?,
 ) {
-    Column(
+    Row(
         modifier =
-            Modifier.padding(
-                horizontal = 18.dp
-            ),
-        verticalArrangement =
+            Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = 18.dp
+                ),
+        verticalAlignment =
+            Alignment.CenterVertically,
+        horizontalArrangement =
             Arrangement.spacedBy(
-                5.dp
+                10.dp
             ),
     ) {
         if (facts.isNotEmpty()) {
@@ -11841,6 +11860,11 @@ private fun DetailsFactsRow(
                 text =
                     facts.joinToString(
                         " • "
+                    ),
+                modifier =
+                    Modifier.weight(
+                        1f,
+                        fill = false,
                     ),
                 color = Color.White,
                 fontSize = 13.sp,
@@ -11850,29 +11874,70 @@ private fun DetailsFactsRow(
                 overflow =
                     TextOverflow.Ellipsis,
             )
+        } else {
+            Spacer(
+                Modifier.weight(1f)
+            )
         }
 
-        metadataSource
-            ?.takeIf {
-                it.isNotBlank()
-            }
-            ?.let { source ->
-                Text(
-                    text =
-                        "Metadata • $source",
-                    color =
-                        VueoPalette.Muted
-                            .copy(
-                                alpha = .78f
-                            ),
-                    fontSize = 9.sp,
-                    fontWeight =
-                        FontWeight.Medium,
-                    maxLines = 1,
-                    overflow =
-                        TextOverflow.Ellipsis,
-                )
-            }
+        imdbRating?.let { rating ->
+            ImdbRatingMark(
+                rating = rating
+            )
+        }
+    }
+}
+
+@Composable
+private fun ImdbRatingMark(
+    rating: MediaRating,
+) {
+    Row(
+        verticalAlignment =
+            Alignment.CenterVertically,
+        horizontalArrangement =
+            Arrangement.spacedBy(
+                5.dp
+            ),
+    ) {
+        Surface(
+            shape =
+                RoundedCornerShape(
+                    3.dp
+                ),
+            color =
+                Color(0xFFF5C518),
+        ) {
+            Text(
+                text = "IMDb",
+                modifier =
+                    Modifier.padding(
+                        horizontal = 5.dp,
+                        vertical = 2.dp,
+                    ),
+                color = Color.Black,
+                fontSize = 9.sp,
+                fontWeight =
+                    FontWeight.Black,
+            )
+        }
+
+        Text(
+            text = "★",
+            color = Color.White,
+            fontSize = 11.sp,
+            fontWeight =
+                FontWeight.Black,
+        )
+
+        Text(
+            text =
+                rating.displayValue(),
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight =
+                FontWeight.Black,
+        )
     }
 }
 
@@ -11889,6 +11954,8 @@ private fun MediaRatingsStrip(
             Arrangement.spacedBy(
                 8.dp
             ),
+        verticalAlignment =
+            Alignment.CenterVertically,
     ) {
         items(
             ratings,
@@ -11896,62 +11963,74 @@ private fun MediaRatingsStrip(
                 it.source
             },
         ) { rating ->
-            Surface(
-                shape =
-                    RoundedCornerShape(
-                        13.dp
-                    ),
-                color =
-                    VueoPalette
-                        .SurfaceStrong,
-            ) {
-                Row(
-                    modifier =
-                        Modifier.padding(
-                            horizontal =
-                                11.dp,
-                            vertical =
-                                8.dp,
+            if (rating.source == "imdb") {
+                Surface(
+                    shape =
+                        RoundedCornerShape(
+                            13.dp
                         ),
-                    verticalAlignment =
-                        Alignment.CenterVertically,
-                    horizontalArrangement =
-                        Arrangement.spacedBy(
-                            6.dp
-                        ),
+                    color =
+                        VueoPalette
+                            .SurfaceStrong,
                 ) {
-                    Text(
-                        text =
-                            if (
-                                rating.source ==
-                                    "imdb"
-                            ) {
-                                "★ IMDb"
-                            } else {
-                                rating.compactLabel
-                            },
-                        color =
-                            if (
-                                rating.source ==
-                                    "imdb"
-                            ) {
-                                VueoPalette.Accent
-                            } else {
-                                VueoPalette.Muted
-                            },
-                        fontSize = 10.sp,
-                        fontWeight =
-                            FontWeight.Bold,
-                    )
+                    Row(
+                        modifier =
+                            Modifier.padding(
+                                horizontal = 10.dp,
+                                vertical = 8.dp,
+                            ),
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                    ) {
+                        ImdbRatingMark(
+                            rating = rating
+                        )
+                    }
+                }
+            } else {
+                Surface(
+                    shape =
+                        RoundedCornerShape(
+                            13.dp
+                        ),
+                    color =
+                        VueoPalette
+                            .SurfaceStrong,
+                ) {
+                    Row(
+                        modifier =
+                            Modifier.padding(
+                                horizontal =
+                                    11.dp,
+                                vertical =
+                                    8.dp,
+                            ),
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                        horizontalArrangement =
+                            Arrangement.spacedBy(
+                                6.dp
+                            ),
+                    ) {
+                        Text(
+                            text =
+                                rating.compactLabel,
+                            color =
+                                VueoPalette.Muted,
+                            fontSize = 10.sp,
+                            fontWeight =
+                                FontWeight.Bold,
+                        )
 
-                    Text(
-                        text =
-                            rating.displayValue(),
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight =
-                            FontWeight.Black,
-                    )
+                        Text(
+                            text =
+                                rating.displayValue(),
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight =
+                                FontWeight.Black,
+                        )
+                    }
                 }
             }
         }
