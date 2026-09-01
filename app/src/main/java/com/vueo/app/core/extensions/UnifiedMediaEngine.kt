@@ -6,6 +6,7 @@ import com.vueo.app.core.model.MediaItem
 import com.vueo.app.core.model.StreamSource
 import com.vueo.app.core.model.SubtitleTrack
 import com.vueo.app.core.player.PlayerSourcePolicy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -202,6 +203,7 @@ class UnifiedMediaEngine {
         query: String,
         maxCatalogs: Int = 12,
         maxResults: Int = 80,
+        onPartial: ((List<MediaItem>) -> Unit)? = null,
     ): List<MediaItem> = coroutineScope {
         val normalized = query.trim()
 
@@ -211,8 +213,12 @@ class UnifiedMediaEngine {
 
         CatalogDiscoveryCache
             .search(normalized)
-            ?.let {
-                return@coroutineScope it.take(maxResults)
+            ?.let { cached ->
+                return@coroutineScope
+                    rankSearchResults(
+                        items = cached,
+                        query = normalized,
+                    ).take(maxResults)
             }
 
         val searchableCatalogs =
@@ -243,37 +249,6 @@ class UnifiedMediaEngine {
                 }
                 .take(maxCatalogs)
 
-        val remote =
-            searchableCatalogs
-                .map {
-                    (extension, catalog) ->
-
-                    async {
-                        runCatching {
-                            withTimeoutOrNull(
-                                ADDON_REQUEST_TIMEOUT_MS
-                            ) {
-                                extension.catalog(
-                                    type =
-                                        catalog.type,
-                                    catalogId =
-                                        catalog.id,
-                                    extras =
-                                        mapOf(
-                                            "search" to
-                                                normalized
-                                        ),
-                                ).items
-                            }
-                                ?: emptyList()
-                        }.getOrDefault(
-                            emptyList()
-                        )
-                    }
-                }
-                .awaitAll()
-                .flatten()
-
         val local =
             CatalogDiscoveryCache
                 .searchLocal(
@@ -281,15 +256,76 @@ class UnifiedMediaEngine {
                     limit = maxResults,
                 )
 
-        val combined =
-            (
-                remote +
-                    local
-            )
-                .distinctBy {
-                    "${it.type}:${it.id}"
+        val collectedRemote =
+            mutableListOf<MediaItem>()
+        val mergeMutex =
+            Mutex()
+
+        val remote =
+            searchableCatalogs
+                .map {
+                    (extension, catalog) ->
+
+                    async {
+                        val result =
+                            try {
+                                withTimeoutOrNull(
+                                    ADDON_REQUEST_TIMEOUT_MS
+                                ) {
+                                    extension.catalog(
+                                        type =
+                                            catalog.type,
+                                        catalogId =
+                                            catalog.id,
+                                        extras =
+                                            mapOf(
+                                                "search" to
+                                                    normalized
+                                            ),
+                                    ).items
+                                }
+                                    ?: emptyList()
+                            } catch (
+                                cancelled:
+                                    CancellationException
+                            ) {
+                                throw cancelled
+                            } catch (
+                                _: Throwable
+                            ) {
+                                emptyList()
+                            }
+
+                        if (result.isNotEmpty()) {
+                            mergeMutex.withLock {
+                                collectedRemote +=
+                                    result
+
+                                onPartial?.invoke(
+                                    rankSearchResults(
+                                        items =
+                                            collectedRemote +
+                                                local,
+                                        query =
+                                            normalized,
+                                    ).take(
+                                        maxResults
+                                    )
+                                )
+                            }
+                        }
+
+                        result
+                    }
                 }
-                .take(maxResults)
+                .awaitAll()
+                .flatten()
+
+        val combined =
+            rankSearchResults(
+                items = remote + local,
+                query = normalized,
+            ).take(maxResults)
 
         CatalogDiscoveryCache.putSearch(
             normalized,
@@ -298,6 +334,195 @@ class UnifiedMediaEngine {
 
         combined
     }
+
+    private fun rankSearchResults(
+        items: List<MediaItem>,
+        query: String,
+    ): List<MediaItem> {
+        val normalizedQuery =
+            normalizeSearchText(query)
+
+        return items
+            .groupBy {
+                searchIdentityKey(it)
+            }
+            .values
+            .mapNotNull { duplicates ->
+                duplicates.maxByOrNull { item ->
+                    searchRelevanceScore(
+                        item = item,
+                        query = normalizedQuery,
+                    ) * 100 +
+                        searchMetadataScore(item)
+                }
+            }
+            .sortedWith(
+                compareByDescending<MediaItem> {
+                    searchRelevanceScore(
+                        item = it,
+                        query = normalizedQuery,
+                    )
+                }.thenByDescending {
+                    searchMetadataScore(it)
+                }.thenByDescending {
+                    it.imdbRating
+                        ?: it.tmdbRating
+                        ?: 0.0
+                }
+            )
+    }
+
+    private fun searchIdentityKey(
+        item: MediaItem,
+    ): String {
+        val title =
+            normalizeSearchText(item.name)
+        val year =
+            searchReleaseYear(item)
+
+        return if (title.isNotBlank()) {
+            "${item.type.lowercase()}|$title|${year.takeIf { it > 0 } ?: 0}"
+        } else {
+            "${item.type}:${item.id}"
+        }
+    }
+
+    private fun searchRelevanceScore(
+        item: MediaItem,
+        query: String,
+    ): Int {
+        val normalizedQuery =
+            normalizeSearchText(query)
+        val title =
+            normalizeSearchText(item.name)
+
+        if (
+            normalizedQuery.isBlank() ||
+            title.isBlank()
+        ) {
+            return 0
+        }
+
+        val queryTokens =
+            normalizedQuery
+                .split(' ')
+                .filter { it.isNotBlank() }
+        val titleTokens =
+            title
+                .split(' ')
+                .filter { it.isNotBlank() }
+
+        var score =
+            when {
+                title == normalizedQuery ->
+                    100_000
+
+                title.startsWith("$normalizedQuery ") ->
+                    82_000
+
+                title.contains(" $normalizedQuery ") ||
+                    title.endsWith(" $normalizedQuery") ->
+                    72_000
+
+                title.contains(normalizedQuery) ->
+                    64_000
+
+                queryTokens.all { it in titleTokens } ->
+                    52_000
+
+                queryTokens.all { token ->
+                    titleTokens.any {
+                        it.startsWith(token)
+                    }
+                } ->
+                    44_000
+
+                else -> 0
+            }
+
+        if (score == 0) {
+            score +=
+                queryTokens.count { token ->
+                    titleTokens.any {
+                        it.startsWith(token) ||
+                            token.startsWith(it)
+                    }
+                } * 4_000
+        }
+
+        val queryYear =
+            Regex(
+                """\b(19|20)\d{2}\b"""
+            )
+                .find(normalizedQuery)
+                ?.value
+                ?.toIntOrNull()
+
+        if (queryYear != null) {
+            score +=
+                if (searchReleaseYear(item) == queryYear) {
+                    9_000
+                } else {
+                    -2_000
+                }
+        }
+
+        return score
+    }
+
+    private fun searchMetadataScore(
+        item: MediaItem,
+    ): Int {
+        var score = 0
+
+        if (!item.poster.isNullOrBlank()) score += 80
+        if (!item.background.isNullOrBlank()) score += 35
+        if (!item.description.isNullOrBlank()) score += 30
+        if (!item.releaseInfo.isNullOrBlank()) score += 20
+        if (item.genres.isNotEmpty()) score += 15
+
+        score +=
+            (((
+                item.imdbRating
+                    ?: item.tmdbRating
+                    ?: 0.0
+            ) * 10.0).toInt())
+
+        return score
+    }
+
+    private fun searchReleaseYear(
+        item: MediaItem,
+    ): Int =
+        item.releaseInfo
+            ?.let {
+                Regex(
+                    """\b(19|20)\d{2}\b"""
+                )
+                    .find(it)
+                    ?.value
+                    ?.toIntOrNull()
+            }
+            ?: 0
+
+    private fun normalizeSearchText(
+        value: String,
+    ): String =
+        value
+            .lowercase()
+            .replace(
+                Regex(
+                    """[^a-z0-9]+"""
+                ),
+                " ",
+            )
+            .trim()
+            .replace(
+                Regex(
+                    """\s+"""
+                ),
+                " ",
+            )
 
     suspend fun loadMeta(
         item: MediaItem,

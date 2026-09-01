@@ -328,14 +328,32 @@ object CatalogDiscoveryCache {
             return emptyList()
         }
 
+        val tokens =
+            needle
+                .split(' ')
+                .filter {
+                    it.isNotBlank()
+                }
+
         return allCachedItems()
             .asSequence()
             .filter { item ->
-                searchableText(item)
-                    .contains(needle)
+                val haystack =
+                    searchableText(item)
+
+                haystack.contains(needle) ||
+                    tokens.all { token ->
+                        haystack.contains(token)
+                    }
             }
             .distinctBy {
                 "${it.type}:${it.id}"
+            }
+            .sortedByDescending { item ->
+                localSearchScore(
+                    item = item,
+                    query = needle,
+                )
             }
             .take(limit)
             .toList()
@@ -407,25 +425,69 @@ object CatalogDiscoveryCache {
     private fun searchableText(
         item: MediaItem,
     ): String =
-        buildString {
-            append(item.name)
-            append(' ')
-            append(
-                item.releaseInfo
-                    .orEmpty()
-            )
-            append(' ')
-            append(
-                item.genres
-                    .joinToString(" ")
-            )
-        }.lowercase()
+        normalizeQuery(
+            buildString {
+                append(item.name)
+                append(' ')
+                append(
+                    item.releaseInfo
+                        .orEmpty()
+                )
+                append(' ')
+                append(
+                    item.genres
+                        .joinToString(" ")
+                )
+            }
+        )
+
+    private fun localSearchScore(
+        item: MediaItem,
+        query: String,
+    ): Int {
+        val title =
+            normalizeQuery(item.name)
+        val tokens =
+            query
+                .split(' ')
+                .filter { it.isNotBlank() }
+
+        return when {
+            title == query -> 100_000
+            title.startsWith("$query ") -> 82_000
+            title.contains(query) -> 64_000
+            tokens.all { it in title.split(' ') } -> 52_000
+            tokens.all { token ->
+                title.split(' ')
+                    .any {
+                        it.startsWith(token)
+                    }
+            } -> 44_000
+            else ->
+                tokens.count { token ->
+                    title.contains(token)
+                } * 4_000
+        }
+    }
 
     private fun normalizeQuery(
         query: String,
     ): String =
-        query.trim()
+        query
             .lowercase()
+            .replace(
+                Regex(
+                    """[^a-z0-9]+"""
+                ),
+                " ",
+            )
+            .trim()
+            .replace(
+                Regex(
+                    """\s+"""
+                ),
+                " ",
+            )
 
     private data class SearchEntry(
         val items: List<MediaItem>,
