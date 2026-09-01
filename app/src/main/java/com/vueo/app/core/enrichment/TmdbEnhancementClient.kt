@@ -31,6 +31,36 @@ object TmdbEnhancementClient {
     private const val MAX_CACHE_ENTRIES =
         80
 
+    private const val DOCUMENTARY_GENRE_ID =
+        99
+
+    private val NON_NARRATIVE_TV_GENRE_IDS =
+        setOf(
+            10763, // News
+            10764, // Reality
+            10767, // Talk
+        )
+
+    private val NON_ACTING_CHARACTER_MARKERS =
+        listOf(
+            "self",
+            "himself",
+            "herself",
+            "themself",
+            "themselves",
+            "archive footage",
+            "archival footage",
+            "host",
+            "presenter",
+            "interviewer",
+            "interviewee",
+            "panelist",
+            "contestant",
+            "special guest",
+            "guest",
+            "audience member",
+        )
+
     private val detailsCache =
         object : LinkedHashMap<String, CacheEntry<JSONObject>>(
             96,
@@ -142,7 +172,7 @@ object TmdbEnhancementClient {
         }
 
         val cacheKey =
-            "person:$normalizedQuery:$limit"
+            "person-cast-v2:$normalizedQuery:$limit"
 
         cached(
             personFilmographyCache,
@@ -274,6 +304,15 @@ object TmdbEnhancementClient {
                             else ->
                                 continue
                         }
+
+                    if (
+                        !isMeaningfulActingCredit(
+                            credit = credit,
+                            type = type,
+                        )
+                    ) {
+                        continue
+                    }
 
                     val id =
                         credit.optLong(
@@ -1050,6 +1089,115 @@ object TmdbEnhancementClient {
             b == null -> a
             b.length > a.length -> b
             else -> a
+        }
+    }
+
+    /**
+     * Keep actor search focused on narrative acting credits. TMDB's cast array
+     * also contains self appearances, interviews, award shows and one-episode
+     * guest credits, which are technically cast credits but are not useful as
+     * a normal actor filmography inside VUEO.
+     */
+    private fun isMeaningfulActingCredit(
+        credit: JSONObject,
+        type: String,
+    ): Boolean {
+        val character =
+            credit
+                .optNullableString(
+                    "character"
+                )
+                .orEmpty()
+                .lowercase()
+                .replace(
+                    Regex(
+                        """[^\p{L}\p{N}]+"""
+                    ),
+                    " ",
+                )
+                .trim()
+
+        if (
+            character.isNotBlank() &&
+            NON_ACTING_CHARACTER_MARKERS.any { marker ->
+                character == marker ||
+                    character.startsWith(
+                        "$marker "
+                    ) ||
+                    character.contains(
+                        " $marker "
+                    ) ||
+                    character.endsWith(
+                        " $marker"
+                    )
+            }
+        ) {
+            return false
+        }
+
+        val genreIds =
+            credit
+                .optJSONArray(
+                    "genre_ids"
+                )
+                .toIntSet()
+
+        if (type == "series") {
+            if (
+                credit.has(
+                    "episode_count"
+                ) &&
+                !credit.isNull(
+                    "episode_count"
+                ) &&
+                credit.optInt(
+                    "episode_count",
+                    0,
+                ) <= 1
+            ) {
+                return false
+            }
+
+            if (
+                genreIds.any { genreId ->
+                    genreId in
+                        NON_NARRATIVE_TV_GENRE_IDS
+                }
+            ) {
+                return false
+            }
+        }
+
+        if (
+            DOCUMENTARY_GENRE_ID in genreIds &&
+            (
+                character.isBlank() ||
+                    character == "narrator"
+            )
+        ) {
+            return false
+        }
+
+        return true
+    }
+
+    private fun JSONArray?.toIntSet(): Set<Int> {
+        if (this == null) {
+            return emptySet()
+        }
+
+        return buildSet {
+            for (index in 0 until length()) {
+                val value =
+                    optInt(
+                        index,
+                        Int.MIN_VALUE,
+                    )
+
+                if (value != Int.MIN_VALUE) {
+                    add(value)
+                }
+            }
         }
     }
 
