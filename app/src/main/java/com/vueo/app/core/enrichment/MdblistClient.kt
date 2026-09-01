@@ -222,9 +222,11 @@ data class MediaRating(
                 formatDecimal(value)
 
             "tomatoes",
-            "metacritic",
             "trakt" ->
                 "${value.roundToInt()}%"
+
+            "metacritic" ->
+                value.roundToInt().toString()
 
             else ->
                 formatDecimal(value)

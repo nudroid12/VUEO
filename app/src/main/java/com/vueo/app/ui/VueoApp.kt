@@ -181,6 +181,7 @@ import com.vueo.app.core.dna.UserDnaEngine
 import com.vueo.app.core.dna.UserDnaPreferences
 import com.vueo.app.core.model.CatalogRow
 import com.vueo.app.BuildConfig
+import com.vueo.app.R
 import com.vueo.app.core.storage.PlaybackStore
 import com.vueo.app.core.storage.LibraryStore
 import com.vueo.app.core.storage.ProfileStore
@@ -10756,22 +10757,6 @@ private fun MediaDetailsScreen(
                 DetailsLoadingSkeleton()
             }
         }
-        if (
-        dnaMatchPercent !=
-            null
-    ) {
-        item(
-            key =
-                "details_dna_match"
-        ) {
-            DetailsDnaMatchCard(
-                percent =
-                    dnaMatchPercent
-            )
-        }
-    }
-
-    
         item {
             Column(
                 modifier =
@@ -10962,7 +10947,8 @@ private fun MediaDetailsScreen(
                 it.source == "imdb"
             }
         val showRatingsStrip =
-            secondaryRatings.isNotEmpty()
+            secondaryRatings.isNotEmpty() ||
+                dnaMatchPercent != null
 
         if (
             detailFacts.isNotEmpty() ||
@@ -10986,7 +10972,9 @@ private fun MediaDetailsScreen(
                     ratings =
                         listOfNotNull(
                             imdbRating
-                        ) + secondaryRatings
+                        ) + secondaryRatings,
+                    vueoMatchPercent =
+                        dnaMatchPercent,
                 )
             }
         }
@@ -11577,94 +11565,6 @@ private fun formatDetailsRuntime(
 }
 
 @Composable
-private fun DetailsDnaMatchCard(
-    percent: Int,
-) {
-    Surface(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(
-                    horizontal =
-                        18.dp
-                ),
-        shape =
-            RoundedCornerShape(
-                16.dp
-            ),
-        color =
-            VueoPalette.Accent
-                .copy(
-                    alpha = .08f
-                ),
-        border =
-            androidx.compose
-                .foundation
-                .BorderStroke(
-                    width = 1.dp,
-                    color =
-                        VueoPalette.Accent
-                            .copy(
-                                alpha = .22f
-                            ),
-                ),
-    ) {
-        Row(
-            modifier =
-                Modifier.padding(
-                    horizontal =
-                        14.dp,
-                    vertical =
-                        12.dp,
-                ),
-            verticalAlignment =
-                Alignment.CenterVertically,
-        ) {
-            Column(
-                modifier =
-                    Modifier.weight(
-                        1f
-                    ),
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        3.dp
-                    ),
-            ) {
-                Text(
-                    text =
-                        "YOUR DNA",
-                    color =
-                        VueoPalette.Accent,
-                    fontSize = 9.sp,
-                    fontWeight =
-                        FontWeight.Black,
-                    letterSpacing =
-                        1.2.sp,
-                )
-
-                Text(
-                    text =
-                        "Based on your local viewing profile",
-                    color =
-                        VueoPalette.Muted,
-                    fontSize = 10.sp,
-                )
-            }
-
-            Text(
-                text =
-                    "$percent% Match",
-                color =
-                    VueoPalette.Accent,
-                fontSize = 17.sp,
-                fontWeight =
-                    FontWeight.Black,
-            )
-        }
-    }
-}
-
-@Composable
 private fun GeminiInsightCard(
     insight: String?,
     loading: Boolean,
@@ -11900,27 +11800,22 @@ private fun ImdbRatingMark(
                 5.dp
             ),
     ) {
-        Surface(
-            shape =
-                RoundedCornerShape(
-                    3.dp
+        Image(
+            painter =
+                painterResource(
+                    R.drawable
+                        .rating_imdb
                 ),
-            color =
-                Color(0xFFF5C518),
-        ) {
-            Text(
-                text = "IMDb",
-                modifier =
-                    Modifier.padding(
-                        horizontal = 5.dp,
-                        vertical = 2.dp,
-                    ),
-                color = Color.Black,
-                fontSize = 9.sp,
-                fontWeight =
-                    FontWeight.Black,
-            )
-        }
+            contentDescription =
+                "IMDb",
+            modifier =
+                Modifier.size(
+                    width = 30.dp,
+                    height = 17.dp,
+                ),
+            contentScale =
+                ContentScale.Fit,
+        )
 
         Text(
             text = "★",
@@ -11944,7 +11839,32 @@ private fun ImdbRatingMark(
 @Composable
 private fun MediaRatingsStrip(
     ratings: List<MediaRating>,
+    vueoMatchPercent: Int?,
 ) {
+    val ratingPriority =
+        remember {
+            mapOf(
+                "imdb" to 0,
+                "tomatoes" to 1,
+                "metacritic" to 2,
+                "tmdb" to 3,
+                "trakt" to 4,
+            )
+        }
+
+    val orderedRatings =
+        remember(ratings) {
+            ratings
+                .distinctBy {
+                    it.source
+                }
+                .sortedBy {
+                    ratingPriority[
+                        it.source
+                    ] ?: Int.MAX_VALUE
+                }
+        }
+
     LazyRow(
         contentPadding =
             PaddingValues(
@@ -11952,88 +11872,195 @@ private fun MediaRatingsStrip(
             ),
         horizontalArrangement =
             Arrangement.spacedBy(
-                8.dp
+                14.dp
             ),
         verticalAlignment =
             Alignment.CenterVertically,
     ) {
         items(
-            ratings,
+            orderedRatings,
             key = {
                 it.source
             },
         ) { rating ->
-            if (rating.source == "imdb") {
-                Surface(
-                    shape =
-                        RoundedCornerShape(
-                            13.dp
-                        ),
-                    color =
-                        VueoPalette
-                            .SurfaceStrong,
-                ) {
-                    Row(
-                        modifier =
-                            Modifier.padding(
-                                horizontal = 10.dp,
-                                vertical = 8.dp,
-                            ),
-                        verticalAlignment =
-                            Alignment.CenterVertically,
-                    ) {
-                        ImdbRatingMark(
-                            rating = rating
-                        )
-                    }
-                }
-            } else {
-                Surface(
-                    shape =
-                        RoundedCornerShape(
-                            13.dp
-                        ),
-                    color =
-                        VueoPalette
-                            .SurfaceStrong,
-                ) {
-                    Row(
-                        modifier =
-                            Modifier.padding(
-                                horizontal =
-                                    11.dp,
-                                vertical =
-                                    8.dp,
-                            ),
-                        verticalAlignment =
-                            Alignment.CenterVertically,
-                        horizontalArrangement =
-                            Arrangement.spacedBy(
-                                6.dp
-                            ),
-                    ) {
-                        Text(
-                            text =
-                                rating.compactLabel,
-                            color =
-                                VueoPalette.Muted,
-                            fontSize = 10.sp,
-                            fontWeight =
-                                FontWeight.Bold,
-                        )
+            MediaRatingMark(
+                rating = rating
+            )
+        }
 
-                        Text(
-                            text =
-                                rating.displayValue(),
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight =
-                                FontWeight.Black,
-                        )
-                    }
-                }
+        if (
+            vueoMatchPercent != null &&
+            orderedRatings.isNotEmpty()
+        ) {
+            item(
+                key = "vueo_match_divider"
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .width(1.dp)
+                            .height(18.dp)
+                            .background(
+                                Color.White.copy(
+                                    alpha = .18f
+                                )
+                            ),
+                )
             }
         }
+
+        vueoMatchPercent?.let { percent ->
+            item(
+                key = "vueo_match"
+            ) {
+                VueoMatchMark(
+                    percent = percent
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MediaRatingMark(
+    rating: MediaRating,
+) {
+    val logo =
+        when (rating.source) {
+            "imdb" ->
+                R.drawable.rating_imdb
+
+            "tomatoes" ->
+                R.drawable.rating_rotten_tomatoes
+
+            "metacritic" ->
+                R.drawable.rating_metacritic
+
+            "tmdb" ->
+                R.drawable.rating_tmdb
+
+            "trakt" ->
+                R.drawable.rating_trakt
+
+            else -> null
+        }
+
+    val valueColor =
+        when (rating.source) {
+            "imdb" -> Color(0xFFF5C518)
+            "tomatoes" -> Color(0xFFFA320A)
+            "metacritic" -> Color(0xFFFFCC33)
+            "tmdb" -> Color(0xFF01B4E4)
+            "trakt" -> Color(0xFFED1C24)
+            else -> Color.White
+        }
+
+    Row(
+        verticalAlignment =
+            Alignment.CenterVertically,
+        horizontalArrangement =
+            Arrangement.spacedBy(
+                5.dp
+            ),
+    ) {
+        if (logo != null) {
+            Image(
+                painter =
+                    painterResource(
+                        logo
+                    ),
+                contentDescription =
+                    rating.label,
+                modifier =
+                    Modifier.size(
+                        width =
+                            if (
+                                rating.source ==
+                                    "imdb"
+                            ) {
+                                30.dp
+                            } else {
+                                17.dp
+                            },
+                        height = 17.dp,
+                    ),
+                contentScale =
+                    ContentScale.Fit,
+            )
+        } else {
+            Text(
+                text = rating.compactLabel,
+                color = VueoPalette.Muted,
+                fontSize = 10.sp,
+                fontWeight =
+                    FontWeight.Bold,
+            )
+        }
+
+        Text(
+            text =
+                if (
+                    rating.source ==
+                        "imdb"
+                ) {
+                    "★ ${rating.displayValue()}"
+                } else {
+                    rating.displayValue()
+                },
+            color = valueColor,
+            fontSize = 13.sp,
+            fontWeight =
+                FontWeight.Black,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun VueoMatchMark(
+    percent: Int,
+) {
+    Row(
+        verticalAlignment =
+            Alignment.CenterVertically,
+        horizontalArrangement =
+            Arrangement.spacedBy(
+                6.dp
+            ),
+    ) {
+        Image(
+            painter =
+                painterResource(
+                    R.drawable
+                        .vueo_logo_mark
+                ),
+            contentDescription =
+                "VUEO Match",
+            modifier =
+                Modifier.size(
+                    18.dp
+                ),
+            contentScale =
+                ContentScale.Fit,
+        )
+
+        Text(
+            text = "VUEO Match",
+            color = VueoPalette.Muted,
+            fontSize = 10.sp,
+            fontWeight =
+                FontWeight.Bold,
+            maxLines = 1,
+        )
+
+        Text(
+            text = "$percent%",
+            color = VueoPalette.Accent,
+            fontSize = 13.sp,
+            fontWeight =
+                FontWeight.Black,
+            maxLines = 1,
+        )
     }
 }
 
