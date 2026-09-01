@@ -11818,14 +11818,6 @@ private fun ImdbRatingMark(
         )
 
         Text(
-            text = "★",
-            color = Color.White,
-            fontSize = 11.sp,
-            fontWeight =
-                FontWeight.Black,
-        )
-
-        Text(
             text =
                 rating.displayValue(),
             color = Color.White,
@@ -11888,32 +11880,11 @@ private fun MediaRatingsStrip(
             )
         }
 
-        if (
-            vueoMatchPercent != null &&
-            orderedRatings.isNotEmpty()
-        ) {
-            item(
-                key = "vueo_match_divider"
-            ) {
-                Box(
-                    modifier =
-                        Modifier
-                            .width(1.dp)
-                            .height(18.dp)
-                            .background(
-                                Color.White.copy(
-                                    alpha = .18f
-                                )
-                            ),
-                )
-            }
-        }
-
         vueoMatchPercent?.let { percent ->
             item(
-                key = "vueo_match"
+                key = "dna_match"
             ) {
-                VueoMatchMark(
+                DnaMatchMark(
                     percent = percent
                 )
             }
@@ -11998,15 +11969,7 @@ private fun MediaRatingMark(
         }
 
         Text(
-            text =
-                if (
-                    rating.source ==
-                        "imdb"
-                ) {
-                    "★ ${rating.displayValue()}"
-                } else {
-                    rating.displayValue()
-                },
+            text = rating.displayValue(),
             color = valueColor,
             fontSize = 13.sp,
             fontWeight =
@@ -12017,7 +11980,7 @@ private fun MediaRatingMark(
 }
 
 @Composable
-private fun VueoMatchMark(
+private fun DnaMatchMark(
     percent: Int,
 ) {
     Row(
@@ -12032,10 +11995,10 @@ private fun VueoMatchMark(
             painter =
                 painterResource(
                     R.drawable
-                        .vueo_logo_mark
+                        .ic_dna_match
                 ),
             contentDescription =
-                "VUEO Match",
+                "DNA Match",
             modifier =
                 Modifier.size(
                     18.dp
@@ -12045,7 +12008,7 @@ private fun VueoMatchMark(
         )
 
         Text(
-            text = "VUEO Match",
+            text = "DNA",
             color = VueoPalette.Muted,
             fontSize = 10.sp,
             fontWeight =
