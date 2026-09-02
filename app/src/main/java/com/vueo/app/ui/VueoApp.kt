@@ -197,6 +197,7 @@ import com.vueo.app.core.player.PlayerSkipKind
 import com.vueo.app.core.player.PlayerSkipRepository
 import com.vueo.app.core.player.PlayerSkipSegment
 import com.vueo.app.core.player.PlayerPlaybackPhase
+import com.vueo.app.core.player.PlayerSourceAssessment
 import com.vueo.app.core.player.PlayerSourcePolicy
 import com.vueo.app.core.player.PlayerSourceRecoverySession
 import com.vueo.app.core.player.PLAYER_REBUFFER_TIMEOUT_MS
@@ -12853,7 +12854,7 @@ private fun SourcePickerScreen(
         ).distinct()
 
     var selectedProvider by remember(mediaTitle) {
-        mutableStateOf<String?>(null)
+        mutableStateOf<String?>(SOURCE_PROVIDER_ALL)
     }
     var showEngineDetails by remember(mediaTitle) {
         mutableStateOf(false)
@@ -12865,11 +12866,11 @@ private fun SourcePickerScreen(
         when {
             visibleProviders.isEmpty() -> selectedProvider = null
             selected == null -> {
-                selectedProvider = visibleProviders.first()
+                selectedProvider = SOURCE_PROVIDER_ALL
             }
             selected != SOURCE_PROVIDER_ALL &&
                 selected !in visibleProviders -> {
-                selectedProvider = visibleProviders.firstOrNull()
+                selectedProvider = SOURCE_PROVIDER_ALL
             }
         }
     }
@@ -12893,9 +12894,10 @@ private fun SourcePickerScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(VueoPalette.Background),
-        contentPadding = PaddingValues(bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .background(VueoPalette.Background)
+            .navigationBarsPadding(),
+        contentPadding = PaddingValues(bottom = 36.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item(key = "source-picker-header") {
             Row(
@@ -12964,9 +12966,9 @@ private fun SourcePickerScreen(
                 Column(
                     modifier = Modifier.padding(
                         horizontal = 15.dp,
-                        vertical = 13.dp,
+                        vertical = 11.dp,
                     ),
-                    verticalArrangement = Arrangement.spacedBy(9.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -12984,10 +12986,18 @@ private fun SourcePickerScreen(
                                 letterSpacing = .7.sp,
                             )
                             Text(
-                                if (searching) {
-                                    "Searching • ${playable.size} playable"
-                                } else {
-                                    "${playable.size} playable • ${streams.size} unique"
+                                when {
+                                    searching && playable.isNotEmpty() ->
+                                        "Best source ready • checking remaining"
+
+                                    searching ->
+                                        "Searching for playable sources"
+
+                                    playable.isNotEmpty() ->
+                                        "Source search complete"
+
+                                    else ->
+                                        "No playable source found"
                                 },
                                 color = VueoPalette.Muted,
                                 fontSize = 11.sp,
@@ -13032,11 +13042,11 @@ private fun SourcePickerScreen(
                                 searching && playable.isEmpty() ->
                                     "Waiting for the first playable source"
                                 searching ->
-                                    "Best source is ready while VUEO keeps searching"
+                                    "${playable.size} playable so far"
                                 playable.isNotEmpty() ->
-                                    "Source search complete"
+                                    "${streams.size} unique sources analysed"
                                 else ->
-                                    "No playable source found"
+                                    "Check engine details"
                             },
                             modifier = Modifier.weight(1f),
                             color = VueoPalette.Muted,
@@ -13129,8 +13139,11 @@ private fun SourcePickerScreen(
                     ),
                 ) {
                     Column(
-                        modifier = Modifier.padding(15.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(
+                            horizontal = 15.dp,
+                            vertical = 12.dp,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -13144,46 +13157,30 @@ private fun SourcePickerScreen(
                                 fontSize = 10.sp,
                                 letterSpacing = 1.sp,
                             )
-                            Text(
-                                "READY",
-                                color = VueoPalette.Success,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = .8.sp,
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(VueoPalette.Success)
                             )
                         }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                assessment.quality.label,
-                                color = Color.White,
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Black,
-                            )
-                            Spacer(Modifier.width(11.dp))
-                            Text(
-                                sourceProviderTabDisplayName(
-                                    sourceProviderTabKey(best)
-                                ),
-                                color = Color.White.copy(alpha = .78f),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-
-                        val recommendedTags = listOfNotNull(
-                            assessment.summary,
-                            best.hdr,
-                            best.audio,
+                        Text(
+                            sourceProviderTabDisplayName(
+                                sourceProviderTabKey(best)
+                            ),
+                            color = Color.White,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Black,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                            .filter { it.isNotBlank() }
-                            .distinct()
-                            .joinToString(" • ")
+
+                        val recommendedTags =
+                            sourceMetadataLine(
+                                source = best,
+                                assessment = assessment,
+                            )
 
                         if (recommendedTags.isNotBlank()) {
                             Text(
@@ -13198,7 +13195,7 @@ private fun SourcePickerScreen(
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(46.dp)
+                                .height(42.dp)
                                 .clickable { onPlay(best) },
                             shape = RoundedCornerShape(50),
                             color = VueoPalette.Accent,
@@ -13263,13 +13260,14 @@ private fun SourcePickerScreen(
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Text(
-                        "All Sources · ${playable.size}",
+                        "All Sources",
                         color = Color.White,
-                        fontSize = 19.sp,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Black,
                     )
                     Text(
-                        "${visibleProviders.size} playable providers",
+                        "${playable.size} sources from " +
+                            "${visibleProviders.size} providers",
                         color = VueoPalette.Muted,
                         fontSize = 10.sp,
                     )
@@ -13307,14 +13305,17 @@ private fun SourcePickerScreen(
                 }
             }
 
-            item(key = "provider-result-summary") {
-                Text(
-                    "$selectedProviderLabel · ${filteredSources.size} playable",
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    color = VueoPalette.Muted,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Medium,
-                )
+            if (selectedProvider != SOURCE_PROVIDER_ALL) {
+                item(key = "provider-result-summary") {
+                    Text(
+                        "$selectedProviderLabel • " +
+                            "${filteredSources.size} sources",
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = VueoPalette.Muted,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
             }
 
             items(
@@ -13370,6 +13371,33 @@ private fun sourceProviderTabDisplayName(
         .trim()
         .ifBlank { "Other" }
 
+private fun sourceRepositoryDisplayName(
+    source: StreamSource,
+): String? =
+    source.providerName
+        .takeIf { " / " in it }
+        ?.substringBefore(" / ")
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+
+private fun sourceMetadataLine(
+    source: StreamSource,
+    assessment: PlayerSourceAssessment,
+): String =
+    listOfNotNull(
+        sourceRepositoryDisplayName(source),
+        assessment.summary,
+        source.hdr,
+        source.audio,
+    )
+        .flatMap { value ->
+            value.split(" • ")
+        }
+        .map(String::trim)
+        .filter(String::isNotBlank)
+        .distinctBy { it.lowercase() }
+        .joinToString(" • ")
+
 @Composable
 private fun SourceProviderTab(
     label: String,
@@ -13396,8 +13424,8 @@ private fun SourceProviderTab(
         Text(
             label,
             modifier = Modifier.padding(
-                horizontal = 14.dp,
-                vertical = 9.dp,
+                horizontal = 12.dp,
+                vertical = 7.dp,
             ),
             color = if (selected) {
                 VueoPalette.Accent
@@ -13426,15 +13454,10 @@ private fun StreamSourceCard(
     val provider = sourceProviderTabDisplayName(
         sourceProviderTabKey(source)
     )
-    val metadata = listOfNotNull(
-        assessment.summary,
-        source.codec,
-        source.hdr,
-        source.audio,
+    val metadata = sourceMetadataLine(
+        source = source,
+        assessment = assessment,
     )
-        .filter { it.isNotBlank() }
-        .distinct()
-        .joinToString(" • ")
 
     Card(
         modifier = Modifier
@@ -13455,54 +13478,38 @@ private fun StreamSourceCard(
         Column(
             modifier = Modifier.padding(
                 horizontal = 13.dp,
-                vertical = 12.dp,
+                vertical = 10.dp,
             ),
-            verticalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = VueoPalette.SurfaceStrong,
-                ) {
-                    Text(
-                        assessment.quality.label,
-                        modifier = Modifier.padding(
-                            horizontal = 10.dp,
-                            vertical = 6.dp,
-                        ),
-                        color = Color.White,
-                        fontWeight = FontWeight.Black,
-                        fontSize = 11.sp,
-                    )
-                }
-
-                Spacer(Modifier.width(10.dp))
-
                 Text(
                     provider,
                     modifier = Modifier.weight(1f),
-                    color = Color.White.copy(alpha = .84f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White.copy(alpha = .9f),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
 
-                Text(
-                    if (
-                        assessment.quality.automaticRecoveryEligible
-                    ) {
-                        "READY"
-                    } else {
-                        "PLAYABLE"
-                    },
-                    color = VueoPalette.Success,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = .7.sp,
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (
+                                assessment.quality
+                                    .automaticRecoveryEligible
+                            ) {
+                                VueoPalette.Success
+                            } else {
+                                VueoPalette.Muted
+                            }
+                        )
                 )
             }
 
