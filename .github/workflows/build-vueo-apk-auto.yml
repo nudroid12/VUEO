@@ -57,6 +57,18 @@ jobs:
             exit 1
           }
 
+          TV_FILE="tv/src/main/java/com/vueotv/app/update/VueoTvUpdateManager.kt"
+
+          test -f "$TV_FILE" || {
+            echo "::error::VUEO TV updater source is missing."
+            exit 1
+          }
+
+          grep -q "VUEO_TV_DEV_RELEASE_MANIFEST" "$TV_FILE" || {
+            echo "::error::VUEO TV updater release manifest support is missing."
+            exit 1
+          }
+
       - name: Validate signing secrets
         shell: bash
         env:
@@ -290,8 +302,13 @@ jobs:
             exit 1
           fi
 
-          SHA256="$(
+          MOBILE_SHA256="$(
             sha256sum dist/VUEO-dev.apk \
+              | awk '{print $1}'
+          )"
+
+          TV_SHA256="$(
+            sha256sum dist/VUEOTV-dev.apk \
               | awk '{print $1}'
           )"
 
@@ -303,7 +320,7 @@ jobs:
             git rev-parse HEAD
           )"
 
-          export SHA256 PUBLISHED_AT COMMIT_SHA
+          export MOBILE_SHA256 TV_SHA256 PUBLISHED_AT COMMIT_SHA
 
           python3 <<'PY'
           from pathlib import Path
@@ -328,7 +345,7 @@ jobs:
               "downloadUrl":
                   "https://github.com/nudroid12/VUEO/releases/download/vueo-dev/VUEO-dev.apk",
               "sha256":
-                  os.environ["SHA256"],
+                  os.environ["MOBILE_SHA256"],
               "publishedAt":
                   os.environ["PUBLISHED_AT"],
           }
@@ -336,6 +353,37 @@ jobs:
           Path("dist/update.json").write_text(
               json.dumps(
                   payload,
+                  indent=2,
+              ) + "\n",
+              encoding="utf-8",
+          )
+
+          tv_payload = {
+              "schemaVersion": 1,
+              "versionCode": int(
+                  os.environ["VUEO_VERSION_CODE"]
+              ),
+              "versionName":
+                  os.environ["VUEO_VERSION_NAME"],
+              "title":
+                  "VUEO TV " +
+                  os.environ["VUEO_VERSION_NAME"],
+              "changelog": [
+                  "Latest successful VUEO TV development build",
+                  "Commit " +
+                  os.environ["COMMIT_SHA"][:7],
+              ],
+              "downloadUrl":
+                  "https://github.com/nudroid12/VUEO/releases/download/vueo-dev/VUEOTV-dev.apk",
+              "sha256":
+                  os.environ["TV_SHA256"],
+              "publishedAt":
+                  os.environ["PUBLISHED_AT"],
+          }
+
+          Path("dist/tv-update.json").write_text(
+              json.dumps(
+                  tv_payload,
                   indent=2,
               ) + "\n",
               encoding="utf-8",
@@ -379,6 +427,7 @@ jobs:
             dist/VUEOTV-dev.apk \
             dist/VUEOTV-dev.apk.sha256 \
             dist/update.json \
+            dist/tv-update.json \
             --clobber
 
 
@@ -401,6 +450,7 @@ jobs:
             echo "- TV APK: \`VUEOTV-dev.apk\`"
             echo "- TV package: \`com.vueo.app.tv\`"
             echo "- Mobile update feed: \`update.json\`"
+            echo "- TV update feed: \`tv-update.json\`"
             echo "- Manual TV testing: download \`VUEOTV-dev.apk\` directly from this Release"
             echo "- Actions ZIP artifact: disabled"
           } >> "$GITHUB_STEP_SUMMARY"
