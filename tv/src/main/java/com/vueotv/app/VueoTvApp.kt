@@ -52,6 +52,8 @@ import com.vueotv.app.data.TvHomeData
 import com.vueotv.app.data.TvHomeRepository
 import com.vueotv.app.data.TvMediaItem
 import com.vueotv.app.ui.components.TvNetworkImage
+import com.vueotv.app.update.VueoTvUpdateManager
+import com.vueotv.app.update.VueoTvUpdateRelease
 
 private val VueoBlack = Color(0xFF050706)
 private val VueoPanel = Color(0xFF101412)
@@ -61,12 +63,77 @@ private val VueoMuted = Color(0xFFAAB2AD)
 
 @Composable
 fun VueoTvApp() {
+    val context = LocalContext.current
+    var updateRelease by remember { mutableStateOf<VueoTvUpdateRelease?>(null) }
+    var updateVisible by remember { mutableStateOf(false) }
+    var updateDownloading by remember { mutableStateOf(false) }
+    var updateProgress by remember { mutableStateOf(0) }
+    var updateError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        VueoTvUpdateManager.check(
+            context = context.applicationContext,
+            force = false,
+        ) { result ->
+            val release = result.release
+            if (release != null && release.isNewerThanCurrent()) {
+                updateRelease = release
+                updateVisible = true
+                updateError = null
+            }
+        }
+    }
+
     MaterialTheme {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = VueoBlack,
         ) {
-            VueoTvHome()
+            Box(modifier = Modifier.fillMaxSize()) {
+                VueoTvHome()
+
+                val release = updateRelease
+                if (updateVisible && release != null) {
+                    TvUpdateOverlay(
+                        release = release,
+                        downloading = updateDownloading,
+                        progress = updateProgress,
+                        error = updateError,
+                        onLater = {
+                            if (!updateDownloading) {
+                                updateVisible = false
+                            }
+                        },
+                        onUpdateNow = {
+                            if (VueoTvUpdateManager.needsInstallPermission(context)) {
+                                updateError =
+                                    "Allow VUEO TV to install unknown apps, then return and choose Update Now again."
+                                runCatching {
+                                    VueoTvUpdateManager.openInstallPermissionSettings(context)
+                                }.onFailure {
+                                    updateError = it.message ?: "Unable to open install permission settings."
+                                }
+                            } else if (!updateDownloading) {
+                                updateDownloading = true
+                                updateProgress = 0
+                                updateError = null
+
+                                VueoTvUpdateManager.downloadAndInstall(
+                                    context = context.applicationContext,
+                                    release = release,
+                                    onProgress = { updateProgress = it },
+                                ) { result ->
+                                    updateDownloading = false
+                                    result.onFailure { failure ->
+                                        updateError =
+                                            failure.message ?: "Unable to install the TV update."
+                                    }
+                                }
+                            }
+                        },
+                    )
+                }
+            }
         }
     }
 }
@@ -523,6 +590,158 @@ private fun cardMeta(item: TvMediaItem): String =
         item.displayType,
         item.releaseInfo?.takeIf { it.isNotBlank() },
     ).joinToString(" • ")
+
+@Composable
+private fun TvUpdateOverlay(
+    release: VueoTvUpdateRelease,
+    downloading: Boolean,
+    progress: Int,
+    error: String?,
+    onLater: () -> Unit,
+    onUpdateNow: () -> Unit,
+) {
+    val updateButtonFocus = remember { FocusRequester() }
+
+    LaunchedEffect(release.versionCode) {
+        runCatching { updateButtonFocus.requestFocus() }
+    }
+
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.78f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .width(610.dp)
+                    .background(
+                        color = VueoPanel,
+                        shape = RoundedCornerShape(18.dp),
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = Color.White.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(18.dp),
+                    )
+                    .padding(horizontal = 34.dp, vertical = 28.dp),
+        ) {
+            Text(
+                text = "VUEO TV update available",
+                color = Color.White,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.height(7.dp))
+            Text(
+                text = release.versionName,
+                color = VueoYellow,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+
+            if (release.changelog.isNotEmpty()) {
+                Spacer(Modifier.height(18.dp))
+                release.changelog.take(3).forEach { item ->
+                    Text(
+                        text = "•  $item",
+                        color = VueoMuted,
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
+                }
+            }
+
+            if (downloading) {
+                Spacer(Modifier.height(22.dp))
+                Text(
+                    text = "Downloading update… ${progress.coerceIn(0, 100)}%",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(Modifier.height(9.dp))
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .background(
+                                Color.White.copy(alpha = 0.10f),
+                                RoundedCornerShape(99.dp),
+                            ),
+                ) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth(
+                                    (progress.coerceIn(0, 100) / 100f)
+                                        .coerceAtLeast(0.01f)
+                                )
+                                .fillMaxHeight()
+                                .background(
+                                    VueoYellow,
+                                    RoundedCornerShape(99.dp),
+                                ),
+                    )
+                }
+            }
+
+            error?.let { message ->
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    text = message,
+                    color = Color(0xFFFFB4AB),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                )
+            }
+
+            Spacer(Modifier.height(24.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = onUpdateNow,
+                    enabled = !downloading,
+                    modifier = Modifier.focusRequester(updateButtonFocus),
+                    shape = RoundedCornerShape(10.dp),
+                    colors =
+                        ButtonDefaults.buttonColors(
+                            containerColor = Color.White,
+                            contentColor = Color.Black,
+                        ),
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        text = "Update Now",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+
+                Button(
+                    onClick = onLater,
+                    enabled = !downloading,
+                    shape = RoundedCornerShape(10.dp),
+                    colors =
+                        ButtonDefaults.buttonColors(
+                            containerColor = Color.White.copy(alpha = 0.12f),
+                            contentColor = Color.White,
+                        ),
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        text = "Later",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun LoadingHome() {
