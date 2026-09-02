@@ -249,8 +249,8 @@ jobs:
             exit 1
           fi
 
-          if [ "$TV_PACKAGE" != "com.vueotv.app.tv" ]; then
-            echo "::error::TV APK has wrong package ID: $TV_PACKAGE (expected com.vueotv.app.tv)"
+          if [ "$TV_PACKAGE" != "com.vueo.app.tv" ]; then
+            echo "::error::TV APK has wrong package ID: $TV_PACKAGE (expected com.vueo.app.tv)"
             exit 1
           fi
 
@@ -285,7 +285,7 @@ jobs:
 
           echo "Final published TV APK package: $FINAL_TV_PACKAGE"
 
-          if [ "$FINAL_TV_PACKAGE" != "com.vueotv.app.tv" ]; then
+          if [ "$FINAL_TV_PACKAGE" != "com.vueo.app.tv" ]; then
             echo "::error::Final VUEOTV-dev.apk has wrong package ID: $FINAL_TV_PACKAGE"
             exit 1
           fi
@@ -411,6 +411,6 @@ jobs:
             echo "- Tag: \`vueo-dev\`"
             echo "- Mobile APK: \`VUEO-dev.apk\`"
             echo "- TV APK: \`VUEOTV-dev.apk\`"
-            echo "- TV package: \`com.vueotv.app.tv\`"
+            echo "- TV package: \`com.vueo.app.tv\`"
             echo "- Mobile update feed: \`update.json\`"
           } >> "$GITHUB_STEP_SUMMARY"
