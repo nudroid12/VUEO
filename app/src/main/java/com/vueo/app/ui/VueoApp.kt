@@ -12853,12 +12853,17 @@ private fun SourcePickerScreen(
     BackHandler { onBack() }
 
     val playable = streams.filter { it.isDirectPlayable }
-    val best = playable
-        .sortedWith(
+    val rankedAllSources = remember(
+        playable,
+        originalLanguage,
+    ) {
+        playable.sortedWith(
             PlayerSourcePolicy.comparator(
                 originalLanguage = originalLanguage,
             )
         )
+    }
+    val best = rankedAllSources
         .firstOrNull {
             PlayerSourcePolicy.assess(
                 source = it,
@@ -12867,7 +12872,7 @@ private fun SourcePickerScreen(
                 assessment.quality.automaticRecoveryEligible &&
                     assessment.audioMatch.recommendationEligible
             }
-        } ?: playable.firstOrNull()
+        } ?: rankedAllSources.firstOrNull()
 
     val currentProviders = playable
         .asSequence()
@@ -12904,7 +12909,7 @@ private fun SourcePickerScreen(
 
     val filteredSources = when (val selected = selectedProvider) {
         null,
-        SOURCE_PROVIDER_ALL -> playable
+        SOURCE_PROVIDER_ALL -> rankedAllSources
 
         else -> playable.filter {
             sourceProviderTabKey(it) == selected
@@ -13189,14 +13194,15 @@ private fun SourcePickerScreen(
                             sourceMetadataLine(
                                 source = best,
                                 assessment = assessment,
+                                compactAudioLabel = true,
                             )
 
                         if (recommendedTags.isNotBlank()) {
                             Text(
                                 recommendedTags,
                                 color = VueoPalette.Muted,
-                                fontSize = 11.sp,
-                                maxLines = 2,
+                                fontSize = 10.sp,
+                                maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
@@ -13393,15 +13399,20 @@ private fun sourceRepositoryDisplayName(
 private fun sourceMetadataLine(
     source: StreamSource,
     assessment: PlayerSourceAssessment,
+    compactAudioLabel: Boolean = false,
 ): String =
     listOfNotNull(
         sourceRepositoryDisplayName(source),
         when (assessment.audioMatch) {
             PlayerSourceAudioMatch.ORIGINAL ->
-                "Original audio"
+                if (compactAudioLabel) "Original" else "Original audio"
 
             PlayerSourceAudioMatch.MULTI_WITH_ORIGINAL ->
-                "Original in multi audio"
+                if (compactAudioLabel) {
+                    "Original + multi"
+                } else {
+                    "Original in multi audio"
+                }
 
             PlayerSourceAudioMatch.FOREIGN_DUB ->
                 "Dub"
