@@ -7,11 +7,11 @@
     </item>
 
     <item
-        android:width="180dp"
-        android:height="180dp"
+        android:width="200dp"
+        android:height="200dp"
         android:gravity="center">
         <bitmap
-            android:src="@drawable/vueo_logo_mark"
+            android:src="@drawable/vueo_splash_logo"
             android:gravity="fill"
             android:filter="true" />
     </item>
