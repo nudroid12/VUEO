@@ -249,8 +249,8 @@ jobs:
             exit 1
           fi
 
-          if [ "$TV_PACKAGE" != "com.vueotv.app" ]; then
-            echo "::error::TV APK has wrong package ID: $TV_PACKAGE"
+          if [ "$TV_PACKAGE" != "com.vueotv.app.tv" ]; then
+            echo "::error::TV APK has wrong package ID: $TV_PACKAGE (expected com.vueotv.app.tv)"
             exit 1
           fi
 
@@ -270,6 +270,25 @@ jobs:
           cp \
             tv/build/outputs/apk/release/tv-release.apk \
             dist/VUEOTV-dev.apk
+
+          AAPT="$(find "${ANDROID_HOME}" -path "*/build-tools/36.0.0/aapt" -print -quit)"
+          test -x "$AAPT" || {
+            echo "::error::aapt 36.0.0 was not found for final APK verification."
+            exit 1
+          }
+
+          FINAL_TV_PACKAGE="$(
+            "$AAPT" dump badging dist/VUEOTV-dev.apk \
+              | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" \
+              | head -n 1
+          )"
+
+          echo "Final published TV APK package: $FINAL_TV_PACKAGE"
+
+          if [ "$FINAL_TV_PACKAGE" != "com.vueotv.app.tv" ]; then
+            echo "::error::Final VUEOTV-dev.apk has wrong package ID: $FINAL_TV_PACKAGE"
+            exit 1
+          fi
 
           SHA256="$(
             sha256sum dist/VUEO-dev.apk \
@@ -392,5 +411,6 @@ jobs:
             echo "- Tag: \`vueo-dev\`"
             echo "- Mobile APK: \`VUEO-dev.apk\`"
             echo "- TV APK: \`VUEOTV-dev.apk\`"
+            echo "- TV package: \`com.vueotv.app.tv\`"
             echo "- Mobile update feed: \`update.json\`"
           } >> "$GITHUB_STEP_SUMMARY"
