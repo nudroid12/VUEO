@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,6 +56,8 @@ import com.vueotv.app.data.TvHomeData
 import com.vueotv.app.data.TvHomeRepository
 import com.vueotv.app.data.TvMediaItem
 import com.vueotv.app.ui.components.TvNetworkImage
+import com.vueotv.app.search.TvSearchRepository
+import com.vueotv.app.search.TvSearchScreen
 import com.vueotv.app.ui.focus.TvFocusMemory
 import com.vueotv.app.ui.focus.TvFocusZone
 import com.vueotv.app.ui.focus.tvVerticalFocus
@@ -69,6 +72,11 @@ private val VueoGreen = Color(0xFF84E100)
 private val VueoYellow = Color(0xFFD6FF00)
 private val VueoMuted = Color(0xFFAAB2AD)
 
+private enum class TvRootScreen {
+    HOME,
+    SEARCH,
+}
+
 @Composable
 fun VueoTvApp() {
     val context = LocalContext.current
@@ -78,6 +86,20 @@ fun VueoTvApp() {
     var updateProgress by remember { mutableStateOf(0) }
     var updateError by remember { mutableStateOf<String?>(null) }
     var homeFocusRestoreToken by remember { mutableStateOf(0) }
+    var currentScreen by remember { mutableStateOf(TvRootScreen.HOME) }
+    val searchRepository =
+        remember(context) {
+            TvSearchRepository(context.applicationContext)
+        }
+
+    val navigate: (String) -> Unit = { label ->
+        currentScreen =
+            when (label) {
+                "Home" -> TvRootScreen.HOME
+                "Search" -> TvRootScreen.SEARCH
+                else -> currentScreen
+            }
+    }
 
     LaunchedEffect(Unit) {
         VueoTvUpdateManager.check(
@@ -99,9 +121,22 @@ fun VueoTvApp() {
             color = VueoBlack,
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                VueoTvHome(
-                    focusRestoreToken = homeFocusRestoreToken,
-                )
+                when (currentScreen) {
+                    TvRootScreen.HOME ->
+                        VueoTvHome(
+                            focusRestoreToken = homeFocusRestoreToken,
+                            onNavigate = navigate,
+                        )
+
+                    TvRootScreen.SEARCH ->
+                        TvSearchScreen(
+                            repository = searchRepository,
+                            onNavigate = navigate,
+                            onOpenMedia = {
+                                // TV-05 will connect Home/Search cards to the cinematic detail screen.
+                            },
+                        )
+                }
 
                 val release = updateRelease
                 if (updateVisible && release != null) {
@@ -153,6 +188,7 @@ fun VueoTvApp() {
 @Composable
 private fun VueoTvHome(
     focusRestoreToken: Int,
+    onNavigate: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val repository =
@@ -239,7 +275,9 @@ private fun VueoTvHome(
 
         TvTopNav(
             navRequesters = navRequesters,
-            heroDownRequester = heroPlayRequester,
+            contentDownRequester = heroPlayRequester,
+            selectedLabel = "Home",
+            onSelected = onNavigate,
         )
     }
 }
@@ -375,9 +413,11 @@ private fun HomeContent(
 }
 
 @Composable
-private fun TvTopNav(
+internal fun TvTopNav(
     navRequesters: Map<String, FocusRequester>,
-    heroDownRequester: FocusRequester,
+    contentDownRequester: FocusRequester,
+    selectedLabel: String,
+    onSelected: (String) -> Unit,
 ) {
     Row(
         modifier =
@@ -410,32 +450,41 @@ private fun TvTopNav(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TvNavItem(
                     label = "Home",
-                    selected = true,
+                    selected = selectedLabel == "Home",
                     requester = navRequesters.getValue("Home"),
-                    downRequester = heroDownRequester,
+                    downRequester = contentDownRequester,
+                    onClick = { onSelected("Home") },
                 )
                 TvNavItem(
                     label = "Search",
+                    selected = selectedLabel == "Search",
                     requester = navRequesters.getValue("Search"),
-                    downRequester = heroDownRequester,
+                    downRequester = contentDownRequester,
+                    onClick = { onSelected("Search") },
                 )
                 TvNavItem(
                     label = "Library",
+                    selected = selectedLabel == "Library",
                     requester = navRequesters.getValue("Library"),
-                    downRequester = heroDownRequester,
+                    downRequester = contentDownRequester,
+                    onClick = { onSelected("Library") },
                 )
                 TvNavItem(
                     label = "Content Manager",
+                    selected = selectedLabel == "Content Manager",
                     requester = navRequesters.getValue("Content Manager"),
-                    downRequester = heroDownRequester,
+                    downRequester = contentDownRequester,
+                    onClick = { onSelected("Content Manager") },
                 )
             }
         }
 
         TvNavItem(
             label = "Luckez",
+            selected = selectedLabel == "Luckez",
             requester = navRequesters.getValue("Luckez"),
-            downRequester = heroDownRequester,
+            downRequester = contentDownRequester,
+            onClick = { onSelected("Luckez") },
         )
     }
 }
@@ -446,6 +495,7 @@ private fun TvNavItem(
     requester: FocusRequester,
     downRequester: FocusRequester,
     selected: Boolean = false,
+    onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     val color by animateColorAsState(
@@ -469,6 +519,7 @@ private fun TvNavItem(
                         TvFocusMemory.rememberNav(label)
                     }
                 }
+                .clickable(onClick = onClick)
                 .focusable()
                 .background(
                     color = if (focused) Color.White.copy(alpha = 0.10f) else Color.Transparent,
