@@ -21,7 +21,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.vueotv.app"
+        applicationId = "com.vueo.app.tv"
         minSdk = 23
         targetSdk = 36
         versionCode = vueoTvCiVersionCode ?: 1
