@@ -209,19 +209,52 @@ jobs:
           }
 
           APKSIGNER="$(find "${ANDROID_HOME}" -path "*/build-tools/36.0.0/apksigner" -print -quit)"
+          AAPT="$(find "${ANDROID_HOME}" -path "*/build-tools/36.0.0/aapt" -print -quit)"
 
           if [ -z "$APKSIGNER" ] || [ ! -x "$APKSIGNER" ]; then
             echo "::error::apksigner 36.0.0 was not found."
             exit 1
           fi
 
+          if [ -z "$AAPT" ] || [ ! -x "$AAPT" ]; then
+            echo "::error::aapt 36.0.0 was not found."
+            exit 1
+          fi
+
           for APK in "$MOBILE_APK" "$TV_APK"; do
-            echo "Verifying $APK"
+            echo "Verifying signature: $APK"
             "$APKSIGNER" verify \
               --verbose \
               --print-certs \
               "$APK"
           done
+
+          MOBILE_PACKAGE="$(
+            "$AAPT" dump badging "$MOBILE_APK" \
+              | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" \
+              | head -n 1
+          )"
+
+          TV_PACKAGE="$(
+            "$AAPT" dump badging "$TV_APK" \
+              | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" \
+              | head -n 1
+          )"
+
+          echo "Mobile APK package: $MOBILE_PACKAGE"
+          echo "TV APK package: $TV_PACKAGE"
+
+          if [ "$MOBILE_PACKAGE" != "com.vueo.app" ]; then
+            echo "::error::Mobile APK has wrong package ID: $MOBILE_PACKAGE"
+            exit 1
+          fi
+
+          if [ "$TV_PACKAGE" != "com.vueotv.app" ]; then
+            echo "::error::TV APK has wrong package ID: $TV_PACKAGE"
+            exit 1
+          fi
+
+          echo "Package ID verification passed."
 
       - name: Prepare release files
         shell: bash
@@ -236,7 +269,7 @@ jobs:
 
           cp \
             tv/build/outputs/apk/release/tv-release.apk \
-            dist/VUEO-TV-dev.apk
+            dist/VUEOTV-dev.apk
 
           SHA256="$(
             sha256sum dist/VUEO-dev.apk \
@@ -293,8 +326,8 @@ jobs:
           sha256sum dist/VUEO-dev.apk \
             > dist/VUEO-dev.apk.sha256
 
-          sha256sum dist/VUEO-TV-dev.apk \
-            > dist/VUEO-TV-dev.apk.sha256
+          sha256sum dist/VUEOTV-dev.apk \
+            > dist/VUEOTV-dev.apk.sha256
 
           echo "Release files:"
           ls -lh dist/
@@ -314,11 +347,18 @@ jobs:
               --notes "Rolling development release. Only successful signed builds are published."
           fi
 
+          # Remove the old TV asset name so nobody can accidentally
+          # download a stale APK that was previously published under it.
+          gh release delete-asset vueo-dev VUEO-TV-dev.apk -y \
+            >/dev/null 2>&1 || true
+          gh release delete-asset vueo-dev VUEO-TV-dev.apk.sha256 -y \
+            >/dev/null 2>&1 || true
+
           gh release upload vueo-dev \
             dist/VUEO-dev.apk \
             dist/VUEO-dev.apk.sha256 \
-            dist/VUEO-TV-dev.apk \
-            dist/VUEO-TV-dev.apk.sha256 \
+            dist/VUEOTV-dev.apk \
+            dist/VUEOTV-dev.apk.sha256 \
             dist/update.json \
             --clobber
 
@@ -329,8 +369,8 @@ jobs:
           path: |
             dist/VUEO-dev.apk
             dist/VUEO-dev.apk.sha256
-            dist/VUEO-TV-dev.apk
-            dist/VUEO-TV-dev.apk.sha256
+            dist/VUEOTV-dev.apk
+            dist/VUEOTV-dev.apk.sha256
             dist/update.json
           if-no-files-found: error
           retention-days: 14
@@ -351,6 +391,6 @@ jobs:
             echo "### Release"
             echo "- Tag: \`vueo-dev\`"
             echo "- Mobile APK: \`VUEO-dev.apk\`"
-            echo "- TV APK: \`VUEO-TV-dev.apk\`"
+            echo "- TV APK: \`VUEOTV-dev.apk\`"
             echo "- Mobile update feed: \`update.json\`"
           } >> "$GITHUB_STEP_SUMMARY"
