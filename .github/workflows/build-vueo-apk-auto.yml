@@ -8,6 +8,7 @@ on:
       - main
     paths:
       - "app/**"
+      - "tv/**"
       - "gradle/**"
       - "*.gradle.kts"
       - "gradle.properties"
@@ -178,25 +179,32 @@ jobs:
 
           echo "Building VUEO $VERSION_NAME ($VERSION_CODE)"
 
-      - name: Build signed release APK
+      - name: Build signed Mobile and TV release APKs
         shell: bash
         run: |
           set -euo pipefail
 
           ./gradlew \
             :app:assembleRelease \
+            :tv:assembleRelease \
             --stacktrace \
             --no-daemon
 
-      - name: Verify signed APK
+      - name: Verify signed APKs
         shell: bash
         run: |
           set -euo pipefail
 
-          APK="app/build/outputs/apk/release/app-release.apk"
+          MOBILE_APK="app/build/outputs/apk/release/app-release.apk"
+          TV_APK="tv/build/outputs/apk/release/tv-release.apk"
 
-          test -s "$APK" || {
-            echo "::error::Release APK was not generated."
+          test -s "$MOBILE_APK" || {
+            echo "::error::Mobile release APK was not generated."
+            exit 1
+          }
+
+          test -s "$TV_APK" || {
+            echo "::error::TV release APK was not generated."
             exit 1
           }
 
@@ -207,10 +215,13 @@ jobs:
             exit 1
           fi
 
-          "$APKSIGNER" verify \
-            --verbose \
-            --print-certs \
-            "$APK"
+          for APK in "$MOBILE_APK" "$TV_APK"; do
+            echo "Verifying $APK"
+            "$APKSIGNER" verify \
+              --verbose \
+              --print-certs \
+              "$APK"
+          done
 
       - name: Prepare release files
         shell: bash
@@ -222,6 +233,10 @@ jobs:
           cp \
             app/build/outputs/apk/release/app-release.apk \
             dist/VUEO-dev.apk
+
+          cp \
+            tv/build/outputs/apk/release/tv-release.apk \
+            dist/VUEO-TV-dev.apk
 
           SHA256="$(
             sha256sum dist/VUEO-dev.apk \
@@ -278,6 +293,9 @@ jobs:
           sha256sum dist/VUEO-dev.apk \
             > dist/VUEO-dev.apk.sha256
 
+          sha256sum dist/VUEO-TV-dev.apk \
+            > dist/VUEO-TV-dev.apk.sha256
+
           echo "Release files:"
           ls -lh dist/
 
@@ -299,6 +317,8 @@ jobs:
           gh release upload vueo-dev \
             dist/VUEO-dev.apk \
             dist/VUEO-dev.apk.sha256 \
+            dist/VUEO-TV-dev.apk \
+            dist/VUEO-TV-dev.apk.sha256 \
             dist/update.json \
             --clobber
 
@@ -309,6 +329,8 @@ jobs:
           path: |
             dist/VUEO-dev.apk
             dist/VUEO-dev.apk.sha256
+            dist/VUEO-TV-dev.apk
+            dist/VUEO-TV-dev.apk.sha256
             dist/update.json
           if-no-files-found: error
           retention-days: 14
@@ -328,6 +350,7 @@ jobs:
             echo
             echo "### Release"
             echo "- Tag: \`vueo-dev\`"
-            echo "- APK: \`VUEO-dev.apk\`"
-            echo "- Feed: \`update.json\`"
+            echo "- Mobile APK: \`VUEO-dev.apk\`"
+            echo "- TV APK: \`VUEO-TV-dev.apk\`"
+            echo "- Mobile update feed: \`update.json\`"
           } >> "$GITHUB_STEP_SUMMARY"
