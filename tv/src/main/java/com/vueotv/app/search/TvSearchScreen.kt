@@ -72,6 +72,7 @@ private object TvSearchFocusMemory {
 @Composable
 fun TvSearchScreen(
     repository: TvSearchRepository,
+    focusRestoreToken: Int = 0,
     onNavigate: (String) -> Unit,
     onOpenMedia: (TvMediaItem) -> Unit,
 ) {
@@ -103,9 +104,20 @@ fun TvSearchScreen(
         onNavigate("Home")
     }
 
-    LaunchedEffect(Unit) {
-        delay(120)
-        runCatching { inputRequester.requestFocus() }
+    LaunchedEffect(focusRestoreToken) {
+        if (focusRestoreToken == 0) {
+            delay(120)
+            runCatching { inputRequester.requestFocus() }
+        }
+    }
+
+    LaunchedEffect(focusRestoreToken, results.size) {
+        if (focusRestoreToken > 0 && results.isNotEmpty()) {
+            delay(100)
+            focusedIndex = TvSearchFocusMemory.resultIndex.coerceIn(0, results.lastIndex)
+            gridState.scrollToItem((focusedIndex - 6).coerceAtLeast(0))
+            runCatching { resultEntryRequester.requestFocus() }
+        }
     }
 
     LaunchedEffect(query, mode, type) {

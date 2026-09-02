@@ -55,6 +55,8 @@ import com.vueotv.app.data.TvCatalogRow
 import com.vueotv.app.data.TvHomeData
 import com.vueotv.app.data.TvHomeRepository
 import com.vueotv.app.data.TvMediaItem
+import com.vueotv.app.detail.TvDetailRepository
+import com.vueotv.app.detail.TvDetailScreen
 import com.vueotv.app.ui.components.TvNetworkImage
 import com.vueotv.app.search.TvSearchRepository
 import com.vueotv.app.search.TvSearchScreen
@@ -75,6 +77,7 @@ private val VueoMuted = Color(0xFFAAB2AD)
 private enum class TvRootScreen {
     HOME,
     SEARCH,
+    DETAIL,
 }
 
 @Composable
@@ -87,18 +90,26 @@ fun VueoTvApp() {
     var updateError by remember { mutableStateOf<String?>(null) }
     var homeFocusRestoreToken by remember { mutableStateOf(0) }
     var currentScreen by remember { mutableStateOf(TvRootScreen.HOME) }
+    var detailMedia by remember { mutableStateOf<TvMediaItem?>(null) }
+    var detailReturnScreen by remember { mutableStateOf(TvRootScreen.HOME) }
+    var searchFocusRestoreToken by remember { mutableStateOf(0) }
     val searchRepository =
         remember(context) {
             TvSearchRepository(context.applicationContext)
         }
+    val detailRepository = remember { TvDetailRepository() }
 
     val navigate: (String) -> Unit = { label ->
-        currentScreen =
+        val nextScreen =
             when (label) {
                 "Home" -> TvRootScreen.HOME
                 "Search" -> TvRootScreen.SEARCH
                 else -> currentScreen
             }
+        if (nextScreen != currentScreen) {
+            detailMedia = null
+            currentScreen = nextScreen
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -126,16 +137,45 @@ fun VueoTvApp() {
                         VueoTvHome(
                             focusRestoreToken = homeFocusRestoreToken,
                             onNavigate = navigate,
+                            onOpenMedia = { media ->
+                                detailMedia = media
+                                detailReturnScreen = TvRootScreen.HOME
+                                currentScreen = TvRootScreen.DETAIL
+                            },
                         )
 
                     TvRootScreen.SEARCH ->
                         TvSearchScreen(
                             repository = searchRepository,
+                            focusRestoreToken = searchFocusRestoreToken,
                             onNavigate = navigate,
-                            onOpenMedia = {
-                                // TV-05 will connect Home/Search cards to the cinematic detail screen.
+                            onOpenMedia = { media ->
+                                detailMedia = media
+                                detailReturnScreen = TvRootScreen.SEARCH
+                                currentScreen = TvRootScreen.DETAIL
                             },
                         )
+
+                    TvRootScreen.DETAIL -> {
+                        val media = detailMedia
+                        if (media != null) {
+                            TvDetailScreen(
+                                seed = media,
+                                repository = detailRepository,
+                                onNavigate = navigate,
+                                onBack = {
+                                    val target = detailReturnScreen
+                                    detailMedia = null
+                                    currentScreen = target
+                                    if (target == TvRootScreen.SEARCH) {
+                                        searchFocusRestoreToken += 1
+                                    } else {
+                                        homeFocusRestoreToken += 1
+                                    }
+                                },
+                            )
+                        }
+                    }
                 }
 
                 val release = updateRelease
@@ -189,6 +229,7 @@ fun VueoTvApp() {
 private fun VueoTvHome(
     focusRestoreToken: Int,
     onNavigate: (String) -> Unit,
+    onOpenMedia: (TvMediaItem) -> Unit,
 ) {
     val context = LocalContext.current
     val repository =
@@ -263,6 +304,7 @@ private fun VueoTvHome(
                     focusRestoreToken = focusRestoreToken,
                     refreshError = refreshError,
                     onCardFocused = { selectedHero = it },
+                    onOpenMedia = onOpenMedia,
                 )
             }
 
@@ -292,6 +334,7 @@ private fun HomeContent(
     focusRestoreToken: Int,
     refreshError: String?,
     onCardFocused: (TvMediaItem) -> Unit,
+    onOpenMedia: (TvMediaItem) -> Unit,
 ) {
     val columnState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -406,6 +449,7 @@ private fun HomeContent(
                             }
                         }
                     },
+                    onOpenMedia = onOpenMedia,
                 )
             }
         }
@@ -732,6 +776,7 @@ private fun TvRail(
     upRequester: FocusRequester?,
     downRequester: FocusRequester?,
     onCardFocused: (TvMediaItem, Int) -> Unit,
+    onOpenMedia: (TvMediaItem) -> Unit,
 ) {
     val rememberedIndex = TvFocusMemory.railIndex(row.id, row.items.size)
     val listState =
@@ -803,6 +848,7 @@ private fun TvRail(
                             )
                         }
                     },
+                    onClick = { onOpenMedia(item) },
                 )
             }
         }
@@ -816,6 +862,7 @@ private fun TvPosterCard(
     upRequester: FocusRequester?,
     downRequester: FocusRequester?,
     onFocused: () -> Unit,
+    onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "cardScale")
@@ -844,6 +891,7 @@ private fun TvPosterCard(
                         onFocused()
                     }
                 }
+                .clickable(onClick = onClick)
                 .focusable(),
     ) {
         Box(
