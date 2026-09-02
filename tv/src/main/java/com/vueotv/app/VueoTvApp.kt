@@ -76,7 +76,7 @@ fun VueoTvApp() {
             force = false,
         ) { result ->
             val release = result.release
-            if (release != null && release.isNewerThanCurrent()) {
+            if (release != null && VueoTvUpdateManager.isNewerThanCurrent(context, release)) {
                 updateRelease = release
                 updateVisible = true
                 updateError = null

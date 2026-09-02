@@ -8,7 +8,6 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import androidx.core.content.FileProvider
-import com.vueotv.app.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -25,8 +24,6 @@ data class VueoTvUpdateRelease(
     val downloadUrl: String,
     val sha256: String?,
 ) {
-    fun isNewerThanCurrent(): Boolean =
-        versionCode > BuildConfig.VERSION_CODE
 }
 
 data class VueoTvUpdateCheckResult(
@@ -35,6 +32,22 @@ data class VueoTvUpdateCheckResult(
 )
 
 object VueoTvUpdateManager {
+    fun isNewerThanCurrent(
+        context: Context,
+        release: VueoTvUpdateRelease,
+    ): Boolean {
+        val packageInfo =
+            context.packageManager.getPackageInfo(context.packageName, 0)
+        val currentVersionCode =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageInfo.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                packageInfo.versionCode.toLong()
+            }
+        return release.versionCode.toLong() > currentVersionCode
+    }
+
     // VUEO_TV_DEV_RELEASE_MANIFEST
     const val DEFAULT_MANIFEST_URL =
         "https://github.com/nudroid12/VUEO/releases/download/vueo-dev/tv-update.json"
@@ -149,6 +162,7 @@ object VueoTvUpdateManager {
                     mainHandler.post {
                         launchInstaller(appContext, apkFile)
                     }
+                    Unit
                 }
 
             mainHandler.post { callback(result) }
@@ -185,7 +199,7 @@ object VueoTvUpdateManager {
         connection.instanceFollowRedirects = true
         connection.connectTimeout = 12_000
         connection.readTimeout = 20_000
-        connection.setRequestProperty("User-Agent", "VUEO-TV/${BuildConfig.VERSION_NAME}")
+        connection.setRequestProperty("User-Agent", "VUEO-TV-Updater")
 
         try {
             val code = connection.responseCode
@@ -205,7 +219,7 @@ object VueoTvUpdateManager {
         connection.instanceFollowRedirects = true
         connection.connectTimeout = 15_000
         connection.readTimeout = 90_000
-        connection.setRequestProperty("User-Agent", "VUEO-TV/${BuildConfig.VERSION_NAME}")
+        connection.setRequestProperty("User-Agent", "VUEO-TV-Updater")
 
         try {
             val code = connection.responseCode
