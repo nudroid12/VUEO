@@ -15056,50 +15056,21 @@ private fun PlayerScreen(
     )
 
     if (resumePromptVisible) {
-        AlertDialog(
-            onDismissRequest = onBack,
-            title = {
-                Text("Resume watching?")
+        PlayerResumePrompt(
+            positionLabel =
+                formatPlaybackTime(savedPositionMs),
+            onResume = {
+                player.seekTo(savedPositionMs)
+                player.playWhenReady = true
+                resumePromptVisible = false
             },
-            text = {
-                Text(
-                    "Continue from " +
-                        formatPlaybackTime(
-                            savedPositionMs
-                        )
-                )
+            onStartOver = {
+                playbackStore.clearPosition(mediaKey)
+                player.seekTo(0L)
+                player.playWhenReady = true
+                resumePromptVisible = false
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        player.seekTo(
-                            savedPositionMs
-                        )
-                        player.playWhenReady = true
-                        resumePromptVisible = false
-                    },
-                ) {
-                    Text(
-                        "Resume " +
-                            formatPlaybackTime(
-                                savedPositionMs
-                            )
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        playbackStore
-                            .clearPosition(mediaKey)
-                        player.seekTo(0L)
-                        player.playWhenReady = true
-                        resumePromptVisible = false
-                    },
-                ) {
-                    Text("Start Over")
-                }
-            },
+            onDismiss = onBack,
         )
     }
 
@@ -15995,61 +15966,33 @@ private fun PlayerScreen(
                     Arrangement.spacedBy(2.dp),
             ) {
                 playbackError?.let { error ->
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = VueoPalette.SurfaceElevated,
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement =
-                                Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(
-                                "Playback problem",
-                                color = Color.White,
-                                fontWeight = FontWeight.Black,
-                            )
-                            Text(
-                                error,
-                                color = VueoPalette.Muted,
-                                fontSize = 12.sp,
-                            )
-                            Row(
-                                horizontalArrangement =
-                                    Arrangement.spacedBy(8.dp),
-                            ) {
-                                Button(
-                                    onClick = {
-                                        sourceRecoverySession
-                                            .allowRetry(source)
-                                        failedSourceUrls =
-                                            sourceRecoverySession
-                                                .failedSourceUrls()
-                                        playbackError = null
-                                        playbackPhase =
-                                            PlayerPlaybackPhase.LOADING
-                                        recoveryInProgress = false
-                                        hasRenderedFirstFrame = false
-                                        retryGeneration++
-                                        player.prepare()
-                                        player.play()
-                                    },
-                                ) {
-                                    Text("Retry")
-                                }
-                                OutlinedButton(
-                                    enabled =
-                                        playableSources.size > 1,
-                                    onClick = {
-                                        switchingSourceUrl = null
-                                        showSourceDialog = true
-                                    },
-                                ) {
-                                    Text("Choose Source")
-                                }
-                            }
-                        }
-                    }
+                    PlayerPlaybackErrorCard(
+                        error = error,
+                        canChooseSource =
+                            playableSources.size > 1,
+                        onRetry = {
+                            sourceRecoverySession
+                                .allowRetry(source)
+                            failedSourceUrls =
+                                sourceRecoverySession
+                                    .failedSourceUrls()
+                            playbackError = null
+                            playbackPhase =
+                                PlayerPlaybackPhase.LOADING
+                            recoveryInProgress = false
+                            hasRenderedFirstFrame = false
+                            retryGeneration++
+                            player.prepare()
+                            player.play()
+                        },
+                        onChooseSource = {
+                            switchingSourceUrl = null
+                            showSourceDialog = true
+                        },
+                        modifier = Modifier.align(
+                            Alignment.End
+                        ),
+                    )
                 }
 
                 val displayedPosition =
@@ -16265,6 +16208,217 @@ private fun PlayerScreen(
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerResumePrompt(
+    positionLabel: String,
+    onResume: () -> Unit,
+    onStartOver: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(.46f)
+                .widthIn(min = 320.dp, max = 440.dp),
+            shape = RoundedCornerShape(18.dp),
+            color = Color(0xF2131416),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                Color.White.copy(alpha = .14f),
+            ),
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Surface(
+                        modifier = Modifier.size(40.dp),
+                        shape = CircleShape,
+                        color = VueoPlayerAccent.copy(alpha = .14f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            VueoPlayerAccent.copy(alpha = .42f),
+                        ),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(22.dp),
+                                tint = VueoPlayerAccent,
+                            )
+                        }
+                    }
+
+                    Column(
+                        verticalArrangement =
+                            Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            "Resume watching?",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "Continue from $positionLabel",
+                            color = Color.White.copy(alpha = .58f),
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = onResume,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(
+                        horizontal = 16.dp,
+                        vertical = 10.dp,
+                    ),
+                ) {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "Resume $positionLabel",
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = onStartOver,
+                    modifier = Modifier.fillMaxWidth(),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        Color.White.copy(alpha = .18f),
+                    ),
+                    contentPadding = PaddingValues(
+                        horizontal = 16.dp,
+                        vertical = 9.dp,
+                    ),
+                ) {
+                    Text(
+                        "Start Over",
+                        color = Color.White.copy(alpha = .86f),
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerPlaybackErrorCard(
+    error: String,
+    canChooseSource: Boolean,
+    onRetry: () -> Unit,
+    onChooseSource: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth(.38f)
+            .widthIn(min = 300.dp, max = 440.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xED181A1C),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            Color.White.copy(alpha = .14f),
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(18.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(VueoPlayerAccent),
+                )
+                Text(
+                    "Playback problem",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Text(
+                error,
+                color = Color.White.copy(alpha = .58f),
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = onRetry,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(
+                        horizontal = 10.dp,
+                        vertical = 6.dp,
+                    ),
+                ) {
+                    Text(
+                        "Retry",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                OutlinedButton(
+                    enabled = canChooseSource,
+                    onClick = onChooseSource,
+                    modifier = Modifier.weight(1.35f),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        Color.White.copy(
+                            alpha = if (canChooseSource) .20f else .08f
+                        ),
+                    ),
+                    contentPadding = PaddingValues(
+                        horizontal = 10.dp,
+                        vertical = 6.dp,
+                    ),
+                ) {
+                    Text(
+                        "Choose Source",
+                        color = Color.White.copy(
+                            alpha = if (canChooseSource) .86f else .28f
+                        ),
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }
