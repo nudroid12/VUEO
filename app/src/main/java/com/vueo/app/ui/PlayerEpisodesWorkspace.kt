@@ -83,7 +83,9 @@ internal fun PlayerEpisodesWorkspace(
             .sortedWith(compareBy<EpisodeItem> { it.season }.thenBy { it.episode })
             .groupBy { it.season }
     }
-    val seasons = remember(groupedEpisodes) { groupedEpisodes.keys.sorted() }
+    val seasons = remember(groupedEpisodes) {
+        groupedEpisodes.keys.sortedBy(::playerSeasonSortKey)
+    }
     var selectedSeason by remember(currentEpisode?.id, seasons) {
         mutableIntStateOf(
             currentEpisode?.season
@@ -432,6 +434,9 @@ private fun EpisodeStatus(
 
 private fun seasonLabel(season: Int): String =
     if (season == 0) "Specials" else "Season $season"
+
+private fun playerSeasonSortKey(season: Int): Int =
+    if (season == 0) Int.MAX_VALUE else season
 
 private fun resumeEpisodeLabel(
     progress: PlayerEpisodeProgress,

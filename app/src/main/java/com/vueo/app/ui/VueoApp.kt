@@ -71,7 +71,6 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Replay10
@@ -13951,9 +13950,6 @@ private fun PlayerScreen(
     var controlsLocked by remember {
         mutableStateOf(false)
     }
-    var inPictureInPictureMode by remember {
-        mutableStateOf(false)
-    }
     var videoFit by remember {
         mutableStateOf(
             settingsStore.playerVideoFit()
@@ -15041,34 +15037,6 @@ private fun PlayerScreen(
             settingsStore.playerOrientation(),
     )
 
-    VueoPictureInPictureEffect(
-        activity = activity,
-        isPlaying = isPlaying,
-        hasNextEpisode = nextEpisode != null,
-        onTogglePlayback = {
-            if (player.isPlaying) {
-                player.pause()
-            } else {
-                player.play()
-            }
-        },
-        onNextEpisode = {
-            startNextEpisode()
-        },
-        onModeChanged = { inPictureInPicture ->
-            inPictureInPictureMode = inPictureInPicture
-            controlsVisible = !inPictureInPicture
-            if (inPictureInPicture) {
-                showAudioDialog = false
-                showSubtitleDialog = false
-                showSubtitleStyleOverlay = false
-                showSourceDialog = false
-                showEpisodeDialog = false
-                showMoreDialog = false
-            }
-        },
-    )
-
     if (resumePromptVisible) {
         AlertDialog(
             onDismissRequest = onBack,
@@ -15451,8 +15419,7 @@ private fun PlayerScreen(
                     keepScreenOn = true
                     applyVueoSubtitleStyle(
                         style = subtitleStyle,
-                        fontScale =
-                            if (inPictureInPictureMode) .45f else 1f,
+                        fontScale = 1f,
                     )
                     resizeMode = videoFit.toMedia3ResizeMode()
                 }
@@ -15462,17 +15429,13 @@ private fun PlayerScreen(
                 view.useController = false
                 view.applyVueoSubtitleStyle(
                     style = subtitleStyle,
-                    fontScale =
-                        if (inPictureInPictureMode) .45f else 1f,
+                    fontScale = 1f,
                 )
                 view.resizeMode = videoFit.toMedia3ResizeMode()
             },
         )
 
-        if (
-            !controlsLocked &&
-            !inPictureInPictureMode
-        ) {
+        if (!controlsLocked) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -15875,29 +15838,6 @@ private fun PlayerScreen(
 
                     Spacer(Modifier.width(8.dp))
                 }
-
-                PlayerTopAction(
-                    icon =
-                        Icons.Default.PictureInPictureAlt,
-                    contentDescription =
-                        "Picture in picture",
-                    enabled = Build.VERSION.SDK_INT >= 26,
-                    onClick = {
-                        controlsVisible = false
-                        val entered =
-                            enterVueoPictureInPicture(
-                                activity = activity,
-                                isPlaying = isPlaying,
-                                hasNextEpisode =
-                                    nextEpisode != null,
-                            )
-                        if (!entered) {
-                            controlsVisible = true
-                        }
-                    },
-                )
-
-                Spacer(Modifier.width(8.dp))
 
                 PlayerTopAction(
                     icon = Icons.Default.Lock,

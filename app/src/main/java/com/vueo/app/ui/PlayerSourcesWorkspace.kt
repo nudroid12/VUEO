@@ -150,7 +150,7 @@ internal fun PlayerSourcesWorkspace(
                 .clickable(onClick = onDismiss)
                 .padding(start = 24.dp, end = 40.dp, top = 20.dp, bottom = 20.dp),
         ) {
-            val workspaceWidth = minOf(maxWidth * .64f, 720.dp)
+            val workspaceWidth = minOf(maxWidth * .56f, 620.dp)
             Surface(
                 modifier = Modifier
                     .width(workspaceWidth)
