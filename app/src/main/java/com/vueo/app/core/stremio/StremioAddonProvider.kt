@@ -93,6 +93,20 @@ class StremioAddonProvider private constructor(
             val subtitleUrl = item.optString("url")
                 .takeIf { it.isNotBlank() }
                 ?: return@mapNotNull null
+            val subtitleLanguage =
+                listOf(
+                    "lang",
+                    "language",
+                    "languageCode",
+                    "locale",
+                    "label",
+                )
+                    .firstNotNullOfOrNull { field ->
+                        item.optString(field)
+                            .trim()
+                            .takeIf { it.isNotBlank() }
+                    }
+                    ?: "und"
 
             SubtitleTrack(
                 id = buildString {
@@ -103,11 +117,11 @@ class StremioAddonProvider private constructor(
                     append(
                         item.optString(
                             "id",
-                            item.optString("lang", "und"),
+                            subtitleLanguage,
                         )
                     )
                 },
-                language = item.optString("lang", "und"),
+                language = subtitleLanguage,
                 url = subtitleUrl,
                 providerId = descriptor.id,
                 providerName = descriptor.name,

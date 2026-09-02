@@ -156,6 +156,8 @@ import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.common.C
 import androidx.media3.common.AudioAttributes
+import androidx.media3.common.text.Cue
+import androidx.media3.common.text.CueGroup
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -13956,6 +13958,11 @@ private fun PlayerScreen(
             !playerSubtitlesEnabledAtStart(settingsStore)
         )
     }
+    var selectedSubtitleIsExternal by remember(mediaKey) {
+        mutableStateOf(false)
+    }
+    val latestSelectedSubtitleIsExternal =
+        rememberUpdatedState(selectedSubtitleIsExternal)
     var showAudioDialog by remember {
         mutableStateOf(false)
     }
@@ -14119,6 +14126,9 @@ private fun PlayerScreen(
                 context = context,
                 subtitleDelayUsProvider = {
                     latestSubtitleDelayMs.value.toLong() * 1_000L
+                },
+                shouldNormalizeCuePositionProvider = {
+                    latestSelectedSubtitleIsExternal.value
                 },
             ),
         )
@@ -14352,6 +14362,12 @@ private fun PlayerScreen(
             trackType = C.TRACK_TYPE_TEXT,
             externalSubtitles = externalSubtitles,
         )
+        selectedSubtitleIsExternal =
+            !subtitlesDisabled &&
+            textTracks
+                .firstOrNull { it.selected }
+                ?.selectionId
+                ?.startsWith("external:") == true
 
         if (!audioPreferenceRestored && audioTracks.isNotEmpty()) {
             val globalSelection =
@@ -14404,9 +14420,12 @@ private fun PlayerScreen(
         if (!subtitlePreferenceRestored && textTracks.isNotEmpty()) {
             val globalSelection =
                 settingsStore.lastSubtitleSelection()
-            val savedSelection = globalSelection
-                ?: settingsStore.subtitleSelection(mediaKey)
-            val savedLanguage = savedSelection
+            val contentSelection =
+                settingsStore.subtitleSelection(mediaKey)
+            val savedSelection =
+                contentSelection ?: globalSelection
+            val savedLanguage =
+                (globalSelection ?: contentSelection)
                 ?.takeIf {
                     it.startsWith(
                         PLAYER_SUBTITLE_LANGUAGE_PREFIX
@@ -14415,16 +14434,22 @@ private fun PlayerScreen(
                 ?.removePrefix(
                     PLAYER_SUBTITLE_LANGUAGE_PREFIX
                 )
-            val savedTrack = if (savedLanguage != null) {
-                textTracks.firstOrNull {
-                    canonicalSubtitleLanguage(it.language) ==
-                        canonicalSubtitleLanguage(savedLanguage)
-                }
-            } else {
-                textTracks.firstOrNull {
-                    it.selectionId == savedSelection
-                }
-            }
+            val savedTrack =
+                contentSelection
+                    ?.let { selectionId ->
+                        textTracks.firstOrNull {
+                            it.selectionId == selectionId
+                        }
+                    }
+                    ?: savedLanguage?.let { language ->
+                        textTracks.firstOrNull {
+                            canonicalSubtitleLanguage(it.language) ==
+                                canonicalSubtitleLanguage(language)
+                        }
+                    }
+                    ?: textTracks.firstOrNull {
+                        it.selectionId == savedSelection
+                    }
 
             when {
                 savedSelection == PLAYER_SUBTITLE_OFF -> {
@@ -14440,6 +14465,7 @@ private fun PlayerScreen(
                         disable = true,
                     )
                     subtitlesDisabled = true
+                    selectedSubtitleIsExternal = false
                 }
 
                 savedTrack != null -> {
@@ -14458,6 +14484,9 @@ private fun PlayerScreen(
                         choice = savedTrack,
                     )
                     subtitlesDisabled = false
+                    selectedSubtitleIsExternal =
+                        savedTrack.selectionId
+                            .startsWith("external:")
                 }
 
                 savedSelection == null -> {
@@ -15085,6 +15114,11 @@ private fun PlayerScreen(
                     disable = true,
                 )
                 subtitlesDisabled = true
+                selectedSubtitleIsExternal = false
+                settingsStore.setSubtitleSelection(
+                    contentId = mediaKey,
+                    selectionId = PLAYER_SUBTITLE_OFF,
+                )
                 settingsStore.setLastSubtitleSelection(
                     PLAYER_SUBTITLE_OFF
                 )
@@ -15096,13 +15130,19 @@ private fun PlayerScreen(
                     choice = choice,
                 )
                 subtitlesDisabled = false
+                selectedSubtitleIsExternal =
+                    choice.selectionId
+                        .startsWith("external:")
+                settingsStore.setSubtitleSelection(
+                    contentId = mediaKey,
+                    selectionId = choice.selectionId,
+                )
                 settingsStore.setLastSubtitleSelection(
                     PLAYER_SUBTITLE_LANGUAGE_PREFIX +
                         canonicalSubtitleLanguage(
                             choice.language
                         )
                 )
-                refreshTrackChoices()
             },
             onSubtitleDelayChange = { delayMs ->
                 subtitleDelayMs =
@@ -16633,6 +16673,7 @@ private fun PlayerView.applyVueoSubtitleStyle(
 private class VueoSubtitleOffsetRenderersFactory(
     context: Context,
     private val subtitleDelayUsProvider: () -> Long,
+    private val shouldNormalizeCuePositionProvider: () -> Boolean,
 ) : DefaultRenderersFactory(context) {
     override fun buildTextRenderers(
         context: Context,
@@ -16641,10 +16682,16 @@ private class VueoSubtitleOffsetRenderersFactory(
         extensionRendererMode: Int,
         out: ArrayList<Renderer>,
     ) {
+        val normalizingOutput =
+            VueoCueNormalizingTextOutput(
+                delegate = output,
+                shouldNormalizeCuePositionProvider =
+                    shouldNormalizeCuePositionProvider,
+            )
         val firstTextRenderer = out.size
         super.buildTextRenderers(
             context,
-            output,
+            normalizingOutput,
             outputLooper,
             extensionRendererMode,
             out,
@@ -16655,6 +16702,48 @@ private class VueoSubtitleOffsetRenderersFactory(
                 subtitleDelayUsProvider = subtitleDelayUsProvider,
             )
         }
+    }
+}
+
+private class VueoCueNormalizingTextOutput(
+    private val delegate: TextOutput,
+    private val shouldNormalizeCuePositionProvider: () -> Boolean,
+) : TextOutput {
+    override fun onCues(cueGroup: CueGroup) {
+        delegate.onCues(
+            CueGroup(
+                cueGroup.cues.map(::normalizeCuePosition),
+                cueGroup.presentationTimeUs,
+            )
+        )
+    }
+
+    @Deprecated(
+        "Uses the deprecated Media3 callback for text outputs."
+    )
+    override fun onCues(cues: List<Cue>) {
+        delegate.onCues(
+            cues.map(::normalizeCuePosition)
+        )
+    }
+
+    private fun normalizeCuePosition(cue: Cue): Cue {
+        if (
+            !shouldNormalizeCuePositionProvider() ||
+            cue.bitmap != null ||
+            cue.verticalType != Cue.TYPE_UNSET ||
+            cue.line == Cue.DIMEN_UNSET
+        ) {
+            return cue
+        }
+
+        return cue.buildUpon()
+            .setLine(
+                Cue.DIMEN_UNSET,
+                Cue.TYPE_UNSET,
+            )
+            .setLineAnchor(Cue.TYPE_UNSET)
+            .build()
     }
 }
 

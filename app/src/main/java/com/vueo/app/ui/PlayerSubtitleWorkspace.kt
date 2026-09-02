@@ -1064,10 +1064,33 @@ internal fun canonicalSubtitleLanguage(value: String?): String {
         ?.takeIf { it.isNotBlank() }
         ?: return "und"
 
+    val words =
+        normalized
+            .replace(Regex("[^a-z]+"), " ")
+            .trim()
+            .split(Regex("\\s+"))
+            .filter { it.isNotBlank() }
+
+    if (
+        "indonesian" in words ||
+        "indonesia" in words
+    ) {
+        return "id"
+    }
+
+    if (
+        "malay" in words ||
+        "melayu" in words
+    ) {
+        return "ms"
+    }
+
     val language = normalized.substringBefore('-')
     return when (language) {
-        "ind", "idn" -> "id"
-        "may", "msa", "zsm" -> "ms"
+        "id", "ind", "idn", "indonesian", "indonesia",
+        "bahasa indonesia" -> "id"
+        "ms", "may", "msa", "zsm", "malay", "melayu",
+        "bahasa melayu", "bahasa malaysia" -> "ms"
         "eng" -> "en"
         "spa" -> "es"
         "por" -> "pt"
