@@ -16,14 +16,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -41,48 +41,23 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vueotv.app.data.TvCatalogRow
+import com.vueotv.app.data.TvHomeData
+import com.vueotv.app.data.TvHomeRepository
+import com.vueotv.app.data.TvMediaItem
+import com.vueotv.app.ui.components.TvNetworkImage
 
 private val VueoBlack = Color(0xFF050706)
 private val VueoPanel = Color(0xFF101412)
 private val VueoGreen = Color(0xFF84E100)
 private val VueoYellow = Color(0xFFD6FF00)
 private val VueoMuted = Color(0xFFAAB2AD)
-
-private data class TvCard(
-    val title: String,
-    val meta: String,
-)
-
-private val continueWatching = listOf(
-    TvCard("Reacher", "S2 E4 • 31m left"),
-    TvCard("Shōgun", "S1 E6 • 22m left"),
-    TvCard("The Last of Us", "S2 E2 • 44m left"),
-    TvCard("Fallout", "S1 E5 • 18m left"),
-    TvCard("Severance", "S2 E1 • 39m left"),
-    TvCard("Silo", "S2 E7 • 27m left"),
-)
-
-private val popular = listOf(
-    TvCard("Dune: Part Two", "Movie • 2024"),
-    TvCard("The Penguin", "Series • 2024"),
-    TvCard("Andor", "Series • 2022"),
-    TvCard("The Bear", "Series • 2022"),
-    TvCard("The Batman", "Movie • 2022"),
-    TvCard("Slow Horses", "Series • 2022"),
-)
-
-private val newest = listOf(
-    TvCard("Paradise", "Series • New"),
-    TvCard("The Studio", "Series • New"),
-    TvCard("Mickey 17", "Movie • New"),
-    TvCard("Black Bag", "Movie • New"),
-    TvCard("MobLand", "Series • New"),
-    TvCard("The Gorge", "Movie • New"),
-)
 
 @Composable
 fun VueoTvApp() {
@@ -98,10 +73,51 @@ fun VueoTvApp() {
 
 @Composable
 private fun VueoTvHome() {
+    val context = LocalContext.current
+    val repository =
+        remember(context) {
+            TvHomeRepository(context.applicationContext)
+        }
     val firstAction = remember { FocusRequester() }
 
+    var home by remember {
+        mutableStateOf(repository.cached())
+    }
+    var selectedHero by remember {
+        mutableStateOf(home?.hero)
+    }
+    var loading by remember {
+        mutableStateOf(home == null)
+    }
+    var refreshError by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    LaunchedEffect(home?.hero?.id) {
+        if (home != null) {
+            runCatching { firstAction.requestFocus() }
+        }
+    }
+
     LaunchedEffect(Unit) {
-        firstAction.requestFocus()
+        runCatching {
+            repository.refresh()
+        }
+            .onSuccess { fresh ->
+                home = fresh
+                selectedHero = fresh.hero
+                refreshError = null
+            }
+            .onFailure {
+                refreshError =
+                    if (home == null) {
+                        "Unable to load VUEO catalogs"
+                    } else {
+                        "Showing cached catalog"
+                    }
+            }
+
+        loading = false
     }
 
     Box(
@@ -110,20 +126,70 @@ private fun VueoTvHome() {
                 .fillMaxSize()
                 .background(VueoBlack),
     ) {
-        LazyColumn(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(top = 76.dp),
-            contentPadding = PaddingValues(bottom = 34.dp),
-        ) {
-            item { Hero(firstAction) }
-            item { TvRail("Continue Watching", continueWatching, showProgress = true) }
-            item { TvRail("Popular", popular) }
-            item { TvRail("Recently Added", newest) }
+        when {
+            home != null && selectedHero != null -> {
+                HomeContent(
+                    home = home!!,
+                    hero = selectedHero!!,
+                    firstAction = firstAction,
+                    refreshError = refreshError,
+                    onCardFocused = { selectedHero = it },
+                )
+            }
+
+            loading -> LoadingHome()
+
+            else -> ErrorHome(
+                message = refreshError ?: "Unable to load VUEO catalogs",
+            )
         }
 
         TvTopNav()
+    }
+}
+
+@Composable
+private fun HomeContent(
+    home: TvHomeData,
+    hero: TvMediaItem,
+    firstAction: FocusRequester,
+    refreshError: String?,
+    onCardFocused: (TvMediaItem) -> Unit,
+) {
+    LazyColumn(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(top = 76.dp),
+        contentPadding = PaddingValues(bottom = 38.dp),
+    ) {
+        item {
+            Hero(
+                item = hero,
+                firstAction = firstAction,
+                providerName = home.providerName,
+            )
+        }
+
+        refreshError?.let { message ->
+            item {
+                Text(
+                    text = message,
+                    color = VueoMuted,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 58.dp, vertical = 5.dp),
+                )
+            }
+        }
+
+        home.rows.forEach { row ->
+            item(key = row.id) {
+                TvRail(
+                    row = row,
+                    onCardFocused = onCardFocused,
+                )
+            }
+        }
     }
 }
 
@@ -134,6 +200,15 @@ private fun TvTopNav() {
             Modifier
                 .fillMaxWidth()
                 .height(76.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            VueoBlack,
+                            VueoBlack.copy(alpha = 0.94f),
+                            Color.Transparent,
+                        )
+                    )
+                )
                 .padding(horizontal = 42.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -192,35 +267,58 @@ private fun TvNavItem(
 }
 
 @Composable
-private fun Hero(firstAction: FocusRequester) {
+private fun Hero(
+    item: TvMediaItem,
+    firstAction: FocusRequester,
+    providerName: String,
+) {
     Box(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(310.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            Color(0xFF111A15),
-                            Color(0xFF0A0E0C),
-                            VueoBlack,
-                        ),
-                    ),
-                ),
+                .height(350.dp)
+                .background(VueoBlack),
     ) {
-        Box(
+        TvNetworkImage(
+            url = item.background ?: item.poster,
+            contentDescription = item.name,
+            contentScale = ContentScale.Crop,
             modifier =
                 Modifier
                     .align(Alignment.CenterEnd)
                     .fillMaxHeight()
-                    .fillMaxWidth(0.52f)
+                    .fillMaxWidth(0.68f),
+        )
+
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxSize()
                     .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                VueoGreen.copy(alpha = 0.17f),
+                        Brush.horizontalGradient(
+                            colors =
+                                listOf(
+                                    VueoBlack,
+                                    VueoBlack.copy(alpha = 0.96f),
+                                    VueoBlack.copy(alpha = 0.56f),
+                                    Color.Transparent,
+                                ),
+                        )
+                    ),
+        )
+
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
                                 Color.Transparent,
-                            ),
-                        ),
+                                Color.Transparent,
+                                VueoBlack,
+                            )
+                        )
                     ),
         )
 
@@ -229,31 +327,38 @@ private fun Hero(firstAction: FocusRequester) {
                 Modifier
                     .align(Alignment.CenterStart)
                     .padding(start = 58.dp, end = 40.dp)
-                    .fillMaxWidth(0.52f),
+                    .fillMaxWidth(0.50f),
         ) {
             Text(
-                text = "REACHER",
+                text = item.name,
                 color = Color.White,
-                fontSize = 42.sp,
+                fontSize = 40.sp,
                 fontWeight = FontWeight.Black,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(10.dp))
             Text(
-                text = "2022  •  4 Seasons  •  IMDb ★ 8.0",
+                text = heroMeta(item),
                 color = Color.White.copy(alpha = 0.88f),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(12.dp))
             Text(
-                text = "A former military investigator enters a small town and uncovers a conspiracy much larger than anyone expected.",
+                text =
+                    item.description
+                        ?: item.genres.take(3).joinToString(" • ")
+                        .ifBlank { "Available from $providerName" },
                 color = VueoMuted,
                 fontSize = 16.sp,
                 lineHeight = 23.sp,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(20.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TvHeroButton(
                     text = "▶  Play",
@@ -262,9 +367,24 @@ private fun Hero(firstAction: FocusRequester) {
                 )
                 TvHeroButton(text = "+  My List")
             }
+            Spacer(Modifier.height(9.dp))
+            Text(
+                text = "Source • $providerName",
+                color = VueoMuted.copy(alpha = 0.72f),
+                fontSize = 11.sp,
+            )
         }
     }
 }
+
+private fun heroMeta(item: TvMediaItem): String =
+    buildList {
+        add(item.displayType)
+        item.releaseInfo?.takeIf { it.isNotBlank() }?.let(::add)
+        item.imdbRating?.let {
+            add("IMDb ★ ${String.format("%.1f", it)}")
+        }
+    }.joinToString("  •  ")
 
 @Composable
 private fun TvHeroButton(
@@ -297,30 +417,44 @@ private fun TvHeroButton(
 
 @Composable
 private fun TvRail(
-    title: String,
-    cards: List<TvCard>,
-    showProgress: Boolean = false,
+    row: TvCatalogRow,
+    onCardFocused: (TvMediaItem) -> Unit,
 ) {
     Column(
-        modifier = Modifier.padding(top = 14.dp),
+        modifier = Modifier.padding(top = 10.dp),
     ) {
-        Text(
-            text = title,
-            color = Color.White,
-            fontSize = 19.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 58.dp, vertical = 8.dp),
-        )
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 58.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = row.title,
+                color = Color.White,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = row.providerName,
+                color = VueoMuted.copy(alpha = 0.68f),
+                fontSize = 11.sp,
+            )
+        }
 
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 58.dp, vertical = 5.dp),
+            contentPadding = PaddingValues(horizontal = 58.dp, vertical = 7.dp),
             horizontalArrangement = Arrangement.spacedBy(15.dp),
         ) {
-            itemsIndexed(cards) { index, card ->
+            items(
+                items = row.items,
+                key = { "${row.id}:${it.type}:${it.id}" },
+            ) { item ->
                 TvPosterCard(
-                    card = card,
-                    index = index,
-                    showProgress = showProgress,
+                    item = item,
+                    onFocused = onCardFocused,
                 )
             }
         }
@@ -329,9 +463,8 @@ private fun TvRail(
 
 @Composable
 private fun TvPosterCard(
-    card: TvCard,
-    index: Int,
-    showProgress: Boolean,
+    item: TvMediaItem,
+    onFocused: (TvMediaItem) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "cardScale")
@@ -345,61 +478,30 @@ private fun TvPosterCard(
             Modifier
                 .width(154.dp)
                 .scale(scale)
-                .onFocusChanged { focused = it.isFocused }
+                .onFocusChanged { state ->
+                    focused = state.isFocused
+                    if (state.isFocused) {
+                        onFocused(item)
+                    }
+                }
                 .focusable(),
     ) {
-        Box(
+        TvNetworkImage(
+            url = item.poster,
+            contentDescription = item.name,
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(205.dp)
-                    .border(2.dp, borderColor, RoundedCornerShape(10.dp))
-                    .background(
-                        brush =
-                            Brush.linearGradient(
-                                listOf(
-                                    VueoPanel,
-                                    Color(0xFF1A211D),
-                                    if (index % 2 == 0) {
-                                        VueoGreen.copy(alpha = 0.22f)
-                                    } else {
-                                        Color(0xFF2B302D)
-                                    },
-                                ),
-                            ),
+                    .height(222.dp)
+                    .border(
+                        width = 2.dp,
+                        color = borderColor,
                         shape = RoundedCornerShape(10.dp),
                     ),
-        ) {
-            Text(
-                text = (index + 1).toString().padStart(2, '0'),
-                color = Color.White.copy(alpha = 0.12f),
-                fontSize = 52.sp,
-                fontWeight = FontWeight.Black,
-                modifier = Modifier.align(Alignment.Center),
-            )
-
-            if (showProgress) {
-                Box(
-                    modifier =
-                        Modifier
-                            .align(Alignment.BottomStart)
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .background(Color.White.copy(alpha = 0.18f)),
-                ) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth((0.24f + index * 0.11f).coerceAtMost(0.82f))
-                                .fillMaxHeight()
-                                .background(VueoYellow),
-                    )
-                }
-            }
-        }
+        )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = card.title,
+            text = item.name,
             color = Color.White,
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
@@ -407,11 +509,60 @@ private fun TvPosterCard(
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = card.meta,
+            text = cardMeta(item),
             color = VueoMuted,
             fontSize = 12.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+private fun cardMeta(item: TvMediaItem): String =
+    listOfNotNull(
+        item.displayType,
+        item.releaseInfo?.takeIf { it.isNotBlank() },
+    ).joinToString(" • ")
+
+@Composable
+private fun LoadingHome() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(
+                color = VueoYellow,
+            )
+            Spacer(Modifier.height(14.dp))
+            Text(
+                text = "Loading VUEO",
+                color = VueoMuted,
+                fontSize = 14.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ErrorHome(message: String) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "VUEO",
+                color = VueoYellow,
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Black,
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = message,
+                color = VueoMuted,
+                fontSize = 15.sp,
+            )
+        }
     }
 }
