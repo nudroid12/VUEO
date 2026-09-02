@@ -403,11 +403,15 @@ object PlayerSourcePolicy {
 }
 
 class PlayerSourceRecoverySession(
-    private val maximumAutomaticSwitches: Int = 2,
+    private val automaticRecoveryBudgetMs: Long =
+        PLAYER_AUTOMATIC_RECOVERY_BUDGET_MS,
+    private val elapsedRealtimeMs: () -> Long = {
+        System.nanoTime() / 1_000_000L
+    },
 ) {
     private val attemptedUrls = linkedSetOf<String>()
     private val failedUrls = linkedSetOf<String>()
-    private var automaticSwitches = 0
+    private var recoveryStartedAtMs: Long? = null
 
     fun begin(source: StreamSource) {
         source.url?.let(attemptedUrls::add)
@@ -425,13 +429,29 @@ class PlayerSourceRecoverySession(
             attemptedUrls -= it
             failedUrls -= it
         }
+        recoveryStartedAtMs = null
+    }
+
+    fun markReady() {
+        recoveryStartedAtMs = null
+    }
+
+    fun isAutomaticRecoveryActive(): Boolean =
+        recoveryStartedAtMs != null
+
+    fun failedSourceCount(): Int = failedUrls.size
+
+    private fun recoveryBudgetAvailable(nowMs: Long): Boolean {
+        val startedAt = recoveryStartedAtMs
+            ?: nowMs.also { recoveryStartedAtMs = it }
+        return nowMs - startedAt < automaticRecoveryBudgetMs
     }
 
     fun next(
         rankedSources: List<StreamSource>,
         originalLanguage: String? = null,
     ): StreamSource? {
-        if (automaticSwitches >= maximumAutomaticSwitches) {
+        if (!recoveryBudgetAvailable(elapsedRealtimeMs())) {
             return null
         }
         val candidate = PlayerSourcePolicy
@@ -443,7 +463,6 @@ class PlayerSourceRecoverySession(
             .firstOrNull()
             ?: return null
 
-        automaticSwitches++
         candidate.url?.let(attemptedUrls::add)
         return candidate
     }
@@ -460,4 +479,6 @@ enum class PlayerPlaybackPhase {
 }
 
 const val PLAYER_STARTUP_TIMEOUT_MS = 15_000L
+const val PLAYER_RECOVERY_SOURCE_TIMEOUT_MS = 5_000L
+const val PLAYER_AUTOMATIC_RECOVERY_BUDGET_MS = 30_000L
 const val PLAYER_REBUFFER_TIMEOUT_MS = 25_000L

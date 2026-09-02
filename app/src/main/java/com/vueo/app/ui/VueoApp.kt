@@ -201,6 +201,7 @@ import com.vueo.app.core.player.PlayerSourceAudioMatch
 import com.vueo.app.core.player.PlayerSourcePolicy
 import com.vueo.app.core.player.PlayerSourceRecoverySession
 import com.vueo.app.core.player.PLAYER_REBUFFER_TIMEOUT_MS
+import com.vueo.app.core.player.PLAYER_RECOVERY_SOURCE_TIMEOUT_MS
 import com.vueo.app.core.player.PLAYER_STARTUP_TIMEOUT_MS
 import com.vueo.app.core.storage.VueoDataMigration
 import com.vueo.app.core.stremio.SimpleHttp
@@ -13050,9 +13051,9 @@ private fun SourcePickerScreen(
                         Text(
                             when {
                                 searching && playable.isEmpty() ->
-                                    "Searching for playable sources"
+                                    "Searching for sources"
                                 searching ->
-                                    "Best source ready • checking remaining"
+                                    "Top-ranked source found • checking remaining"
                                 playable.isNotEmpty() ->
                                     "${streams.size} unique sources analysed"
                                 else ->
@@ -13355,7 +13356,7 @@ private fun SourcePickerScreen(
         } else if (searching) {
             item(key = "source-search-waiting") {
                 Text(
-                    "Playable sources will appear as soon as a provider responds.",
+                    "Sources will appear as soon as a provider responds.",
                     modifier = Modifier.padding(
                         horizontal = 16.dp,
                         vertical = 4.dp,
@@ -14387,7 +14388,16 @@ private fun PlayerScreen(
             onSwitchSource(alternate, position)
         } else {
             playbackPhase = PlayerPlaybackPhase.FAILED
-            playbackError = message
+            val failedCount =
+                sourceRecoverySession.failedSourceCount()
+            playbackError =
+                if (failedCount > 1) {
+                    "$failedCount ranked sources failed to start. " +
+                        "Choose Source to try one manually."
+                } else {
+                    "$message No other suitable automatic source " +
+                        "was available."
+                }
             controlsVisible = true
             if (
                 latestEpisodeSwitchingTo
@@ -14695,6 +14705,7 @@ private fun PlayerScreen(
                         playbackState ==
                             Player.STATE_READY
                     ) {
+                        sourceRecoverySession.markReady()
                         playbackError = null
                         playbackPhase = PlayerPlaybackPhase.READY
                         recoveryInProgress = false
@@ -14841,14 +14852,21 @@ private fun PlayerScreen(
             return@LaunchedEffect
         }
 
-        delay(PLAYER_STARTUP_TIMEOUT_MS)
+        val startupTimeoutMs =
+            if (sourceRecoverySession.isAutomaticRecoveryActive()) {
+                PLAYER_RECOVERY_SOURCE_TIMEOUT_MS
+            } else {
+                PLAYER_STARTUP_TIMEOUT_MS
+            }
+        delay(startupTimeoutMs)
         if (
             !hasRenderedFirstFrame &&
             playbackError == null &&
             !recoveryInProgress
         ) {
             handleSourceFailure(
-                "This source did not start within 15 seconds. VUEO stopped waiting for it."
+                "This source did not start within " +
+                    "${startupTimeoutMs / 1_000L} seconds."
             )
         }
     }

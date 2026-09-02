@@ -178,7 +178,7 @@ internal fun PlayerSourcesWorkspace(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        text = "$title • ${sources.size} playable",
+                        text = "$title • ${sources.size} sources",
                         color = Color.White.copy(alpha = .52f),
                         fontSize = 10.sp,
                         maxLines = 1,
