@@ -381,18 +381,6 @@ jobs:
             dist/update.json \
             --clobber
 
-      - name: Upload signed APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: VUEO-signed-dev-${{ github.run_id }}
-          path: |
-            dist/VUEO-dev.apk
-            dist/VUEO-dev.apk.sha256
-            dist/VUEOTV-dev.apk
-            dist/VUEOTV-dev.apk.sha256
-            dist/update.json
-          if-no-files-found: error
-          retention-days: 14
 
       - name: Build summary
         if: always()
@@ -413,4 +401,6 @@ jobs:
             echo "- TV APK: \`VUEOTV-dev.apk\`"
             echo "- TV package: \`com.vueo.app.tv\`"
             echo "- Mobile update feed: \`update.json\`"
+            echo "- Manual TV testing: download \`VUEOTV-dev.apk\` directly from this Release"
+            echo "- Actions ZIP artifact: disabled"
           } >> "$GITHUB_STEP_SUMMARY"
