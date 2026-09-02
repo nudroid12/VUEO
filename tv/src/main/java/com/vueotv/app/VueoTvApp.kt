@@ -19,7 +19,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -32,10 +33,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -52,8 +55,13 @@ import com.vueotv.app.data.TvHomeData
 import com.vueotv.app.data.TvHomeRepository
 import com.vueotv.app.data.TvMediaItem
 import com.vueotv.app.ui.components.TvNetworkImage
+import com.vueotv.app.ui.focus.TvFocusMemory
+import com.vueotv.app.ui.focus.TvFocusZone
+import com.vueotv.app.ui.focus.tvVerticalFocus
 import com.vueotv.app.update.VueoTvUpdateManager
 import com.vueotv.app.update.VueoTvUpdateRelease
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val VueoBlack = Color(0xFF050706)
 private val VueoPanel = Color(0xFF101412)
@@ -69,6 +77,7 @@ fun VueoTvApp() {
     var updateDownloading by remember { mutableStateOf(false) }
     var updateProgress by remember { mutableStateOf(0) }
     var updateError by remember { mutableStateOf<String?>(null) }
+    var homeFocusRestoreToken by remember { mutableStateOf(0) }
 
     LaunchedEffect(Unit) {
         VueoTvUpdateManager.check(
@@ -90,7 +99,9 @@ fun VueoTvApp() {
             color = VueoBlack,
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                VueoTvHome()
+                VueoTvHome(
+                    focusRestoreToken = homeFocusRestoreToken,
+                )
 
                 val release = updateRelease
                 if (updateVisible && release != null) {
@@ -102,6 +113,7 @@ fun VueoTvApp() {
                         onLater = {
                             if (!updateDownloading) {
                                 updateVisible = false
+                                homeFocusRestoreToken += 1
                             }
                         },
                         onUpdateNow = {
@@ -139,13 +151,21 @@ fun VueoTvApp() {
 }
 
 @Composable
-private fun VueoTvHome() {
+private fun VueoTvHome(
+    focusRestoreToken: Int,
+) {
     val context = LocalContext.current
     val repository =
         remember(context) {
             TvHomeRepository(context.applicationContext)
         }
-    val firstAction = remember { FocusRequester() }
+    val navRequesters =
+        remember {
+            listOf("Home", "Search", "Library", "Content Manager", "Luckez")
+                .associateWith { FocusRequester() }
+        }
+    val heroPlayRequester = remember { FocusRequester() }
+    val heroListRequester = remember { FocusRequester() }
 
     var home by remember {
         mutableStateOf(repository.cached())
@@ -160,19 +180,22 @@ private fun VueoTvHome() {
         mutableStateOf<String?>(null)
     }
 
-    LaunchedEffect(home?.hero?.id) {
-        if (home != null) {
-            runCatching { firstAction.requestFocus() }
-        }
-    }
-
     LaunchedEffect(Unit) {
         runCatching {
             repository.refresh()
         }
             .onSuccess { fresh ->
+                val rememberedMedia = TvFocusMemory.lastMediaKey
+                val restoredHero =
+                    rememberedMedia?.let { mediaKey ->
+                        fresh.rows
+                            .asSequence()
+                            .flatMap { it.items.asSequence() }
+                            .firstOrNull { "${it.type}:${it.id}" == mediaKey }
+                    }
+
                 home = fresh
-                selectedHero = fresh.hero
+                selectedHero = restoredHero ?: fresh.hero
                 refreshError = null
             }
             .onFailure {
@@ -198,7 +221,10 @@ private fun VueoTvHome() {
                 HomeContent(
                     home = home!!,
                     hero = selectedHero!!,
-                    firstAction = firstAction,
+                    navRequesters = navRequesters,
+                    heroPlayRequester = heroPlayRequester,
+                    heroListRequester = heroListRequester,
+                    focusRestoreToken = focusRestoreToken,
                     refreshError = refreshError,
                     onCardFocused = { selectedHero = it },
                 )
@@ -211,7 +237,10 @@ private fun VueoTvHome() {
             )
         }
 
-        TvTopNav()
+        TvTopNav(
+            navRequesters = navRequesters,
+            heroDownRequester = heroPlayRequester,
+        )
     }
 }
 
@@ -219,11 +248,61 @@ private fun VueoTvHome() {
 private fun HomeContent(
     home: TvHomeData,
     hero: TvMediaItem,
-    firstAction: FocusRequester,
+    navRequesters: Map<String, FocusRequester>,
+    heroPlayRequester: FocusRequester,
+    heroListRequester: FocusRequester,
+    focusRestoreToken: Int,
     refreshError: String?,
     onCardFocused: (TvMediaItem) -> Unit,
 ) {
+    val columnState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val rowKey = remember(home.rows) { home.rows.joinToString("|") { it.id } }
+    val rowEntryRequesters =
+        remember(rowKey) {
+            home.rows.associate { it.id to FocusRequester() }
+        }
+    val firstRowRequester = home.rows.firstOrNull()?.let { rowEntryRequesters[it.id] }
+    val homeNavRequester = navRequesters.getValue("Home")
+    val railStartIndex = if (refreshError != null) 2 else 1
+    var lastVerticalRow by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(rowKey, focusRestoreToken) {
+        delay(90)
+        val target =
+            when (TvFocusMemory.lastZone) {
+                TvFocusZone.Nav ->
+                    navRequesters[TvFocusMemory.lastNavLabel]
+                        ?: homeNavRequester
+
+                TvFocusZone.Hero -> {
+                    columnState.scrollToItem(0)
+                    if (TvFocusMemory.lastHeroAction == 1) {
+                        heroListRequester
+                    } else {
+                        heroPlayRequester
+                    }
+                }
+
+                TvFocusZone.Rail -> {
+                    val rememberedRowId = TvFocusMemory.lastRowId
+                    val rememberedRowIndex =
+                        home.rows.indexOfFirst { it.id == rememberedRowId }
+                    if (rememberedRowIndex >= 0) {
+                        columnState.scrollToItem(railStartIndex + rememberedRowIndex)
+                        delay(70)
+                    }
+                    rememberedRowId
+                        ?.let(rowEntryRequesters::get)
+                        ?: heroPlayRequester
+                }
+            }
+
+        runCatching { target.requestFocus() }
+    }
+
     LazyColumn(
+        state = columnState,
         modifier =
             Modifier
                 .fillMaxSize()
@@ -233,8 +312,19 @@ private fun HomeContent(
         item {
             Hero(
                 item = hero,
-                firstAction = firstAction,
+                playRequester = heroPlayRequester,
+                listRequester = heroListRequester,
+                upRequester = homeNavRequester,
+                downRequester = firstRowRequester,
                 providerName = home.providerName,
+                onFocused = {
+                    if (lastVerticalRow != null) {
+                        lastVerticalRow = null
+                        scope.launch {
+                            columnState.animateScrollToItem(0)
+                        }
+                    }
+                },
             )
         }
 
@@ -249,11 +339,35 @@ private fun HomeContent(
             }
         }
 
-        home.rows.forEach { row ->
+        home.rows.forEachIndexed { rowIndex, row ->
+            val upRequester =
+                if (rowIndex == 0) {
+                    heroPlayRequester
+                } else {
+                    rowEntryRequesters[home.rows[rowIndex - 1].id]
+                }
+            val downRequester =
+                home.rows.getOrNull(rowIndex + 1)
+                    ?.let { rowEntryRequesters[it.id] }
+            val entryRequester = rowEntryRequesters.getValue(row.id)
+
             item(key = row.id) {
                 TvRail(
                     row = row,
-                    onCardFocused = onCardFocused,
+                    entryRequester = entryRequester,
+                    upRequester = upRequester,
+                    downRequester = downRequester,
+                    onCardFocused = { item, _ ->
+                        onCardFocused(item)
+                        if (lastVerticalRow != row.id) {
+                            lastVerticalRow = row.id
+                            scope.launch {
+                                columnState.animateScrollToItem(
+                                    index = railStartIndex + rowIndex,
+                                )
+                            }
+                        }
+                    },
                 )
             }
         }
@@ -261,7 +375,10 @@ private fun HomeContent(
 }
 
 @Composable
-private fun TvTopNav() {
+private fun TvTopNav(
+    navRequesters: Map<String, FocusRequester>,
+    heroDownRequester: FocusRequester,
+) {
     Row(
         modifier =
             Modifier
@@ -291,20 +408,43 @@ private fun TvTopNav() {
             Spacer(Modifier.width(44.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TvNavItem("Home", selected = true)
-                TvNavItem("Search")
-                TvNavItem("Library")
-                TvNavItem("Content Manager")
+                TvNavItem(
+                    label = "Home",
+                    selected = true,
+                    requester = navRequesters.getValue("Home"),
+                    downRequester = heroDownRequester,
+                )
+                TvNavItem(
+                    label = "Search",
+                    requester = navRequesters.getValue("Search"),
+                    downRequester = heroDownRequester,
+                )
+                TvNavItem(
+                    label = "Library",
+                    requester = navRequesters.getValue("Library"),
+                    downRequester = heroDownRequester,
+                )
+                TvNavItem(
+                    label = "Content Manager",
+                    requester = navRequesters.getValue("Content Manager"),
+                    downRequester = heroDownRequester,
+                )
             }
         }
 
-        TvNavItem("Luckez")
+        TvNavItem(
+            label = "Luckez",
+            requester = navRequesters.getValue("Luckez"),
+            downRequester = heroDownRequester,
+        )
     }
 }
 
 @Composable
 private fun TvNavItem(
     label: String,
+    requester: FocusRequester,
+    downRequester: FocusRequester,
     selected: Boolean = false,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -312,14 +452,31 @@ private fun TvNavItem(
         if (focused || selected) Color.White else VueoMuted,
         label = "navColor",
     )
+    val scale by animateFloatAsState(
+        if (focused) 1.04f else 1f,
+        label = "navScale",
+    )
 
     Box(
         modifier =
             Modifier
-                .onFocusChanged { focused = it.isFocused }
+                .focusRequester(requester)
+                .tvVerticalFocus(down = downRequester)
+                .scale(scale)
+                .onFocusChanged {
+                    focused = it.isFocused
+                    if (it.isFocused) {
+                        TvFocusMemory.rememberNav(label)
+                    }
+                }
                 .focusable()
                 .background(
                     color = if (focused) Color.White.copy(alpha = 0.10f) else Color.Transparent,
+                    shape = RoundedCornerShape(9.dp),
+                )
+                .border(
+                    width = 1.dp,
+                    color = if (focused) VueoYellow.copy(alpha = 0.62f) else Color.Transparent,
                     shape = RoundedCornerShape(9.dp),
                 )
                 .padding(horizontal = 15.dp, vertical = 9.dp),
@@ -336,8 +493,12 @@ private fun TvNavItem(
 @Composable
 private fun Hero(
     item: TvMediaItem,
-    firstAction: FocusRequester,
+    playRequester: FocusRequester,
+    listRequester: FocusRequester,
+    upRequester: FocusRequester,
+    downRequester: FocusRequester?,
     providerName: String,
+    onFocused: () -> Unit,
 ) {
     Box(
         modifier =
@@ -430,9 +591,20 @@ private fun Hero(
                 TvHeroButton(
                     text = "▶  Play",
                     primary = true,
-                    modifier = Modifier.focusRequester(firstAction),
+                    requester = playRequester,
+                    upRequester = upRequester,
+                    downRequester = downRequester,
+                    actionIndex = 0,
+                    onFocused = onFocused,
                 )
-                TvHeroButton(text = "+  My List")
+                TvHeroButton(
+                    text = "+  My List",
+                    requester = listRequester,
+                    upRequester = upRequester,
+                    downRequester = downRequester,
+                    actionIndex = 1,
+                    onFocused = onFocused,
+                )
             }
             Spacer(Modifier.height(9.dp))
             Text(
@@ -456,18 +628,38 @@ private fun heroMeta(item: TvMediaItem): String =
 @Composable
 private fun TvHeroButton(
     text: String,
+    requester: FocusRequester,
+    upRequester: FocusRequester,
+    downRequester: FocusRequester?,
+    actionIndex: Int,
+    onFocused: () -> Unit,
     primary: Boolean = false,
-    modifier: Modifier = Modifier,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.05f else 1f, label = "heroButtonScale")
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "heroButtonScale")
 
     Button(
         onClick = { },
         modifier =
-            modifier
-                .onFocusChanged { focused = it.isFocused }
-                .scale(scale),
+            Modifier
+                .focusRequester(requester)
+                .tvVerticalFocus(
+                    up = upRequester,
+                    down = downRequester,
+                )
+                .onFocusChanged {
+                    focused = it.isFocused
+                    if (it.isFocused) {
+                        TvFocusMemory.rememberHero(actionIndex)
+                        onFocused()
+                    }
+                }
+                .scale(scale)
+                .border(
+                    width = 1.dp,
+                    color = if (focused) VueoYellow.copy(alpha = 0.70f) else Color.Transparent,
+                    shape = RoundedCornerShape(9.dp),
+                ),
         shape = RoundedCornerShape(9.dp),
         colors =
             ButtonDefaults.buttonColors(
@@ -485,8 +677,21 @@ private fun TvHeroButton(
 @Composable
 private fun TvRail(
     row: TvCatalogRow,
-    onCardFocused: (TvMediaItem) -> Unit,
+    entryRequester: FocusRequester,
+    upRequester: FocusRequester?,
+    downRequester: FocusRequester?,
+    onCardFocused: (TvMediaItem, Int) -> Unit,
 ) {
+    val rememberedIndex = TvFocusMemory.railIndex(row.id, row.items.size)
+    val listState =
+        rememberLazyListState(
+            initialFirstVisibleItemIndex = (rememberedIndex - 1).coerceAtLeast(0),
+        )
+    val scope = rememberCoroutineScope()
+    var entryIndex by remember(row.id, row.items.size) {
+        mutableStateOf(rememberedIndex)
+    }
+
     Column(
         modifier = Modifier.padding(top = 10.dp),
     ) {
@@ -512,16 +717,41 @@ private fun TvRail(
         }
 
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 58.dp, vertical = 7.dp),
+            state = listState,
+            contentPadding = PaddingValues(horizontal = 58.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(15.dp),
         ) {
-            items(
+            itemsIndexed(
                 items = row.items,
-                key = { "${row.id}:${it.type}:${it.id}" },
-            ) { item ->
+                key = { _, item -> "${row.id}:${item.type}:${item.id}" },
+            ) { index, item ->
+                val entryModifier =
+                    if (index == entryIndex) {
+                        Modifier.focusRequester(entryRequester)
+                    } else {
+                        Modifier
+                    }
+
                 TvPosterCard(
                     item = item,
-                    onFocused = onCardFocused,
+                    modifier = entryModifier,
+                    upRequester = upRequester,
+                    downRequester = downRequester,
+                    onFocused = {
+                        entryIndex = index
+                        TvFocusMemory.rememberRail(
+                            rowId = row.id,
+                            itemIndex = index,
+                            mediaKey = "${item.type}:${item.id}",
+                        )
+                        onCardFocused(item, index)
+
+                        scope.launch {
+                            listState.animateScrollToItem(
+                                index = (index - 1).coerceAtLeast(0),
+                            )
+                        }
+                    },
                 )
             }
         }
@@ -531,7 +761,10 @@ private fun TvRail(
 @Composable
 private fun TvPosterCard(
     item: TvMediaItem,
-    onFocused: (TvMediaItem) -> Unit,
+    modifier: Modifier = Modifier,
+    upRequester: FocusRequester?,
+    downRequester: FocusRequester?,
+    onFocused: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "cardScale")
@@ -539,45 +772,63 @@ private fun TvPosterCard(
         if (focused) VueoYellow else Color.Transparent,
         label = "cardBorder",
     )
+    val glowColor by animateColorAsState(
+        if (focused) VueoGreen.copy(alpha = 0.18f) else Color.Transparent,
+        label = "cardGlow",
+    )
 
     Column(
         modifier =
-            Modifier
+            modifier
                 .width(154.dp)
+                .zIndex(if (focused) 1f else 0f)
                 .scale(scale)
+                .tvVerticalFocus(
+                    up = upRequester,
+                    down = downRequester,
+                )
                 .onFocusChanged { state ->
                     focused = state.isFocused
                     if (state.isFocused) {
-                        onFocused(item)
+                        onFocused()
                     }
                 }
                 .focusable(),
     ) {
-        TvNetworkImage(
-            url = item.poster,
-            contentDescription = item.name,
+        Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .height(222.dp)
+                    .background(
+                        color = glowColor,
+                        shape = RoundedCornerShape(12.dp),
+                    )
                     .border(
-                        width = 2.dp,
+                        width = if (focused) 2.dp else 1.dp,
                         color = borderColor,
-                        shape = RoundedCornerShape(10.dp),
-                    ),
-        )
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                    .padding(3.dp),
+        ) {
+            TvNetworkImage(
+                url = item.poster,
+                contentDescription = item.name,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
         Spacer(Modifier.height(8.dp))
         Text(
             text = item.name,
             color = Color.White,
             fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = if (focused) FontWeight.Bold else FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Text(
             text = cardMeta(item),
-            color = VueoMuted,
+            color = if (focused) Color.White.copy(alpha = 0.74f) else VueoMuted,
             fontSize = 12.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
