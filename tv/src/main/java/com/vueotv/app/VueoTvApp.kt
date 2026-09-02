@@ -57,6 +57,10 @@ import com.vueotv.app.data.TvHomeRepository
 import com.vueotv.app.data.TvMediaItem
 import com.vueotv.app.detail.TvDetailRepository
 import com.vueotv.app.detail.TvDetailScreen
+import com.vueotv.app.library.TvLibraryScreen
+import com.vueotv.app.library.TvLibraryStore
+import com.vueotv.app.content.TvContentManagerScreen
+import com.vueotv.app.content.TvContentManagerStore
 import com.vueotv.app.ui.components.TvNetworkImage
 import com.vueotv.app.search.TvSearchRepository
 import com.vueotv.app.search.TvSearchScreen
@@ -77,6 +81,8 @@ private val VueoMuted = Color(0xFFAAB2AD)
 private enum class TvRootScreen {
     HOME,
     SEARCH,
+    LIBRARY,
+    CONTENT_MANAGER,
     DETAIL,
 }
 
@@ -93,6 +99,15 @@ fun VueoTvApp() {
     var detailMedia by remember { mutableStateOf<TvMediaItem?>(null) }
     var detailReturnScreen by remember { mutableStateOf(TvRootScreen.HOME) }
     var searchFocusRestoreToken by remember { mutableStateOf(0) }
+    var libraryFocusRestoreToken by remember { mutableStateOf(0) }
+    val libraryStore =
+        remember(context) {
+            TvLibraryStore(context.applicationContext)
+        }
+    val contentManagerStore =
+        remember(context) {
+            TvContentManagerStore(context.applicationContext)
+        }
     val searchRepository =
         remember(context) {
             TvSearchRepository(context.applicationContext)
@@ -104,6 +119,8 @@ fun VueoTvApp() {
             when (label) {
                 "Home" -> TvRootScreen.HOME
                 "Search" -> TvRootScreen.SEARCH
+                "Library" -> TvRootScreen.LIBRARY
+                "Content Manager" -> TvRootScreen.CONTENT_MANAGER
                 else -> currentScreen
             }
         if (nextScreen != currentScreen) {
@@ -137,6 +154,7 @@ fun VueoTvApp() {
                         VueoTvHome(
                             focusRestoreToken = homeFocusRestoreToken,
                             onNavigate = navigate,
+                            libraryStore = libraryStore,
                             onOpenMedia = { media ->
                                 detailMedia = media
                                 detailReturnScreen = TvRootScreen.HOME
@@ -156,6 +174,24 @@ fun VueoTvApp() {
                             },
                         )
 
+                    TvRootScreen.LIBRARY ->
+                        TvLibraryScreen(
+                            store = libraryStore,
+                            focusRestoreToken = libraryFocusRestoreToken,
+                            onNavigate = navigate,
+                            onOpenMedia = { media ->
+                                detailMedia = media
+                                detailReturnScreen = TvRootScreen.LIBRARY
+                                currentScreen = TvRootScreen.DETAIL
+                            },
+                        )
+
+                    TvRootScreen.CONTENT_MANAGER ->
+                        TvContentManagerScreen(
+                            store = contentManagerStore,
+                            onNavigate = navigate,
+                        )
+
                     TvRootScreen.DETAIL -> {
                         val media = detailMedia
                         if (media != null) {
@@ -163,14 +199,16 @@ fun VueoTvApp() {
                                 seed = media,
                                 repository = detailRepository,
                                 onNavigate = navigate,
+                                isInMyList = libraryStore.contains(media),
+                                onToggleMyList = { libraryStore.toggle(media) },
                                 onBack = {
                                     val target = detailReturnScreen
                                     detailMedia = null
                                     currentScreen = target
-                                    if (target == TvRootScreen.SEARCH) {
-                                        searchFocusRestoreToken += 1
-                                    } else {
-                                        homeFocusRestoreToken += 1
+                                    when (target) {
+                                        TvRootScreen.SEARCH -> searchFocusRestoreToken += 1
+                                        TvRootScreen.LIBRARY -> libraryFocusRestoreToken += 1
+                                        else -> homeFocusRestoreToken += 1
                                     }
                                 },
                             )
@@ -229,6 +267,7 @@ fun VueoTvApp() {
 private fun VueoTvHome(
     focusRestoreToken: Int,
     onNavigate: (String) -> Unit,
+    libraryStore: TvLibraryStore,
     onOpenMedia: (TvMediaItem) -> Unit,
 ) {
     val context = LocalContext.current
@@ -304,6 +343,8 @@ private fun VueoTvHome(
                     focusRestoreToken = focusRestoreToken,
                     refreshError = refreshError,
                     onCardFocused = { selectedHero = it },
+                    isInMyList = { libraryStore.contains(it) },
+                    onToggleMyList = { libraryStore.toggle(it) },
                     onOpenMedia = onOpenMedia,
                 )
             }
@@ -334,6 +375,8 @@ private fun HomeContent(
     focusRestoreToken: Int,
     refreshError: String?,
     onCardFocused: (TvMediaItem) -> Unit,
+    isInMyList: (TvMediaItem) -> Boolean,
+    onToggleMyList: (TvMediaItem) -> Boolean,
     onOpenMedia: (TvMediaItem) -> Unit,
 ) {
     val columnState = rememberLazyListState()
@@ -398,6 +441,8 @@ private fun HomeContent(
                 upRequester = homeNavRequester,
                 downRequester = firstRowRequester,
                 providerName = home.providerName,
+                inMyList = isInMyList(hero),
+                onToggleMyList = { onToggleMyList(hero) },
                 onFocused = {
                     if (lastVerticalRow != null) {
                         lastVerticalRow = null
@@ -593,6 +638,8 @@ private fun Hero(
     upRequester: FocusRequester,
     downRequester: FocusRequester?,
     providerName: String,
+    inMyList: Boolean,
+    onToggleMyList: () -> Boolean,
     onFocused: () -> Unit,
 ) {
     Box(
@@ -691,14 +738,17 @@ private fun Hero(
                     downRequester = downRequester,
                     actionIndex = 0,
                     onFocused = onFocused,
+                    onClick = { },
                 )
+                var saved by remember(item.type, item.id, inMyList) { mutableStateOf(inMyList) }
                 TvHeroButton(
-                    text = "+  My List",
+                    text = if (saved) "✓  My List" else "+  My List",
                     requester = listRequester,
                     upRequester = upRequester,
                     downRequester = downRequester,
                     actionIndex = 1,
                     onFocused = onFocused,
+                    onClick = { saved = onToggleMyList() },
                 )
             }
             Spacer(Modifier.height(9.dp))
@@ -728,13 +778,14 @@ private fun TvHeroButton(
     downRequester: FocusRequester?,
     actionIndex: Int,
     onFocused: () -> Unit,
+    onClick: () -> Unit,
     primary: Boolean = false,
 ) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "heroButtonScale")
 
     Button(
-        onClick = { },
+        onClick = onClick,
         modifier =
             Modifier
                 .focusRequester(requester)

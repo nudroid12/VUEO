@@ -65,6 +65,8 @@ fun TvDetailScreen(
     seed: TvMediaItem,
     repository: TvDetailRepository,
     onNavigate: (String) -> Unit,
+    isInMyList: Boolean,
+    onToggleMyList: () -> Boolean,
     onBack: () -> Unit,
 ) {
     val navRequesters =
@@ -73,6 +75,7 @@ fun TvDetailScreen(
                 .associateWith { FocusRequester() }
         }
     val playRequester = remember { FocusRequester() }
+    val listRequester = remember { FocusRequester() }
     val backRequester = remember { FocusRequester() }
     val seasonRequester = remember { FocusRequester() }
     val firstEpisodeRequester = remember { FocusRequester() }
@@ -164,8 +167,11 @@ fun TvDetailScreen(
                     runtime = details?.runtime,
                     director = details?.director.orEmpty(),
                     playRequester = playRequester,
+                    listRequester = listRequester,
                     backRequester = backRequester,
                     upRequester = navRequesters.getValue("Home"),
+                    inMyList = isInMyList,
+                    onToggleMyList = onToggleMyList,
                     downRequester = if (seasons.isNotEmpty()) seasonRequester else if (episodes.isNotEmpty()) firstEpisodeRequester else null,
                     onBack = onBack,
                 )
@@ -272,8 +278,11 @@ private fun DetailHero(
     runtime: String?,
     director: List<String>,
     playRequester: FocusRequester,
+    listRequester: FocusRequester,
     backRequester: FocusRequester,
     upRequester: FocusRequester,
+    inMyList: Boolean,
+    onToggleMyList: () -> Boolean,
     downRequester: FocusRequester?,
     onBack: () -> Unit,
 ) {
@@ -323,6 +332,14 @@ private fun DetailHero(
                 upRequester = upRequester,
                 downRequester = downRequester,
                 onClick = { },
+            )
+            var saved by remember(media.type, media.id, inMyList) { mutableStateOf(inMyList) }
+            DetailActionButton(
+                text = if (saved) "✓  My List" else "+  My List",
+                requester = listRequester,
+                upRequester = upRequester,
+                downRequester = downRequester,
+                onClick = { saved = onToggleMyList() },
             )
             DetailActionButton(
                 text = "Back",
