@@ -9401,6 +9401,11 @@ private fun MediaDetailsScreen(
             List<MediaRating>
         >(emptyList())
     }
+    var supplementalRatings by remember {
+        mutableStateOf<
+            List<MediaRating>
+        >(emptyList())
+    }
     var geminiInsight by remember(
         initialItem.id,
         initialItem.type,
@@ -9543,6 +9548,126 @@ private fun MediaDetailsScreen(
         mutableStateOf(false)
     }
 
+    fun publishDetailsRatings(
+        media: MediaItem,
+    ) {
+        ratings =
+            (
+                baseDetailsRatings(
+                    media
+                ) +
+                    supplementalRatings
+            )
+                .associateBy {
+                    it.source
+                }
+                .values
+                .toList()
+    }
+
+    fun syncEpisodeSelection(
+        media: MediaItem,
+        preserveCurrent: Boolean,
+    ) {
+        if (
+            media.type != "series" ||
+            media.episodes.isEmpty()
+        ) {
+            selectedSeason = null
+            selectedEpisode = null
+            return
+        }
+
+        if (preserveCurrent) {
+            val current =
+                selectedEpisode
+                    ?.let { selected ->
+                        media.episodes
+                            .firstOrNull { candidate ->
+                                candidate.season ==
+                                    selected.season &&
+                                    candidate.episode ==
+                                    selected.episode
+                            }
+                    }
+
+            if (current != null) {
+                selectedSeason =
+                    current.season
+                selectedEpisode =
+                    current
+                return
+            }
+        }
+
+        val resumeCandidate =
+            initialLibraryEntry
+                ?: libraryStore
+                    .continueWatching()
+                    .firstOrNull { entry ->
+                        entry.media.id ==
+                            media.id &&
+                            entry.media.type ==
+                                media.type &&
+                            entry.season != null &&
+                            entry.episode != null
+                    }
+
+        val requestedSeason =
+            resumeCandidate
+                ?.season
+
+        val requestedEpisode =
+            resumeCandidate
+                ?.episode
+
+        val matched =
+            if (
+                requestedSeason != null &&
+                requestedEpisode != null
+            ) {
+                media.episodes
+                    .firstOrNull {
+                        it.season ==
+                            requestedSeason &&
+                            it.episode ==
+                            requestedEpisode
+                    }
+            } else {
+                null
+            }
+
+        val firstSeason =
+            matched?.season
+                ?: media.episodes
+                    .map {
+                        it.season
+                    }
+                    .distinct()
+                    .sorted()
+                    .firstOrNull {
+                        it > 0
+                    }
+                ?: media.episodes
+                    .map {
+                        it.season
+                    }
+                    .distinct()
+                    .sorted()
+                    .firstOrNull()
+
+        selectedSeason =
+            firstSeason
+
+        selectedEpisode =
+            matched
+                ?: media.episodes
+                    .firstOrNull {
+                        it.season ==
+                            firstSeason
+                    }
+    }
+
     LaunchedEffect(
         initialItem.id,
         initialItem.type,
@@ -9551,7 +9676,29 @@ private fun MediaDetailsScreen(
         loadingMeta = true
         relatedItems = emptyList()
         tmdbMoreLikeThisEnabled = false
-        ratings = emptyList()
+        supplementalRatings = emptyList()
+
+        // Instant detail shell: publish everything already carried by the
+        // catalog/search item before any network metadata work starts.
+        val shellItem =
+            normalizeSeriesEpisodes(
+                initialItem
+            )
+
+        item = shellItem
+        publishDetailsRatings(
+            shellItem
+        )
+        syncEpisodeSelection(
+            media = shellItem,
+            preserveCurrent = false,
+        )
+        inWatchlist =
+            libraryStore
+                .isWatchlisted(
+                    shellItem
+                )
+        refreshDetailPlaybackEntries()
 
         val tmdbKey =
             pluginStore
@@ -9562,8 +9709,8 @@ private fun MediaDetailsScreen(
             (
                 settingsStore
                     .tmdbRecommendationsEnabled() ||
-                    settingsStore
-                        .tmdbSimilarTitlesEnabled()
+                settingsStore
+                    .tmdbSimilarTitlesEnabled()
             )
 
         val preparedItem =
@@ -9589,6 +9736,8 @@ private fun MediaDetailsScreen(
                 initialItem
             }
 
+        // Core Stremio metadata is the only stage that controls the
+        // "still resolving" state. The page itself remains fully visible.
         val coreItem =
             normalizeSeriesEpisodes(
                 engine.loadMeta(
@@ -9596,141 +9745,27 @@ private fun MediaDetailsScreen(
                 )
             )
 
-        item =
-            if (
-                tmdbKey.isNotBlank() &&
-                (
-                    settingsStore
-                        .tmdbMetadataEnrichmentEnabled() ||
-                        settingsStore
-                            .tmdbArtworkEnrichmentEnabled()
-                )
-            ) {
-                runCatching {
-                    TmdbEnhancementClient
-                        .enrich(
-                            item = coreItem,
-                            apiKey =
-                                tmdbKey,
-                            metadataEnabled =
-                                settingsStore
-                                    .tmdbMetadataEnrichmentEnabled(),
-                            artworkEnabled =
-                                settingsStore
-                                    .tmdbArtworkEnrichmentEnabled(),
-                        )
-                }.getOrDefault(
-                    coreItem
-                )
-            } else {
-                coreItem
-            }
-
-        if (
-            tmdbKey.isNotBlank() &&
-            settingsStore
-                .tmdbMetadataEnrichmentEnabled()
-        ) {
-            item =
-                runCatching {
-                    RichDetailsClient
-                        .enrich(
-                            media = item,
-                            apiKey = tmdbKey,
-                        )
-                }.getOrDefault(item)
-        }
-
-        ratings =
-            baseDetailsRatings(
-                item
-            )
-
-        if (
-            item.type == "series" &&
-            item.episodes.isNotEmpty()
-        ) {
-            val resumeCandidate =
-                initialLibraryEntry
-                    ?: libraryStore
-                        .continueWatching()
-                        .firstOrNull { entry ->
-                            entry.media.id ==
-                                item.id &&
-                                entry.media.type ==
-                                    item.type &&
-                                entry.season != null &&
-                                entry.episode != null
-                        }
-
-            val requestedSeason =
-                resumeCandidate
-                    ?.season
-
-            val requestedEpisode =
-                resumeCandidate
-                    ?.episode
-
-            val matched =
-                if (
-                    requestedSeason != null &&
-                    requestedEpisode != null
-                ) {
-                    item.episodes
-                        .firstOrNull {
-                            it.season ==
-                                requestedSeason &&
-                                it.episode ==
-                                requestedEpisode
-                        }
-                } else {
-                    null
-                }
-
-            val firstSeason =
-                matched?.season
-                    ?: item.episodes
-                        .map {
-                            it.season
-                        }
-                        .distinct()
-                        .sorted()
-                        .firstOrNull {
-                            it > 0
-                        }
-                    ?: item.episodes
-                        .map {
-                            it.season
-                        }
-                        .distinct()
-                        .sorted()
-                        .firstOrNull()
-
-            selectedSeason =
-                firstSeason
-
-            selectedEpisode =
-                matched
-                    ?: item.episodes
-                        .firstOrNull {
-                            it.season ==
-                                firstSeason
-                        }
-        } else {
-            selectedSeason = null
-            selectedEpisode = null
-        }
-
+        item = coreItem
+        publishDetailsRatings(
+            coreItem
+        )
+        syncEpisodeSelection(
+            media = coreItem,
+            preserveCurrent = true,
+        )
         inWatchlist =
             libraryStore
                 .isWatchlisted(
-                    item
+                    coreItem
                 )
-
         refreshDetailPlaybackEntries()
 
+        // Do not make TMDB/Rich Details/ratings/recommendations part of the
+        // perceived page load. Core meta is enough to release the UI.
+        loadingMeta = false
+
         val resolvedItem =
-            item
+            coreItem
 
         val localRelated =
             CatalogDiscoveryCache
@@ -9742,7 +9777,76 @@ private fun MediaDetailsScreen(
         relatedItems =
             localRelated
 
-        loadingMeta = false
+        // Metadata/artwork, episode enrichment and rich credits continue in
+        // the background and progressively update the already-visible page.
+        launch {
+            var enrichedItem =
+                resolvedItem
+
+            if (
+                tmdbKey.isNotBlank() &&
+                (
+                    settingsStore
+                        .tmdbMetadataEnrichmentEnabled() ||
+                    settingsStore
+                        .tmdbArtworkEnrichmentEnabled()
+                )
+            ) {
+                enrichedItem =
+                    runCatching {
+                        TmdbEnhancementClient
+                            .enrich(
+                                item =
+                                    enrichedItem,
+                                apiKey =
+                                    tmdbKey,
+                                metadataEnabled =
+                                    settingsStore
+                                        .tmdbMetadataEnrichmentEnabled(),
+                                artworkEnabled =
+                                    settingsStore
+                                        .tmdbArtworkEnrichmentEnabled(),
+                            )
+                    }.getOrDefault(
+                        enrichedItem
+                    )
+
+                item =
+                    enrichedItem
+                publishDetailsRatings(
+                    enrichedItem
+                )
+                syncEpisodeSelection(
+                    media = enrichedItem,
+                    preserveCurrent = true,
+                )
+            }
+
+            if (
+                tmdbKey.isNotBlank() &&
+                settingsStore
+                    .tmdbMetadataEnrichmentEnabled()
+            ) {
+                enrichedItem =
+                    runCatching {
+                        RichDetailsClient
+                            .enrich(
+                                media =
+                                    enrichedItem,
+                                apiKey =
+                                    tmdbKey,
+                            )
+                    }.getOrDefault(
+                        enrichedItem
+                    )
+
+                item =
+                    enrichedItem
+                publishDetailsRatings(
+                    enrichedItem
+                )
+            }
+        }
 
         launch {
             if (
@@ -9750,8 +9854,8 @@ private fun MediaDetailsScreen(
                 (
                     !settingsStore
                         .tmdbRecommendationsEnabled() &&
-                        !settingsStore
-                            .tmdbSimilarTitlesEnabled()
+                    !settingsStore
+                        .tmdbSimilarTitlesEnabled()
                 )
             ) {
                 return@launch
@@ -9816,7 +9920,7 @@ private fun MediaDetailsScreen(
                     emptyList()
                 )
 
-            val enabledRatings =
+            supplementalRatings =
                 fetched.filter {
                     rating ->
                     when (rating.source) {
@@ -9844,13 +9948,9 @@ private fun MediaDetailsScreen(
                     }
                 }
 
-            ratings =
-                (ratings + enabledRatings)
-                    .associateBy {
-                        it.source
-                    }
-                    .values
-                    .toList()
+            publishDetailsRatings(
+                item
+            )
         }
     }
 
@@ -10863,11 +10963,6 @@ private fun MediaDetailsScreen(
             }
         }
 
-        if (loadingMeta) {
-            item {
-                DetailsLoadingSkeleton()
-            }
-        }
         item {
             Column(
                 modifier =

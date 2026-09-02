@@ -1595,25 +1595,22 @@ private fun mergeMediaMetadata(
     )
 
 private fun needsMetadataFallback(item: MediaItem): Boolean {
+    val hasUsableArtwork =
+        !item.poster.isNullOrBlank() ||
+            !item.background.isNullOrBlank()
+
     if (
         item.description.isNullOrBlank() ||
-        item.poster.isNullOrBlank() ||
-        item.background.isNullOrBlank()
+        !hasUsableArtwork
     ) {
         return true
     }
 
     if (item.type != "series") return false
-    if (item.episodes.isEmpty()) return true
 
-    return item.episodes.any { episode ->
-        isGenericEpisodeTitle(
-            title = episode.title,
-            episodeNumber = episode.episode,
-        ) ||
-            episode.overview.isNullOrBlank() ||
-            episode.thumbnail.isNullOrBlank()
-    }
+    // Episode artwork, overview text and pretty titles are enhancement-level
+    // gaps. They must not fan out to every metadata addon and hold up Detail.
+    return item.episodes.isEmpty()
 }
 
 private fun mergeMetadataEpisodes(
