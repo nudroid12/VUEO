@@ -2919,6 +2919,26 @@ private fun parseProviderStreams(
                     url,
                 quality =
                     quality,
+                codec =
+                    item.optString("codec")
+                        .takeIf { it.isNotBlank() },
+                hdr =
+                    item.optString("hdr")
+                        .takeIf { it.isNotBlank() },
+                audio =
+                    item.optString("audio")
+                        .takeIf { it.isNotBlank() },
+                language =
+                    listOf(
+                        "language",
+                        "lang",
+                        "audioLanguage",
+                        "audio_language",
+                    ).firstNotNullOfOrNull { field ->
+                        item.optString(field)
+                            .trim()
+                            .takeIf { it.isNotBlank() }
+                    },
                 headers =
                     headers,
                 providerId =

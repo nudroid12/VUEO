@@ -402,6 +402,10 @@ object TmdbEnhancementClient {
                                                     ch.isDigit()
                                                 }
                                         },
+                                originalLanguage =
+                                    credit.optNullableString(
+                                        "original_language"
+                                    ),
                                 catalogSources =
                                     listOf(
                                         "TMDB"
@@ -999,6 +1003,11 @@ object TmdbEnhancementClient {
                 } else {
                     item.background
                 },
+            originalLanguage =
+                item.originalLanguage
+                    ?: details.optNullableString(
+                        "original_language"
+                    ),
         )
     }
 
@@ -1337,6 +1346,10 @@ private fun JSONArray?
                             ?.takeIf {
                                 it.all { ch -> ch.isDigit() }
                             },
+                    originalLanguage =
+                        json.optNullableString(
+                            "original_language"
+                        ),
                     sourceExtensionId =
                         sourceExtensionId,
                 )

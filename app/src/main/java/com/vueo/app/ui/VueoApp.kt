@@ -198,6 +198,7 @@ import com.vueo.app.core.player.PlayerSkipRepository
 import com.vueo.app.core.player.PlayerSkipSegment
 import com.vueo.app.core.player.PlayerPlaybackPhase
 import com.vueo.app.core.player.PlayerSourceAssessment
+import com.vueo.app.core.player.PlayerSourceAudioMatch
 import com.vueo.app.core.player.PlayerSourcePolicy
 import com.vueo.app.core.player.PlayerSourceRecoverySession
 import com.vueo.app.core.player.PLAYER_REBUFFER_TIMEOUT_MS
@@ -9886,12 +9887,17 @@ private fun MediaDetailsScreen(
         SourceDiscoveryCache
             .get(cacheKey)
 
+    val rankedCachedStreams =
+        SourceCleaner.clean(
+            sources = cached?.streams.orEmpty(),
+            preferredQuality = preferredSourceQuality,
+        )
+
     var autoPlayCommitted = false
     var subtitlesResolved = false
     var sourceDiscoveryCompleted = false
     var latestAutoPlayCandidates =
-        cached?.streams
-            .orEmpty()
+        rankedCachedStreams
 
     fun commitAutoPlayIfReady(
         candidates: List<StreamSource>,
@@ -9908,7 +9914,14 @@ private fun MediaDetailsScreen(
         }
 
         val directCandidates =
-            candidates.filter { it.isDirectPlayable }
+            candidates
+                .filter { it.isDirectPlayable }
+                .sortedWith(
+                    PlayerSourcePolicy.comparator(
+                        preferredQuality = preferredSourceQuality,
+                        originalLanguage = item.originalLanguage,
+                    )
+                )
         val candidate =
             directCandidates.firstOrNull {
                 PlayerSourcePolicy
@@ -9917,8 +9930,12 @@ private fun MediaDetailsScreen(
                         preferredQuality =
                             preferredSourceQuality,
                     )
-                    .quality
-                    .automaticRecoveryEligible
+                    .let { assessment ->
+                        assessment.quality
+                            .automaticRecoveryEligible &&
+                            assessment.audioMatch
+                                .recommendationEligible
+                    }
             } ?: directCandidates
                 .firstOrNull()
                 ?.takeIf { allowLowQualityFallback }
@@ -9933,12 +9950,10 @@ private fun MediaDetailsScreen(
     }
 
     sourcePickerStreams =
-        cached?.streams
-            ?: emptyList()
+        rankedCachedStreams
 
     sourcePickerProviderOrder =
-        cached?.streams
-            .orEmpty()
+        rankedCachedStreams
             .asSequence()
             .filter { it.isDirectPlayable }
             .map(::sourceProviderTabKey)
@@ -9977,8 +9992,7 @@ private fun MediaDetailsScreen(
                 System.nanoTime()
 
             val cachedStreams =
-                cached?.streams
-                    .orEmpty()
+                rankedCachedStreams
 
             var freshAddonStreams =
                 emptyList<StreamSource>()
@@ -10484,6 +10498,8 @@ private fun MediaDetailsScreen(
             firstResultMs = sourcePickerFirstResultMs,
             providerOrder =
                 sourcePickerProviderOrder,
+            originalLanguage =
+                item.originalLanguage,
             showTechnicalDetails =
                 showSourceTechnicalDetails,
             onBack = {
@@ -12829,6 +12845,7 @@ private fun SourcePickerScreen(
     progressText: String,
     firstResultMs: Long?,
     providerOrder: List<String>,
+    originalLanguage: String?,
     showTechnicalDetails: Boolean,
     onBack: () -> Unit,
     onPlay: (StreamSource) -> Unit,
@@ -12836,11 +12853,21 @@ private fun SourcePickerScreen(
     BackHandler { onBack() }
 
     val playable = streams.filter { it.isDirectPlayable }
-    val best = playable.firstOrNull {
-        PlayerSourcePolicy.assess(it)
-            .quality
-            .automaticRecoveryEligible
-    } ?: playable.firstOrNull()
+    val best = playable
+        .sortedWith(
+            PlayerSourcePolicy.comparator(
+                originalLanguage = originalLanguage,
+            )
+        )
+        .firstOrNull {
+            PlayerSourcePolicy.assess(
+                source = it,
+                originalLanguage = originalLanguage,
+            ).let { assessment ->
+                assessment.quality.automaticRecoveryEligible &&
+                    assessment.audioMatch.recommendationEligible
+            }
+        } ?: playable.firstOrNull()
 
     val currentProviders = playable
         .asSequence()
@@ -12966,43 +12993,22 @@ private fun SourcePickerScreen(
                 Column(
                     modifier = Modifier.padding(
                         horizontal = 15.dp,
-                        vertical = 11.dp,
+                        vertical = 9.dp,
                     ),
-                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(
+                        Text(
+                            "SMART SOURCE ENGINE",
                             modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                        ) {
-                            Text(
-                                "SMART SOURCE ENGINE",
-                                color = Color.White,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 11.sp,
-                                letterSpacing = .7.sp,
-                            )
-                            Text(
-                                when {
-                                    searching && playable.isNotEmpty() ->
-                                        "Best source ready • checking remaining"
-
-                                    searching ->
-                                        "Searching for playable sources"
-
-                                    playable.isNotEmpty() ->
-                                        "Source search complete"
-
-                                    else ->
-                                        "No playable source found"
-                                },
-                                color = VueoPalette.Muted,
-                                fontSize = 11.sp,
-                            )
-                        }
+                            color = Color.White,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 11.sp,
+                            letterSpacing = .7.sp,
+                        )
 
                         Surface(
                             shape = RoundedCornerShape(50),
@@ -13040,9 +13046,9 @@ private fun SourcePickerScreen(
                         Text(
                             when {
                                 searching && playable.isEmpty() ->
-                                    "Waiting for the first playable source"
+                                    "Searching for playable sources"
                                 searching ->
-                                    "${playable.size} playable so far"
+                                    "Best source ready • checking remaining"
                                 playable.isNotEmpty() ->
                                     "${streams.size} unique sources analysed"
                                 else ->
@@ -13122,7 +13128,10 @@ private fun SourcePickerScreen(
 
         if (best != null) {
             item(key = "recommended-source") {
-                val assessment = PlayerSourcePolicy.assess(best)
+                val assessment = PlayerSourcePolicy.assess(
+                    source = best,
+                    originalLanguage = originalLanguage,
+                )
 
                 Card(
                     modifier = Modifier
@@ -13333,6 +13342,7 @@ private fun SourcePickerScreen(
             ) { source ->
                 StreamSourceCard(
                     source = source,
+                    originalLanguage = originalLanguage,
                     showTechnicalDetails = showTechnicalDetails,
                     onClick = { onPlay(source) },
                 )
@@ -13386,6 +13396,19 @@ private fun sourceMetadataLine(
 ): String =
     listOfNotNull(
         sourceRepositoryDisplayName(source),
+        when (assessment.audioMatch) {
+            PlayerSourceAudioMatch.ORIGINAL ->
+                "Original audio"
+
+            PlayerSourceAudioMatch.MULTI_WITH_ORIGINAL ->
+                "Original in multi audio"
+
+            PlayerSourceAudioMatch.FOREIGN_DUB ->
+                "Dub"
+
+            PlayerSourceAudioMatch.UNKNOWN ->
+                null
+        },
         assessment.summary,
         source.hdr,
         source.audio,
@@ -13447,10 +13470,14 @@ private fun SourceProviderTab(
 @Composable
 private fun StreamSourceCard(
     source: StreamSource,
+    originalLanguage: String?,
     showTechnicalDetails: Boolean,
     onClick: (() -> Unit)? = null,
 ) {
-    val assessment = PlayerSourcePolicy.assess(source)
+    val assessment = PlayerSourcePolicy.assess(
+        source = source,
+        originalLanguage = originalLanguage,
+    )
     val provider = sourceProviderTabDisplayName(
         sourceProviderTabKey(source)
     )
@@ -14057,6 +14084,7 @@ private fun PlayerScreen(
     val playableSources = remember(
         availableSources,
         source.url,
+        media.originalLanguage,
     ) {
         (listOf(source) + availableSources)
             .filter {
@@ -14069,7 +14097,8 @@ private fun PlayerScreen(
                 SourceRanker.comparator(
                     settingsStore
                         .preferredQuality()
-                        .rankKey
+                        .rankKey,
+                    originalLanguage = media.originalLanguage,
                 )
             )
     }
@@ -14181,7 +14210,7 @@ private fun PlayerScreen(
                     initialPlaybackPositionMs,
                 )
 
-                trackSelectionParameters =
+                val initialTrackParameters =
                     trackSelectionParameters
                         .buildUpon()
                         .setTrackTypeDisabled(
@@ -14189,7 +14218,14 @@ private fun PlayerScreen(
                             !settingsStore
                                 .subtitlesOnByDefault(),
                         )
-                        .build()
+                PlayerSourcePolicy
+                    .canonicalLanguageCode(media.originalLanguage)
+                    ?.let {
+                        initialTrackParameters
+                            .setPreferredAudioLanguages(it)
+                    }
+                trackSelectionParameters =
+                    initialTrackParameters.build()
 
                 prepare()
                 playWhenReady =
@@ -14319,7 +14355,10 @@ private fun PlayerScreen(
         val alternate = if (
             settingsStore.autoSourceRecoveryEnabled()
         ) {
-            sourceRecoverySession.next(playableSources)
+            sourceRecoverySession.next(
+                rankedSources = playableSources,
+                originalLanguage = media.originalLanguage,
+            )
         } else {
             null
         }
@@ -15232,6 +15271,7 @@ private fun PlayerScreen(
             currentPlaybackFailed = playbackError != null,
             failedSourceUrls = failedSourceUrls,
             providerOrder = sourceProviderOrder,
+            originalLanguage = media.originalLanguage,
             switchingSourceUrl = switchingSourceUrl,
             onSelect = { candidate ->
                 val switchPosition = player.currentPosition

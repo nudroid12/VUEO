@@ -671,6 +671,10 @@ class LibraryStore(
                 media.releaseInfo,
             )
             .put(
+                "originalLanguage",
+                media.originalLanguage,
+            )
+            .put(
                 "genres",
                 JSONArray(
                     media.genres
@@ -739,6 +743,10 @@ class LibraryStore(
             releaseInfo =
                 json.optNullableString(
                     "releaseInfo"
+                ),
+            originalLanguage =
+                json.optNullableString(
+                    "originalLanguage"
                 ),
             genres =
                 genres,

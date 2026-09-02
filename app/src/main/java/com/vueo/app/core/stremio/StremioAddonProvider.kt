@@ -72,6 +72,18 @@ class StremioAddonProvider private constructor(
                 quality = inferQuality(title),
                 codec = inferCodec(title),
                 hdr = inferHdr(title),
+                audio = item.optString("audio")
+                    .takeIf { it.isNotBlank() },
+                language = listOf(
+                    "language",
+                    "lang",
+                    "audioLanguage",
+                    "audio_language",
+                ).firstNotNullOfOrNull { field ->
+                    item.optString(field)
+                        .trim()
+                        .takeIf { it.isNotBlank() }
+                },
                 providerId = descriptor.id,
                 providerName = descriptor.name,
             )
@@ -232,6 +244,15 @@ private fun JSONObject.toMediaItem(sourceId: String): MediaItem? {
         background = optString("background").takeIf { it.startsWith("https://") },
         description = optString("description").takeIf { it.isNotBlank() },
         releaseInfo = optString("releaseInfo").takeIf { it.isNotBlank() },
+        originalLanguage = listOf(
+            "originalLanguage",
+            "original_language",
+            "language",
+        ).firstNotNullOfOrNull { field ->
+            optString(field)
+                .trim()
+                .takeIf { it.isNotBlank() }
+        },
         genres = optJSONArray("genres").toStringList(),
         episodes = optJSONArray("videos").toEpisodeList(),
         sourceExtensionId = sourceId,

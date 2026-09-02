@@ -2192,6 +2192,10 @@ private fun List<MediaItem>
                         item.releaseInfo,
                     )
                     .put(
+                        "originalLanguage",
+                        item.originalLanguage,
+                    )
+                    .put(
                         "genres",
                         JSONArray(
                             item.genres
@@ -2334,6 +2338,10 @@ private fun JSONArray?
                     releaseInfo =
                         json.optNullableString(
                             "releaseInfo"
+                        ),
+                    originalLanguage =
+                        json.optNullableString(
+                            "originalLanguage"
                         ),
                     genres =
                         json.optJSONArray(

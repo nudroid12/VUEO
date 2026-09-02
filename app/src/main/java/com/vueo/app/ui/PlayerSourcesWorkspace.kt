@@ -65,6 +65,7 @@ internal fun PlayerSourcesWorkspace(
     currentPlaybackFailed: Boolean,
     failedSourceUrls: Set<String>,
     providerOrder: List<String>,
+    originalLanguage: String?,
     switchingSourceUrl: String?,
     onSelect: (StreamSource) -> Unit,
     onDismiss: () -> Unit,
@@ -94,13 +95,20 @@ internal fun PlayerSourcesWorkspace(
         currentSource.url,
         currentPlaybackFailed,
         failedSourceUrls,
+        originalLanguage,
     ) {
         sources.firstOrNull { candidate ->
             candidate.url?.let { it !in failedSourceUrls } == true &&
                 PlayerSourcePolicy
-                    .assess(candidate)
-                    .quality
-                    .automaticRecoveryEligible &&
+                    .assess(
+                        source = candidate,
+                        originalLanguage = originalLanguage,
+                    ).let { assessment ->
+                        assessment.quality
+                            .automaticRecoveryEligible &&
+                            assessment.audioMatch
+                                .recommendationEligible
+                    } &&
                 (!currentPlaybackFailed || candidate.url != currentSource.url)
         } ?: sources.firstOrNull { candidate ->
             candidate.url?.let { it !in failedSourceUrls } == true
@@ -214,16 +222,22 @@ internal fun PlayerSourcesWorkspace(
                             val switching =
                                 candidate.url == switchingSourceUrl
                             val assessment =
-                                PlayerSourcePolicy.assess(candidate)
+                                PlayerSourcePolicy.assess(
+                                    source = candidate,
+                                    originalLanguage = originalLanguage,
+                                )
                             SourceListRow(
                                 source = candidate,
+                                originalLanguage = originalLanguage,
                                 current = current,
                                 switching = switching,
                                 recommended =
                                     candidate.url == recommended?.url,
                                 automaticRecoveryEligible = assessment
                                     .quality
-                                    .automaticRecoveryEligible,
+                                    .automaticRecoveryEligible &&
+                                    assessment.audioMatch
+                                        .recommendationEligible,
                                 playbackFailed =
                                     candidate.url?.let {
                                         it in failedSourceUrls
@@ -246,6 +260,7 @@ internal fun PlayerSourcesWorkspace(
 @Composable
 private fun SourceListRow(
     source: StreamSource,
+    originalLanguage: String?,
     current: Boolean,
     switching: Boolean,
     recommended: Boolean,
@@ -253,7 +268,10 @@ private fun SourceListRow(
     playbackFailed: Boolean,
     onClick: () -> Unit,
 ) {
-    val assessment = PlayerSourcePolicy.assess(source)
+    val assessment = PlayerSourcePolicy.assess(
+        source = source,
+        originalLanguage = originalLanguage,
+    )
     Surface(
         modifier = Modifier
             .fillMaxWidth()

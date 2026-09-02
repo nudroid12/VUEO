@@ -1570,6 +1570,8 @@ private fun mergeMediaMetadata(
             candidate.description,
         ),
         releaseInfo = current.releaseInfo ?: candidate.releaseInfo,
+        originalLanguage =
+            current.originalLanguage ?: candidate.originalLanguage,
         genres = (current.genres + candidate.genres).distinct(),
         episodes = mergeMetadataEpisodes(
             current.episodes,
@@ -1704,7 +1706,11 @@ data class AddonStreamProgress(
 object SourceRanker {
     fun comparator(
         preferredQuality: String? = null,
-    ) = PlayerSourcePolicy.comparator(preferredQuality)
+        originalLanguage: String? = null,
+    ) = PlayerSourcePolicy.comparator(
+        preferredQuality = preferredQuality,
+        originalLanguage = originalLanguage,
+    )
 }
 
 
@@ -1712,11 +1718,13 @@ object SourceCleaner {
     fun clean(
         sources: List<StreamSource>,
         preferredQuality: String? = null,
+        originalLanguage: String? = null,
     ): List<StreamSource> {
         val sorted =
             sources.sortedWith(
                 SourceRanker.comparator(
-                    preferredQuality
+                    preferredQuality = preferredQuality,
+                    originalLanguage = originalLanguage,
                 )
             )
 
