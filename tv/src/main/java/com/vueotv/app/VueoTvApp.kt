@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -105,16 +104,17 @@ private fun VueoTvHome() {
         firstAction.requestFocus()
     }
 
-    Column(
+    Box(
         modifier =
             Modifier
                 .fillMaxSize()
                 .background(VueoBlack),
     ) {
-        TvTopNav()
-
         LazyColumn(
-            modifier = Modifier.weight(1f),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(top = 76.dp),
             contentPadding = PaddingValues(bottom = 34.dp),
         ) {
             item { Hero(firstAction) }
@@ -122,6 +122,8 @@ private fun VueoTvHome() {
             item { TvRail("Popular", popular) }
             item { TvRail("Recently Added", newest) }
         }
+
+        TvTopNav()
     }
 }
 
@@ -133,25 +135,27 @@ private fun TvTopNav() {
                 .fillMaxWidth()
                 .height(76.dp)
                 .padding(horizontal = 42.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "VUEO",
-            color = VueoYellow,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 1.sp,
-        )
-        Spacer(Modifier.width(44.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "VUEO",
+                color = VueoYellow,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.sp,
+            )
+            Spacer(Modifier.width(44.dp))
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TvNavItem("Home", selected = true)
-            TvNavItem("Search")
-            TvNavItem("Library")
-            TvNavItem("Content Manager")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TvNavItem("Home", selected = true)
+                TvNavItem("Search")
+                TvNavItem("Library")
+                TvNavItem("Content Manager")
+            }
         }
 
-        Spacer(Modifier.weight(1f))
         TvNavItem("Luckez")
     }
 }
