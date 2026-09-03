@@ -49,6 +49,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vueotv.app.TvTopNav
 import com.vueotv.app.data.TvMediaItem
+import com.vueotv.app.player.TvEpisodeRef
+import com.vueotv.app.player.TvPlaybackRequest
 import com.vueotv.app.ui.components.TvNetworkImage
 import com.vueotv.app.ui.focus.tvVerticalFocus
 import kotlinx.coroutines.delay
@@ -67,6 +69,7 @@ fun TvDetailScreen(
     onNavigate: (String) -> Unit,
     isInMyList: Boolean,
     onToggleMyList: () -> Boolean,
+    onPlay: (TvPlaybackRequest) -> Unit,
     onBack: () -> Unit,
 ) {
     val navRequesters =
@@ -92,6 +95,28 @@ fun TvDetailScreen(
         selectedSeason
             ?.let { details?.episodesForSeason(it) }
             .orEmpty()
+    val episodeQueue =
+        details?.episodes
+            .orEmpty()
+            .sortedWith(compareBy<TvEpisode> { it.season }.thenBy { it.episode })
+            .map { episode ->
+                TvEpisodeRef(
+                    videoId = episode.id,
+                    title = episode.title,
+                    season = episode.season.takeIf { it > 0 },
+                    episode = episode.episode.takeIf { it > 0 },
+                )
+            }
+
+    fun playbackRequest(episode: TvEpisode? = null): TvPlaybackRequest =
+        TvPlaybackRequest(
+            media = media,
+            videoId = episode?.id ?: media.id,
+            episodeTitle = episode?.title,
+            season = episode?.season?.takeIf { it > 0 },
+            episode = episode?.episode?.takeIf { it > 0 },
+            episodeQueue = episodeQueue,
+        )
 
     BackHandler(onBack = onBack)
 
@@ -173,6 +198,15 @@ fun TvDetailScreen(
                     inMyList = isInMyList,
                     onToggleMyList = onToggleMyList,
                     downRequester = if (seasons.isNotEmpty()) seasonRequester else if (episodes.isNotEmpty()) firstEpisodeRequester else null,
+                    onPlay = {
+                        val firstPlayableEpisode =
+                            if (media.type.equals("series", ignoreCase = true)) {
+                                episodes.firstOrNull() ?: details?.episodes?.firstOrNull()
+                            } else {
+                                null
+                            }
+                        onPlay(playbackRequest(firstPlayableEpisode))
+                    },
                     onBack = onBack,
                 )
             }
@@ -233,6 +267,7 @@ fun TvDetailScreen(
                         episode = episode,
                         modifier = if (index == 0) Modifier.focusRequester(firstEpisodeRequester) else Modifier,
                         upRequester = if (index == 0 && seasons.isNotEmpty()) seasonRequester else null,
+                        onClick = { onPlay(playbackRequest(episode)) },
                     )
                 }
             }
@@ -284,6 +319,7 @@ private fun DetailHero(
     inMyList: Boolean,
     onToggleMyList: () -> Boolean,
     downRequester: FocusRequester?,
+    onPlay: () -> Unit,
     onBack: () -> Unit,
 ) {
     Column(
@@ -331,7 +367,7 @@ private fun DetailHero(
                 requester = playRequester,
                 upRequester = upRequester,
                 downRequester = downRequester,
-                onClick = { },
+                onClick = onPlay,
             )
             var saved by remember(media.type, media.id, inMyList) { mutableStateOf(inMyList) }
             DetailActionButton(
@@ -480,6 +516,7 @@ private fun EpisodeCard(
     episode: TvEpisode,
     modifier: Modifier,
     upRequester: FocusRequester?,
+    onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.02f else 1f, label = "episodeScale")
@@ -498,6 +535,7 @@ private fun EpisodeCard(
                 .onFocusChanged { focused = it.isFocused }
                 .background(DetailPanel.copy(alpha = 0.92f), RoundedCornerShape(12.dp))
                 .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+                .clickable(onClick = onClick)
                 .focusable()
                 .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,

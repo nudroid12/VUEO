@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "VUEO"
 include(":app")
 include(":tv")
+include(":shared:core")

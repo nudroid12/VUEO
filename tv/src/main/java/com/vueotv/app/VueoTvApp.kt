@@ -59,6 +59,13 @@ import com.vueotv.app.detail.TvDetailRepository
 import com.vueotv.app.detail.TvDetailScreen
 import com.vueotv.app.library.TvLibraryScreen
 import com.vueotv.app.library.TvLibraryStore
+import com.vueotv.app.player.TvPlaybackRequest
+import com.vueotv.app.player.TvPlaybackStore
+import com.vueotv.app.player.TvPlayerScreen
+import com.vueotv.app.player.TvSourceEngine
+import com.vueotv.app.player.TvSourcePickerScreen
+import com.vueo.shared.core.source.SourceCandidate
+import com.vueo.shared.core.source.SubtitleCandidate
 import com.vueotv.app.content.TvContentManagerScreen
 import com.vueotv.app.content.TvContentManagerStore
 import com.vueotv.app.ui.components.TvNetworkImage
@@ -84,6 +91,8 @@ private enum class TvRootScreen {
     LIBRARY,
     CONTENT_MANAGER,
     DETAIL,
+    SOURCE_PICKER,
+    PLAYER,
 }
 
 @Composable
@@ -97,6 +106,9 @@ fun VueoTvApp() {
     var homeFocusRestoreToken by remember { mutableStateOf(0) }
     var currentScreen by remember { mutableStateOf(TvRootScreen.HOME) }
     var detailMedia by remember { mutableStateOf<TvMediaItem?>(null) }
+    var playbackRequest by remember { mutableStateOf<TvPlaybackRequest?>(null) }
+    var selectedSource by remember { mutableStateOf<SourceCandidate?>(null) }
+    var selectedSubtitles by remember { mutableStateOf<List<SubtitleCandidate>>(emptyList()) }
     var detailReturnScreen by remember { mutableStateOf(TvRootScreen.HOME) }
     var searchFocusRestoreToken by remember { mutableStateOf(0) }
     var libraryFocusRestoreToken by remember { mutableStateOf(0) }
@@ -107,6 +119,14 @@ fun VueoTvApp() {
     val contentManagerStore =
         remember(context) {
             TvContentManagerStore(context.applicationContext)
+        }
+    val sourceEngine =
+        remember(contentManagerStore) {
+            TvSourceEngine(contentManagerStore)
+        }
+    val playbackStore =
+        remember(context) {
+            TvPlaybackStore(context.applicationContext)
         }
     val searchRepository =
         remember(context) {
@@ -125,6 +145,9 @@ fun VueoTvApp() {
             }
         if (nextScreen != currentScreen) {
             detailMedia = null
+            playbackRequest = null
+            selectedSource = null
+            selectedSubtitles = emptyList()
             currentScreen = nextScreen
         }
     }
@@ -201,15 +224,71 @@ fun VueoTvApp() {
                                 onNavigate = navigate,
                                 isInMyList = libraryStore.contains(media),
                                 onToggleMyList = { libraryStore.toggle(media) },
+                                onPlay = { request ->
+                                    playbackRequest = request
+                                    selectedSource = null
+                                    selectedSubtitles = emptyList()
+                                    currentScreen = TvRootScreen.SOURCE_PICKER
+                                },
                                 onBack = {
                                     val target = detailReturnScreen
                                     detailMedia = null
+                                    playbackRequest = null
+                                    selectedSource = null
+                                    selectedSubtitles = emptyList()
                                     currentScreen = target
                                     when (target) {
                                         TvRootScreen.SEARCH -> searchFocusRestoreToken += 1
                                         TvRootScreen.LIBRARY -> libraryFocusRestoreToken += 1
                                         else -> homeFocusRestoreToken += 1
                                     }
+                                },
+                            )
+                        }
+                    }
+
+                    TvRootScreen.SOURCE_PICKER -> {
+                        val request = playbackRequest
+                        if (request != null) {
+                            TvSourcePickerScreen(
+                                request = request,
+                                sourceEngine = sourceEngine,
+                                onPlay = { source, subtitles ->
+                                    selectedSource = source
+                                    selectedSubtitles = subtitles
+                                    currentScreen = TvRootScreen.PLAYER
+                                },
+                                onBack = {
+                                    playbackRequest = null
+                                    selectedSource = null
+                                    selectedSubtitles = emptyList()
+                                    currentScreen = TvRootScreen.DETAIL
+                                },
+                            )
+                        }
+                    }
+
+                    TvRootScreen.PLAYER -> {
+                        val request = playbackRequest
+                        val source = selectedSource
+                        if (request != null && source != null) {
+                            TvPlayerScreen(
+                                request = request,
+                                initialSource = source,
+                                externalSubtitles = selectedSubtitles,
+                                sourceEngine = sourceEngine,
+                                playbackStore = playbackStore,
+                                onPlayRequest = { next ->
+                                    playbackRequest = next
+                                    selectedSource = null
+                                    selectedSubtitles = emptyList()
+                                    currentScreen = TvRootScreen.SOURCE_PICKER
+                                },
+                                onBack = {
+                                    playbackRequest = null
+                                    selectedSource = null
+                                    selectedSubtitles = emptyList()
+                                    currentScreen = TvRootScreen.DETAIL
                                 },
                             )
                         }
