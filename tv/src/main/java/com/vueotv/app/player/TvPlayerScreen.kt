@@ -26,8 +26,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -80,7 +79,7 @@ import kotlinx.coroutines.withContext
 private val PlayerBlack = Color(0xFF030403)
 private val PlayerPanel = Color(0xF20A0D0B)
 private val PlayerGreen = Color(0xFF84E100)
-private val PlayerYellow = Color(0xFFD6FF00)
+private val PlayerFocus = Color.White
 private val PlayerMuted = Color(0xFFAAB2AD)
 private val PlayerDanger = Color(0xFFFFB4AB)
 
@@ -242,12 +241,18 @@ fun TvPlayerScreen(
     }
 
     BackHandler {
-        if (sidePanel != null) {
-            sidePanel = null
-            touchControls()
-        } else {
-            saveProgress()
-            onBack()
+        when {
+            sidePanel != null -> {
+                sidePanel = null
+                touchControls()
+            }
+            controlsVisible && playerError == null -> {
+                controlsVisible = false
+            }
+            else -> {
+                saveProgress()
+                onBack()
+            }
         }
     }
 
@@ -640,24 +645,57 @@ private fun PlayerControls(
     onNext: (() -> Unit)?,
 ) {
     val assessment = currentSource?.let { SourceRanker.assess(it, originalLanguage = request.originalLanguage) }
-    val sourceLine = when {
-        waitingForRecovery -> "Trying another source…"
-        assessment != null -> "${assessment.summary} • ${currentSource.providerName}"
-        else -> sourceProgress
-    }
+    val episodeLine =
+        buildList {
+            if (request.season != null && request.episode != null) {
+                add("S${request.season.toString().padStart(2, '0')} E${request.episode.toString().padStart(2, '0')}")
+            }
+            request.episodeTitle?.trim()?.takeIf { it.isNotBlank() }?.let(::add)
+        }.joinToString("  •  ")
+    val audioValue =
+        audioLabel
+            .removePrefix("Audio • ")
+            .removePrefix("Audio")
+            .trim()
+            .ifBlank { "Default" }
+    val subtitleValue =
+        subtitleLabel
+            .removePrefix("Subs • ")
+            .removePrefix("Subtitles ")
+            .removePrefix("Subtitles")
+            .trim()
+            .ifBlank { "Off" }
+    val sourceValue =
+        when {
+            waitingForRecovery -> "Switching source"
+            assessment != null -> assessment.summary
+            currentSource != null -> "Current source"
+            else -> sourceProgress
+        }
+    val nextValue =
+        request.nextEpisodeRef?.let { next ->
+            buildList {
+                if (next.season != null && next.episode != null) {
+                    add("S${next.season.toString().padStart(2, '0')} E${next.episode.toString().padStart(2, '0')}")
+                }
+                next.title.trim().takeIf { it.isNotBlank() }?.let(::add)
+            }.joinToString(" • ")
+        }
 
     Box(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(300.dp)
+                .height(380.dp)
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.70f),
-                            Color.Black.copy(alpha = 0.96f),
-                        ),
+                        colors =
+                            listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.38f),
+                                Color.Black.copy(alpha = 0.84f),
+                                Color.Black.copy(alpha = 0.98f),
+                            ),
                     ),
                 ),
     ) {
@@ -666,66 +704,153 @@ private fun PlayerControls(
                 Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 48.dp, vertical = 24.dp),
+                    .padding(horizontal = 56.dp, vertical = 28.dp),
         ) {
+            Text(
+                text = request.media.name,
+                color = Color.White,
+                fontSize = 31.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (episodeLine.isNotBlank()) {
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    text = episodeLine,
+                    color = Color.White.copy(alpha = 0.76f),
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (waitingForRecovery) {
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    text = "VUEO is switching to another source",
+                    color = PlayerGreen,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+            PlayerSeekBar(positionMs = positionMs, durationMs = durationMs)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.width(780.dp)) {
-                    Text(
-                        text = request.displayTitle,
-                        color = Color.White,
-                        fontSize = 26.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = sourceLine,
-                        color = PlayerMuted,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
                 Text(
-                    text = "${formatTime(positionMs)}  /  ${formatTime(durationMs)}",
-                    color = Color.White.copy(alpha = 0.90f),
-                    fontSize = 14.sp,
+                    text = formatTime(positionMs),
+                    color = Color.White.copy(alpha = 0.82f),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = formatTime(durationMs),
+                    color = Color.White.copy(alpha = 0.82f),
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
                 )
             }
 
-            Spacer(Modifier.height(14.dp))
-            PlayerSeekBar(positionMs = positionMs, durationMs = durationMs)
-            Spacer(Modifier.height(18.dp))
-
+            Spacer(Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                PlayerButton("↶ 10", rewindRequester, onRewind)
-                PlayerButton(
-                    text = when {
-                        isBuffering -> "Buffering…"
-                        isPlaying -> "Pause"
-                        else -> "Play"
-                    },
+                TransportButton(
+                    text = "↶ 10",
+                    requester = rewindRequester,
+                    onClick = onRewind,
+                    onLeft = { rewindRequester.requestFocus() },
+                    onRight = { playRequester.requestFocus() },
+                    onUp = { rewindRequester.requestFocus() },
+                    onDown = { audioRequester.requestFocus() },
+                )
+                Spacer(Modifier.width(18.dp))
+                TransportButton(
+                    text =
+                        when {
+                            isBuffering -> "…"
+                            isPlaying -> "Ⅱ"
+                            else -> "▶"
+                        },
                     requester = playRequester,
                     onClick = onPlayPause,
                     primary = true,
+                    onLeft = { rewindRequester.requestFocus() },
+                    onRight = { forwardRequester.requestFocus() },
+                    onUp = { playRequester.requestFocus() },
+                    onDown = { subtitleRequester.requestFocus() },
                 )
-                PlayerButton("10 ↷", forwardRequester, onForward)
-                Spacer(Modifier.width(10.dp))
-                PlayerButton(audioLabel, audioRequester, onAudio)
-                PlayerButton(subtitleLabel, subtitleRequester, onSubtitles)
-                PlayerButton("Sources", sourcesRequester, onSources)
-                if (onNext != null) {
-                    PlayerButton("Next", nextRequester, onNext)
+                Spacer(Modifier.width(18.dp))
+                TransportButton(
+                    text = "10 ↷",
+                    requester = forwardRequester,
+                    onClick = onForward,
+                    onLeft = { playRequester.requestFocus() },
+                    onRight = { forwardRequester.requestFocus() },
+                    onUp = { forwardRequester.requestFocus() },
+                    onDown = { sourcesRequester.requestFocus() },
+                )
+            }
+
+            Spacer(Modifier.height(14.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                UtilityButton(
+                    title = "Audio",
+                    value = audioValue,
+                    requester = audioRequester,
+                    onClick = onAudio,
+                    onLeft = { audioRequester.requestFocus() },
+                    onRight = { subtitleRequester.requestFocus() },
+                    onUp = { rewindRequester.requestFocus() },
+                    onDown = { audioRequester.requestFocus() },
+                )
+                Spacer(Modifier.width(12.dp))
+                UtilityButton(
+                    title = "Subtitles",
+                    value = subtitleValue,
+                    requester = subtitleRequester,
+                    onClick = onSubtitles,
+                    onLeft = { audioRequester.requestFocus() },
+                    onRight = { sourcesRequester.requestFocus() },
+                    onUp = { playRequester.requestFocus() },
+                    onDown = { subtitleRequester.requestFocus() },
+                )
+                Spacer(Modifier.width(12.dp))
+                UtilityButton(
+                    title = "Sources",
+                    value = sourceValue,
+                    requester = sourcesRequester,
+                    onClick = onSources,
+                    onLeft = { subtitleRequester.requestFocus() },
+                    onRight = {
+                        if (onNext != null) nextRequester.requestFocus() else sourcesRequester.requestFocus()
+                    },
+                    onUp = { forwardRequester.requestFocus() },
+                    onDown = { sourcesRequester.requestFocus() },
+                )
+                if (onNext != null && nextValue != null) {
+                    Spacer(Modifier.width(12.dp))
+                    UtilityButton(
+                        title = "Next Episode",
+                        value = nextValue,
+                        requester = nextRequester,
+                        onClick = onNext,
+                        onLeft = { sourcesRequester.requestFocus() },
+                        onRight = { nextRequester.requestFocus() },
+                        onUp = { forwardRequester.requestFocus() },
+                        onDown = { nextRequester.requestFocus() },
+                    )
                 }
             }
         }
@@ -748,21 +873,21 @@ private fun PlayerSeekBar(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(16.dp),
+                .height(22.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(6.dp)
-                    .background(Color.White.copy(alpha = 0.28f), RoundedCornerShape(999.dp)),
+                    .height(7.dp)
+                    .background(Color.White.copy(alpha = 0.26f), RoundedCornerShape(999.dp)),
         )
         Box(
             modifier =
                 Modifier
                     .fillMaxWidth(fraction)
-                    .height(7.dp)
+                    .height(8.dp)
                     .background(PlayerGreen, RoundedCornerShape(999.dp)),
         )
         if (durationMs > 0L) {
@@ -770,17 +895,151 @@ private fun PlayerSeekBar(
                 modifier =
                     Modifier
                         .fillMaxWidth(fraction)
-                        .height(16.dp),
+                        .height(22.dp),
                 contentAlignment = Alignment.CenterEnd,
             ) {
                 Box(
                     modifier =
                         Modifier
-                            .size(14.dp)
+                            .size(18.dp)
                             .background(Color.White, CircleShape),
                 )
             }
         }
+    }
+}
+
+private fun Modifier.playerRemoteKeys(
+    onClick: () -> Unit,
+    onLeft: (() -> Unit)? = null,
+    onRight: (() -> Unit)? = null,
+    onUp: (() -> Unit)? = null,
+    onDown: (() -> Unit)? = null,
+): Modifier =
+    onPreviewKeyEvent { event ->
+        if (event.type != KeyEventType.KeyDown) {
+            false
+        } else {
+            when (event.key) {
+                Key.DirectionLeft -> onLeft?.let { it(); true } ?: false
+                Key.DirectionRight -> onRight?.let { it(); true } ?: false
+                Key.DirectionUp -> onUp?.let { it(); true } ?: false
+                Key.DirectionDown -> onDown?.let { it(); true } ?: false
+                Key.DirectionCenter,
+                Key.Enter,
+                Key.NumPadEnter -> {
+                    onClick()
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+@Composable
+private fun TransportButton(
+    text: String,
+    requester: FocusRequester,
+    onClick: () -> Unit,
+    primary: Boolean = false,
+    onLeft: (() -> Unit)? = null,
+    onRight: (() -> Unit)? = null,
+    onUp: (() -> Unit)? = null,
+    onDown: (() -> Unit)? = null,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val width = if (primary) 78.dp else 92.dp
+    val height = if (primary) 72.dp else 60.dp
+
+    Box(
+        modifier =
+            Modifier
+                .width(width)
+                .height(height)
+                .focusRequester(requester)
+                .onFocusChanged { focused = it.isFocused }
+                .playerRemoteKeys(onClick, onLeft, onRight, onUp, onDown)
+                .scale(if (focused) 1.08f else 1f)
+                .background(
+                    color =
+                        when {
+                            focused -> PlayerFocus
+                            primary -> Color.White.copy(alpha = 0.18f)
+                            else -> Color.Black.copy(alpha = 0.34f)
+                        },
+                    shape = RoundedCornerShape(999.dp),
+                )
+                .border(
+                    width = 1.dp,
+                    color = if (focused) Color.Transparent else Color.White.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(999.dp),
+                )
+                .clickable(onClick = onClick)
+                .focusable(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = if (focused) Color.Black else Color.White,
+            fontSize = if (primary) 28.sp else 16.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun UtilityButton(
+    title: String,
+    value: String,
+    requester: FocusRequester,
+    onClick: () -> Unit,
+    onLeft: (() -> Unit)? = null,
+    onRight: (() -> Unit)? = null,
+    onUp: (() -> Unit)? = null,
+    onDown: (() -> Unit)? = null,
+) {
+    var focused by remember { mutableStateOf(false) }
+
+    Column(
+        modifier =
+            Modifier
+                .width(205.dp)
+                .height(64.dp)
+                .focusRequester(requester)
+                .onFocusChanged { focused = it.isFocused }
+                .playerRemoteKeys(onClick, onLeft, onRight, onUp, onDown)
+                .scale(if (focused) 1.045f else 1f)
+                .background(
+                    color = if (focused) PlayerFocus else Color.Black.copy(alpha = 0.42f),
+                    shape = RoundedCornerShape(14.dp),
+                )
+                .border(
+                    width = 1.dp,
+                    color = if (focused) Color.Transparent else Color.White.copy(alpha = 0.10f),
+                    shape = RoundedCornerShape(14.dp),
+                )
+                .clickable(onClick = onClick)
+                .focusable()
+                .padding(horizontal = 18.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = title,
+            color = if (focused) Color.Black else Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = value,
+            color = if (focused) Color.Black.copy(alpha = 0.66f) else PlayerMuted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -793,27 +1052,35 @@ private fun PlayerButton(
 ) {
     var focused by remember { mutableStateOf(false) }
 
-    Button(
-        onClick = onClick,
+    Box(
         modifier =
             Modifier
                 .focusRequester(requester)
                 .onFocusChanged { focused = it.isFocused }
+                .playerRemoteKeys(onClick = onClick)
+                .scale(if (focused) 1.05f else 1f)
+                .background(
+                    color =
+                        when {
+                            focused -> PlayerFocus
+                            primary -> Color.White.copy(alpha = 0.90f)
+                            else -> Color.White.copy(alpha = 0.11f)
+                        },
+                    shape = RoundedCornerShape(12.dp),
+                )
                 .border(
-                    width = if (focused) 2.dp else 1.dp,
-                    color = if (focused) PlayerYellow else Color.Transparent,
-                    shape = RoundedCornerShape(10.dp),
-                ),
-        colors =
-            ButtonDefaults.buttonColors(
-                containerColor = if (primary) Color.White else Color.White.copy(alpha = 0.13f),
-                contentColor = if (primary) Color.Black else Color.White,
-            ),
-        shape = RoundedCornerShape(10.dp),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 11.dp),
+                    width = 1.dp,
+                    color = if (focused) Color.Transparent else Color.White.copy(alpha = 0.10f),
+                    shape = RoundedCornerShape(12.dp),
+                )
+                .clickable(onClick = onClick)
+                .focusable()
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
+            color = if (focused || primary) Color.Black else Color.White,
             fontWeight = FontWeight.Bold,
             fontSize = 13.sp,
             maxLines = 1,
@@ -860,7 +1127,7 @@ private fun SourcePickerPanel(
                             .border(
                                 width = if (focused) 2.dp else 1.dp,
                                 color = when {
-                                    focused -> PlayerYellow
+                                    focused -> PlayerFocus
                                     active -> PlayerGreen.copy(alpha = 0.75f)
                                     else -> Color.Transparent
                                 },
@@ -965,7 +1232,7 @@ private fun TrackPickerPanel(
                                 .border(
                                     width = if (focused) 2.dp else 1.dp,
                                     color = when {
-                                        focused -> PlayerYellow
+                                        focused -> PlayerFocus
                                         option.selected -> PlayerGreen.copy(alpha = 0.75f)
                                         else -> Color.Transparent
                                     },
